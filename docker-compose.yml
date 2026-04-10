@@ -1,0 +1,194 @@
+name: "bounce_2_0"
+
+services:
+
+  # ─────────────────────────────────────────────
+  # DATABASE
+  # ─────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"      # exposed for local DB clients (e.g. DBeaver)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # CACHE & CELERY BROKER
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # KAFKA INFRASTRUCTURE
+  # Zookeeper coordinates the Kafka broker cluster.
+  # In production you would use KRaft mode (no Zookeeper),
+  # but Zookeeper is simpler for local dev.
+  # ─────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"      # accessible from host (e.g. for local producers/consumers)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # PLAINTEXT_HOST allows connections from outside Docker (your host machine).
+      # PLAINTEXT is used for internal Docker network communication.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1      # single broker, so replication = 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"         # topics are created on first publish
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s    # give Kafka time to fully initialize before first check
+
+  # ─────────────────────────────────────────────
+  # DJANGO APPLICATION
+  # ─────────────────────────────────────────────
+  web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app        # live code reload in development
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────
+  # CELERY WORKER
+  # Runs async tasks (e.g. send email, process events).
+  # Shares the same image as the web service.
+  # ─────────────────────────────────────────────
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A core worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────
+  # CELERY BEAT (optional — uncomment if needed)
+  # Scheduler for periodic tasks (like cron jobs).
+  # ─────────────────────────────────────────────
+  # celery_beat:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   command: celery -A core beat --loglevel=info
+  #   volumes:
+  #     - ./backend:/app
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     - redis
+
+  # ─────────────────────────────────────────────
+  # MONITORING & DEV TOOLS
+  # ─────────────────────────────────────────────
+
+  flower:
+    image: mher/flower:2.0
+    restart: unless-stopped
+    entrypoint: >
+      sh -c "until nc -z redis 6379;
+             do echo 'flower: waiting for redis...'; sleep 2;
+             done;
+             echo 'flower: redis is up, starting...';
+             celery flower --broker=redis://redis:6379/0"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      FLOWER_BROKER: redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_started
+
+  kafka_ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092   # internal Docker network address
+    depends_on:
+      - kafka
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"    # SMTP — Django punta qui per inviare email
+      - "8025:8025"    # Web UI — apri http://localhost:8025
+
+# ─────────────────────────────────────────────
+# NAMED VOLUMES
+# Data persists across container restarts.
+# ─────────────────────────────────────────────
+volumes:
+  postgres_data:
+  zookeeper_data:
+  zookeeper_logs:
+  kafka_data:
