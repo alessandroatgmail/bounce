@@ -21,3 +21,11 @@ kafka-python==2.0.2
 
 # CORS headers (needed for the React frontend)
 django-cors-headers==4.4.0
+
+# JWT authentication
+djangorestframework-simplejwt==5.3.1
+
+# Testing
+pytest-django==4.9.0
+pytest==8.3.5
+PyJWT==2.9.0

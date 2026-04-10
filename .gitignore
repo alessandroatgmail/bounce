@@ -1,21 +1,19 @@
+# Environment variables
+.env
+
+# Frontend
+frontend/node_modules/
+
 # Django
-DJANGO_SECRET_KEY=change-me-in-production
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/db.sqlite3
 
-# PostgreSQL
-POSTGRES_DB=appdb
-POSTGRES_USER=appuser
-POSTGRES_PASSWORD=apppassword
-DATABASE_URL=postgres://appuser:apppassword@db:5432/appdb
+# Python
+*.pyc
+*.pyo
+__pycache__/
 
-# Redis (Celery broker)
-CELERY_BROKER_URL=redis://redis:6379/0
-CELERY_RESULT_BACKEND=redis://redis:6379/0
-
-# Kafka
-KAFKA_BOOTSTRAP_SERVERS=kafka:29092
-
-# Email (Mailhog)
-EMAIL_HOST=mailhog
-EMAIL_PORT=1025
+# OS
+.DS_Store
