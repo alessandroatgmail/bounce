@@ -168,6 +168,11 @@ export interface Post {
   likes: string[]; // Array of user IDs who liked
   comments: Comment[];
   images?: string[];
+  mentions?: string[]; // Array of user IDs mentioned in the post
+  sharedContent?: {
+    type: 'event' | 'trip' | 'course';
+    data: DanceEvent | Trip | RegularClass;
+  };
 }
 
 export interface Comment {
@@ -863,6 +868,7 @@ export const mockPosts: Post[] = [
     content: 'Had an amazing time at the Friday Night Social Dance! The energy was incredible. Can\'t wait for the next one! 💃🕺',
     createdAt: '2026-04-12T08:30:00Z',
     likes: ['2', '4', '5'],
+    mentions: [],
     comments: [
       {
         id: 'c1',
@@ -881,11 +887,94 @@ export const mockPosts: Post[] = [
     ],
   },
   {
+    id: 'post1a',
+    userId: '2',
+    content: 'Chi viene a questo viaggio? Stiamo organizzando passaggi e alloggi! 🚗✈️',
+    createdAt: '2026-04-12T16:00:00Z',
+    likes: ['3', '4', '6'],
+    mentions: [],
+    comments: [
+      {
+        id: 'c1a',
+        userId: '4',
+        postId: 'post1a',
+        content: 'Io ci sono! Ho già prenotato l\'alloggio!',
+        createdAt: '2026-04-12T16:30:00Z',
+      },
+    ],
+    sharedContent: {
+      type: 'trip',
+      data: {
+        id: 'trip1',
+        eventId: 'fest1',
+        eventName: 'Rome Swing Festival 2026',
+        eventLocation: 'Grand Hotel Roma - Via del Corso 126, Roma',
+        eventDate: '2026-06-12',
+        createdBy: '2',
+        carSharing: [
+          {
+            id: 'car1',
+            tripId: 'trip1',
+            driverId: '2',
+            departureLocation: 'Milano Centro',
+            departureTime: '2026-06-12T08:00:00Z',
+            availableSeats: 3,
+            passengers: ['3', '4'],
+            notes: 'Leaving from Piazza Duomo. Happy to split gas costs!',
+          },
+        ],
+        hotelSharing: [
+          {
+            id: 'hotel1',
+            tripId: 'trip1',
+            organizerId: '2',
+            hotelName: 'Hotel Colosseo',
+            checkIn: '2026-06-12',
+            checkOut: '2026-06-15',
+            roomType: 'Quadrupla (4 beds)',
+            totalCost: 480,
+            maxPeople: 4,
+            currentPeople: ['2', '3', '4'],
+            notes: 'Room near the festival venue. €120 per person for 3 nights!',
+          },
+        ],
+        participants: ['2', '3', '4', '5', '6'],
+      },
+    },
+  },
+  {
+    id: 'post1b',
+    userId: '6',
+    content: 'Guarda questo evento fantastico! Non vedo l\'ora! 🎉',
+    createdAt: '2026-04-13T10:00:00Z',
+    likes: ['2', '3'],
+    mentions: [],
+    comments: [],
+    sharedContent: {
+      type: 'event',
+      data: {
+        id: '4',
+        title: 'Charleston Workshop',
+        type: 'workshop',
+        instructor: 'Emily Chen',
+        date: '2026-04-12',
+        time: '14:00',
+        duration: 120,
+        level: 'All Levels',
+        price: 35,
+        maxCapacity: 24,
+        currentEnrollment: 18,
+        description: 'Explore the energetic and playful Charleston dance with variations and styling.',
+      },
+    },
+  },
+  {
     id: 'post2',
     userId: '4',
-    content: 'Looking for a dance partner for the upcoming Charleston Workshop on Sunday. Anyone interested? I\'m intermediate level. 🎵',
+    content: 'Looking for a dance partner for the upcoming Charleston Workshop on Sunday. Anyone interested? @Jessica White maybe you? I\'m intermediate level. 🎵',
     createdAt: '2026-04-11T14:20:00Z',
     likes: ['2', '3'],
+    mentions: ['6'],
     comments: [
       {
         id: 'c3',
@@ -909,6 +998,7 @@ export const mockPosts: Post[] = [
     content: 'Just finished the Lindy Hop Intermediate class with Sarah. Her teaching style is amazing! Learning so much every week. Thanks Sarah! 🙏',
     createdAt: '2026-04-11T21:00:00Z',
     likes: ['2', '3', '4', '5'],
+    mentions: [],
     comments: [
       {
         id: 'c5',
@@ -925,6 +1015,7 @@ export const mockPosts: Post[] = [
     content: 'Does anyone have recommendations for good swing music playlists? Trying to practice at home! 🎶',
     createdAt: '2026-04-10T16:45:00Z',
     likes: ['3', '4'],
+    mentions: [],
     comments: [
       {
         id: 'c6',
@@ -945,9 +1036,10 @@ export const mockPosts: Post[] = [
   {
     id: 'post5',
     userId: '2',
-    content: 'Excited to announce I just signed up for the Rome Swing Festival in June! Who else is going? Let\'s organize a group! 🎉',
+    content: 'Excited to announce I just signed up for the Rome Swing Festival in June! @John Davis @Emily Brown @Michael Lee who else is going? Let\'s organize a group! 🎉',
     createdAt: '2026-04-09T12:00:00Z',
     likes: ['3', '4', '5', '6'],
+    mentions: ['3', '4', '5'],
     comments: [
       {
         id: 'c8',
@@ -1052,6 +1144,16 @@ export const mockConnections: Connection[] = [
 ];
 
 export const mockNotifications: Notification[] = [
+  {
+    id: 'notif0',
+    userId: '2',
+    type: 'comment',
+    title: 'Mentioned in a Post',
+    message: 'John Davis mentioned you in a post',
+    read: false,
+    createdAt: '2026-04-13T11:00:00Z',
+    relatedId: 'post5',
+  },
   {
     id: 'notif1',
     userId: '2',

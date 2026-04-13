@@ -2,12 +2,13 @@ import { Navigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useState } from 'react';
-import { 
-  mockEvents, 
-  mockBookings, 
-  mockPayments, 
-  mockPosts, 
-  mockDirectMessages, 
+import { toast } from 'sonner';
+import {
+  mockEvents,
+  mockBookings,
+  mockPayments,
+  mockPosts,
+  mockDirectMessages,
   mockConnections,
   mockNotifications,
   mockStudents,
@@ -15,8 +16,9 @@ import {
   mockDocuments,
   mockMemberships,
   mockUserMemberships,
-  Post, 
-  DirectMessage, 
+  mockRegularClasses,
+  Post,
+  DirectMessage,
   Comment,
   Connection,
   Notification,
@@ -29,18 +31,19 @@ import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
-import { 
-  Home, 
-  Calendar, 
-  CreditCard, 
-  Users, 
-  Bell, 
+import {
+  Home,
+  Calendar,
+  CreditCard,
+  Users,
+  Bell,
   MessageSquare,
   Clock,
   LogOut,
   Plane,
   FileText,
-  Crown
+  Crown,
+  Share2
 } from 'lucide-react';
 import { SocialFeed } from '../components/SocialFeed';
 import { DirectMessages } from '../components/DirectMessages';
@@ -57,6 +60,7 @@ import {
 } from '../components/ui/table';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { Toaster } from '../components/ui/sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { it, enUS } from 'date-fns/locale';
 
@@ -106,7 +110,7 @@ export function StudentDashboard() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   };
 
-  const handleAddPost = (content: string) => {
+  const handleAddPost = (content: string, mentions?: string[]) => {
     const newPost: Post = {
       id: `post${posts.length + 1}`,
       userId: user.id,
@@ -114,8 +118,29 @@ export function StudentDashboard() {
       createdAt: new Date().toISOString(),
       likes: [],
       comments: [],
+      mentions: mentions || [],
     };
     setPosts([newPost, ...posts]);
+
+    // Create notifications for mentioned users
+    if (mentions && mentions.length > 0) {
+      const newNotifications = mentions.map((mentionedUserId) => {
+        const mentionedUser = mockStudents.find(s => s.id === mentionedUserId);
+        return {
+          id: `notif${notifications.length + 1}-${mentionedUserId}`,
+          userId: mentionedUserId,
+          type: 'comment' as const,
+          title: language === 'it' ? 'Menzionato in un Post' : 'Mentioned in a Post',
+          message: language === 'it'
+            ? `${user.name} ti ha menzionato in un post`
+            : `${user.name} mentioned you in a post`,
+          read: false,
+          createdAt: new Date().toISOString(),
+          relatedId: newPost.id,
+        };
+      });
+      setNotifications([...notifications, ...newNotifications]);
+    }
   };
 
   const handleLikePost = (postId: string) => {
@@ -144,6 +169,81 @@ export function StudentDashboard() {
       }
       return post;
     }));
+  };
+
+  const handleShareEvent = (event: typeof mockEvents[0]) => {
+    const newPost: Post = {
+      id: `post${posts.length + 1}`,
+      userId: user.id,
+      content: language === 'it'
+        ? `Guarda questo evento fantastico! ${event.title} 🎉`
+        : `Check out this amazing event! ${event.title} 🎉`,
+      createdAt: new Date().toISOString(),
+      likes: [],
+      comments: [],
+      mentions: [],
+      sharedContent: {
+        type: 'event',
+        data: event,
+      },
+    };
+    setPosts([newPost, ...posts]);
+    toast.success(
+      language === 'it'
+        ? 'Evento condiviso nel feed!'
+        : 'Event shared to feed!'
+    );
+  };
+
+  const handleShareTrip = (trip: typeof mockTrips[0]) => {
+    const newPost: Post = {
+      id: `post${posts.length + 1}`,
+      userId: user.id,
+      content: language === 'it'
+        ? `Chi viene a ${trip.eventName}? 🚗✈️`
+        : `Who's joining me at ${trip.eventName}? 🚗✈️`,
+      createdAt: new Date().toISOString(),
+      likes: [],
+      comments: [],
+      mentions: [],
+      sharedContent: {
+        type: 'trip',
+        data: trip,
+      },
+    };
+    setPosts([newPost, ...posts]);
+    toast.success(
+      language === 'it'
+        ? 'Viaggio condiviso nel feed!'
+        : 'Trip shared to feed!'
+    );
+  };
+
+  const handleShareCourse = (courseId: string) => {
+    const course = mockRegularClasses.find(c => c.id === courseId);
+    if (!course) return;
+
+    const newPost: Post = {
+      id: `post${posts.length + 1}`,
+      userId: user.id,
+      content: language === 'it'
+        ? `Mi sono iscritto a questo corso! Chi altro partecipa? 💃🕺`
+        : `Just enrolled in this class! Who else is joining? 💃🕺`,
+      createdAt: new Date().toISOString(),
+      likes: [],
+      comments: [],
+      mentions: [],
+      sharedContent: {
+        type: 'course',
+        data: course,
+      },
+    };
+    setPosts([newPost, ...posts]);
+    toast.success(
+      language === 'it'
+        ? 'Corso condiviso nel feed!'
+        : 'Course shared to feed!'
+    );
   };
 
   const handleSendMessage = (receiverId: string, content: string) => {
@@ -299,7 +399,9 @@ export function StudentDashboard() {
   ];
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <>
+      <Toaster />
+      <div className="flex h-screen bg-gray-50">
       {/* Left Sidebar */}
       <aside className="w-64 bg-[#2b2b2b] text-white flex flex-col">
         {/* User Profile */}
@@ -489,11 +591,11 @@ export function StudentDashboard() {
                           key={event.id}
                           className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
                         >
-                          <div className="flex items-start gap-4">
+                          <div className="flex items-start gap-4 flex-1">
                             <div className="p-3 bg-[#e67e22]/10 rounded-lg">
                               <Calendar className="size-6 text-[#e67e22]" />
                             </div>
-                            <div>
+                            <div className="flex-1">
                               <h3 className="font-semibold text-lg text-[#2b2b2b]">{event.title}</h3>
                               <p className="text-sm text-gray-600 mb-2">
                                 {language === 'it' ? 'con' : 'with'} {event.instructor}
@@ -514,7 +616,21 @@ export function StudentDashboard() {
                               </div>
                             </div>
                           </div>
-                          <Badge>{event.level}</Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge>{event.level}</Badge>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                handleShareEvent(event);
+                                setCurrentView('feed');
+                              }}
+                              className="text-[#e67e22] hover:bg-[#e67e22]/10"
+                            >
+                              <Share2 className="size-4 mr-1" />
+                              {language === 'it' ? 'Condividi' : 'Share'}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -624,6 +740,10 @@ export function StudentDashboard() {
                 onLeaveHotel={handleLeaveHotel}
                 onAddCarShare={handleAddCarShare}
                 onAddHotelShare={handleAddHotelShare}
+                onShareTrip={(trip) => {
+                  handleShareTrip(trip);
+                  setCurrentView('feed');
+                }}
               />
             </div>
           )}
@@ -757,5 +877,6 @@ export function StudentDashboard() {
         </main>
       </div>
     </div>
+    </>
   );
 }

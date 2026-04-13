@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './ui/dialog';
-import { Car, Hotel, MapPin, Clock, Users, Plus, Calendar } from 'lucide-react';
+import { Car, Hotel, MapPin, Clock, Users, Plus, Calendar, Share2 } from 'lucide-react';
 import { Trip, CarShare, HotelShare, mockStudents } from '../data/mockData';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -23,6 +23,7 @@ interface TripsProps {
   onLeaveHotel: (hotelId: string) => void;
   onAddCarShare: (tripId: string, carShare: Omit<CarShare, 'id' | 'tripId'>) => void;
   onAddHotelShare: (tripId: string, hotelShare: Omit<HotelShare, 'id' | 'tripId'>) => void;
+  onShareTrip?: (trip: Trip) => void;
 }
 
 export function Trips({
@@ -33,6 +34,7 @@ export function Trips({
   onLeaveHotel,
   onAddCarShare,
   onAddHotelShare,
+  onShareTrip,
 }: TripsProps) {
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -139,7 +141,7 @@ export function Trips({
           <Card key={trip.id} className="border-[#d4b896]/30">
             <CardHeader className="bg-gradient-to-r from-[#2b2b2b] to-[#3b3b3b] text-white">
               <div className="flex items-start justify-between">
-                <div>
+                <div className="flex-1">
                   <CardTitle className="text-xl mb-2">{trip.eventName}</CardTitle>
                   <div className="flex flex-col gap-2 text-sm opacity-90">
                     <div className="flex items-center gap-2">
@@ -154,10 +156,23 @@ export function Trips({
                     </div>
                   </div>
                 </div>
-                <Badge className="bg-[#e67e22]">
-                  <Users className="size-3 mr-1" />
-                  {trip.participants.length} {language === 'it' ? 'partecipanti' : 'participants'}
-                </Badge>
+                <div className="flex items-start gap-2">
+                  <Badge className="bg-[#e67e22]">
+                    <Users className="size-3 mr-1" />
+                    {trip.participants.length} {language === 'it' ? 'partecipanti' : 'participants'}
+                  </Badge>
+                  {onShareTrip && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onShareTrip(trip)}
+                      className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                    >
+                      <Share2 className="size-4 mr-1" />
+                      {language === 'it' ? 'Condividi' : 'Share'}
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
 
