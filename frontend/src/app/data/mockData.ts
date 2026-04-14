@@ -525,6 +525,14 @@ export const mockBookings: Booking[] = [
     status: 'confirmed',
     amount: 35,
   },
+  {
+    id: 'b4',
+    userId: '1',
+    eventId: '2',
+    bookingDate: '2026-04-01',
+    status: 'confirmed',
+    amount: 30,
+  },
 ];
 
 export const mockPayments: Payment[] = [
@@ -558,15 +566,47 @@ export const mockPayments: Payment[] = [
     status: 'completed',
     description: 'Payment for Charleston Workshop.',
   },
+  {
+    id: 'p4',
+    userId: '1',
+    bookingId: 'b4',
+    amount: 30,
+    date: '2026-04-01',
+    method: 'bank_transfer',
+    status: 'completed',
+    description: 'Payment for Lindy Hop Intermediate class.',
+  },
 ];
 
 export const mockStudents = [
-  { 
-    id: '2', 
-    name: 'Sarah Johnson', 
-    email: 'student@example.com', 
-    phone: '+1 234 567 8901', 
-    joinedDate: '2025-02-15', 
+  {
+    id: '1',
+    name: 'Admin User',
+    email: 'admin@danceschool.com',
+    phone: '+1 234 567 8900',
+    joinedDate: '2024-01-01',
+    activeClasses: 0,
+    surname: 'User',
+    address: {
+      street: 'Via Admin 1',
+      postcode: '00100',
+      city: 'Roma',
+      country: 'Italia'
+    },
+    placeOfBirth: 'Roma',
+    dateOfBirth: '1985-01-01',
+    fiscalCode: 'ADMNUS85A01H501X',
+    isAcsiMember: true,
+    termsAccepted: true,
+    marketingConsent: true,
+    registrationDate: '2024-01-01'
+  },
+  {
+    id: '2',
+    name: 'Sarah Johnson',
+    email: 'student@example.com',
+    phone: '+1 234 567 8901',
+    joinedDate: '2025-02-15',
     activeClasses: 3,
     surname: 'Johnson',
     address: {
@@ -1112,6 +1152,12 @@ export const mockDirectMessages: DirectMessage[] = [
 
 export const mockConnections: Connection[] = [
   {
+    userId: '1',
+    connectedUserId: '2',
+    status: 'accepted',
+    createdAt: '2026-03-10T10:00:00Z',
+  },
+  {
     userId: '2',
     connectedUserId: '3',
     status: 'accepted',
@@ -1428,6 +1474,17 @@ export const mockMemberships: Membership[] = [
 
 export const mockUserMemberships: UserMembership[] = [
   {
+    id: 'umem0',
+    userId: '1',
+    membershipId: 'mem6',
+    purchaseDate: '2026-04-01',
+    validFrom: '2026-04-01',
+    validTo: '2026-04-30',
+    status: 'active',
+    associatedCourses: ['rc1', 'rc2', 'rc3'],
+    paymentId: 'p4',
+  },
+  {
     id: 'umem1',
     userId: '2',
     membershipId: 'mem3',
@@ -1436,7 +1493,7 @@ export const mockUserMemberships: UserMembership[] = [
     validTo: '2026-04-30',
     status: 'active',
     associatedCourses: ['rc1', 'rc2'],
-    paymentId: 'p4',
+    paymentId: 'p5',
   },
   {
     id: 'umem2',
@@ -1447,7 +1504,7 @@ export const mockUserMemberships: UserMembership[] = [
     validTo: '2026-04-30',
     status: 'active',
     associatedCourses: ['rc1'],
-    paymentId: 'p5',
+    paymentId: 'p6',
   },
   {
     id: 'umem3',
@@ -1458,7 +1515,7 @@ export const mockUserMemberships: UserMembership[] = [
     validTo: '2026-04-30',
     status: 'active',
     associatedCourses: ['rc1', 'rc2', 'rc3'],
-    paymentId: 'p6',
+    paymentId: 'p7',
   },
   {
     id: 'umem4',
@@ -1469,6 +1526,6 @@ export const mockUserMemberships: UserMembership[] = [
     validTo: '2027-03-15',
     status: 'active',
     associatedCourses: [],
-    paymentId: 'p7',
+    paymentId: 'p8',
   },
 ];

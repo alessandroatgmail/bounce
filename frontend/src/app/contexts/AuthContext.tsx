@@ -13,55 +13,73 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  accessToken: string | null;
+  login: (email: string, password: string) => Promise<User | null>;
   logout: () => void;
   isAuthenticated: boolean;
+  adminViewMode: 'admin' | 'student';
+  setAdminViewMode: (mode: 'admin' | 'student') => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock users for demo
-const mockUsers: User[] = [
-  {
-    id: '1',
-    email: 'admin@danceschool.com',
-    name: 'Admin User',
-    role: 'admin',
-    phone: '+1 234 567 8900',
-    joinedDate: '2024-01-01',
-  },
-  {
-    id: '2',
-    email: 'student@example.com',
-    name: 'Sarah Johnson',
-    role: 'student',
-    phone: '+1 234 567 8901',
-    joinedDate: '2025-02-15',
-  },
-];
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const payload = token.split('.')[1];
+  return JSON.parse(atob(payload));
+}
+
+function mapRole(backendRole: string): UserRole {
+  if (backendRole === 'admin') return 'admin';
+  return 'student';
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [adminViewMode, setAdminViewMode] = useState<'admin' | 'student'>('admin');
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    // Mock login - in real app, this would call an API
-    const foundUser = mockUsers.find((u) => u.email === email);
-    
-    if (foundUser && password.length > 0) {
-      setUser(foundUser);
-      return true;
-    }
-    return false;
+  const login = async (email: string, password: string): Promise<User | null> => {
+    const response = await fetch('/api/auth/token/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const { access, refresh } = data as { access: string; refresh: string };
+
+    const payload = decodeJwtPayload(access);
+    const role = mapRole(payload['role'] as string);
+
+    const loggedInUser: User = {
+      id: String(payload['user_id']),
+      email: payload['email'] as string,
+      name: '',
+      role,
+    };
+
+    localStorage.setItem('refresh_token', refresh);
+    setAccessToken(access);
+    setUser(loggedInUser);
+
+    if (role === 'admin') setAdminViewMode('admin');
+
+    return loggedInUser;
   };
 
   const logout = () => {
+    localStorage.removeItem('refresh_token');
+    setAccessToken(null);
     setUser(null);
+    setAdminViewMode('admin');
   };
 
   const isAuthenticated = user !== null;
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated }}>
+    <AuthContext.Provider value={{ user, accessToken, login, logout, isAuthenticated, adminViewMode, setAdminViewMode }}>
       {children}
     </AuthContext.Provider>
   );

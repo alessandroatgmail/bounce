@@ -24,14 +24,9 @@ export function Login() {
     setLoading(true);
 
     try {
-      const success = await login(email, password);
-      if (success) {
-        // Navigate based on role after login
-        if (email === 'admin@danceschool.com') {
-          navigate('/admin');
-        } else {
-          navigate('/student');
-        }
+      const loggedInUser = await login(email, password);
+      if (loggedInUser) {
+        navigate(loggedInUser.role === 'admin' ? '/admin' : '/student');
       } else {
         setError('Invalid email or password');
       }

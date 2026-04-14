@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router';
+import { Navigate, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -18,7 +18,7 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Music, Eye, Crown } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Music, Eye, Crown, ArrowLeftRight } from 'lucide-react';
 import { mockEvents, mockStudents, mockRegularClasses, mockFestivals, mockFestivalEvents, mockMemberships, mockUserMemberships, RegularClass, Festival, FestivalEvent, Membership, UserMembership } from '../data/mockData';
 import { useState } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
@@ -27,8 +27,9 @@ import { FestivalScheduleBuilder } from '../components/FestivalScheduleBuilder';
 import { FestivalEventForm } from '../components/FestivalEventForm';
 
 export function AdminDashboard() {
-  const { user } = useAuth();
+  const { user, setAdminViewMode } = useAuth();
   const { t, language } = useLanguage();
+  const navigate = useNavigate();
   const [events, setEvents] = useState(mockEvents);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
@@ -59,10 +60,25 @@ export function AdminDashboard() {
       {/* Hero Header */}
       <div className="bg-[#2b2b2b] text-white py-12 px-4">
         <div className="container mx-auto">
-          <h1 className="text-4xl font-bold mb-2 uppercase tracking-wide">{t('admin.title')}</h1>
-          <p className="text-lg opacity-90">
-            {language === 'it' ? 'Gestisci la tua scuola di danza' : 'Manage your dance school'}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold mb-2 uppercase tracking-wide">{t('admin.title')}</h1>
+              <p className="text-lg opacity-90">
+                {language === 'it' ? 'Gestisci la tua scuola di danza' : 'Manage your dance school'}
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                setAdminViewMode('student');
+                navigate('/student');
+              }}
+              variant="outline"
+              className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+            >
+              <ArrowLeftRight className="size-4 mr-2" />
+              {language === 'it' ? 'Vista Studente' : 'Student View'}
+            </Button>
+          </div>
         </div>
       </div>
 

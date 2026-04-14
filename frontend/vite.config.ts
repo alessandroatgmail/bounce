@@ -17,6 +17,14 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
@@ -29,6 +37,11 @@ export default defineConfig({
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
     },
+  },
+  test: {
+    environment: 'jsdom',  // use browser-like environment
+    globals: true,         // allow describe/test/expect without imports
+    setupFiles: './src/setupTests.ts'  // optional but useful
   },
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.

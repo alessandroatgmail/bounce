@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router';
+import { Navigate, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useState } from 'react';
@@ -43,7 +43,8 @@ import {
   Plane,
   FileText,
   Crown,
-  Share2
+  Share2,
+  ShieldCheck
 } from 'lucide-react';
 import { SocialFeed } from '../components/SocialFeed';
 import { DirectMessages } from '../components/DirectMessages';
@@ -67,8 +68,9 @@ import { it, enUS } from 'date-fns/locale';
 type View = 'feed' | 'classes' | 'payments' | 'friends' | 'messages' | 'trips' | 'documents' | 'memberships';
 
 export function StudentDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, setAdminViewMode } = useAuth();
   const { language } = useLanguage();
+  const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<View>('feed');
   const [posts, setPosts] = useState(mockPosts);
   const [messages, setMessages] = useState(mockDirectMessages);
@@ -78,7 +80,12 @@ export function StudentDashboard() {
   const [documents, setDocuments] = useState(mockDocuments);
   const [memberships, setMemberships] = useState(mockUserMemberships);
 
-  if (!user || user.role !== 'student') {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Allow both students and admins to access student dashboard
+  if (user.role !== 'student' && user.role !== 'admin') {
     return <Navigate to="/login" replace />;
   }
 
@@ -446,8 +453,21 @@ export function StudentDashboard() {
           </div>
         </nav>
 
-        {/* Logout Button */}
-        <div className="p-4 border-t border-gray-700">
+        {/* Admin View Toggle & Logout */}
+        <div className="p-4 border-t border-gray-700 space-y-2">
+          {user.role === 'admin' && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setAdminViewMode('admin');
+                navigate('/admin');
+              }}
+              className="w-full justify-start text-gray-300 hover:bg-gray-800 hover:text-white"
+            >
+              <ShieldCheck className="size-5 mr-3" />
+              {language === 'it' ? 'Vista Admin' : 'Admin View'}
+            </Button>
+          )}
           <Button
             variant="ghost"
             onClick={logout}
@@ -465,9 +485,17 @@ export function StudentDashboard() {
         <header className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-[#2b2b2b]">
-                {menuItems.find(item => item.id === currentView)?.label}
-              </h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-[#2b2b2b]">
+                  {menuItems.find(item => item.id === currentView)?.label}
+                </h1>
+                {user.role === 'admin' && (
+                  <Badge variant="outline" className="bg-[#e67e22]/10 text-[#e67e22] border-[#e67e22]">
+                    <ShieldCheck className="size-3 mr-1" />
+                    {language === 'it' ? 'Vista Admin' : 'Admin View'}
+                  </Badge>
+                )}
+              </div>
               <p className="text-sm text-gray-600">
                 {language === 'it' ? 'Benvenuto nella tua area personale' : 'Welcome to your personal area'}
               </p>
