@@ -8,6 +8,45 @@ class Role(models.TextChoices):
     ADMIN = "admin", "Admin"
 
 
+class Country(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    iso = models.CharField(max_length=3, unique=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "countries"
+
+    def __str__(self):
+        return self.name
+
+
+class Region(models.Model):
+    name = models.CharField(max_length=255)
+    country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name="regions")
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "regions"
+        unique_together = ("name", "country")
+
+    def __str__(self):
+        return self.name
+
+
+class City(models.Model):
+    name = models.CharField(max_length=255)
+    country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name="cities")
+    region = models.ForeignKey(Region, on_delete=models.SET_NULL, null=True, blank=True, related_name="cities")
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "cities"
+        unique_together = ("name", "country")
+
+    def __str__(self):
+        return self.name
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -33,7 +72,22 @@ class User(AbstractBaseUser, PermissionsMixin):
     phone = models.CharField(max_length=20, blank=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
 
-    is_active = models.BooleanField(default=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    place_of_birth = models.ForeignKey(City, on_delete=models.PROTECT, null=True, blank=True, related_name="users_birth")
+    ci = models.CharField(max_length=50, blank=True, verbose_name="Codice Fiscale/N.I.")
+    address = models.TextField(blank=True)
+    city = models.ForeignKey(City, on_delete=models.PROTECT, null=True, blank=True, related_name="users")
+    postal_code = models.CharField(max_length=10, blank=True)
+    country = models.ForeignKey(Country, on_delete=models.PROTECT, null=True, blank=True)
+
+    acsi = models.BooleanField(default=False)
+    acsi_number = models.IntegerField(null=True, blank=True)
+    acsi_expiration_date = models.DateField(null=True, blank=True)
+
+    privacy_consent = models.BooleanField(default=False)
+    marketing_consent = models.BooleanField(default=False)
+
+    is_active = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
 
     date_joined = models.DateTimeField(auto_now_add=True)

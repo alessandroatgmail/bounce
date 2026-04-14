@@ -1,7 +1,6 @@
 import pytest
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APIClient
 
 from users.models import User, Role
 
@@ -11,16 +10,12 @@ VERIFY_URL = reverse("token_verify")
 
 
 @pytest.fixture
-def client():
-    return APIClient()
-
-
-@pytest.fixture
 def student(db):
     return User.objects.create_user(
         email="student1@bounce.com",
         password="StrongPass123!",
         role=Role.STUDENT,
+        is_active=True,
     )
 
 
@@ -30,6 +25,7 @@ def teacher(db):
         email="teacher1@bounce.com",
         password="StrongPass123!",
         role=Role.TEACHER,
+        is_active=True,
     )
 
 
