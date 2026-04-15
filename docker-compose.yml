@@ -74,7 +74,7 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -88,7 +88,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: python manage.py runserver 0.0.0.0:8000
+    command: daphne -b 0.0.0.0 -p 8000 core.asgi:application
     volumes:
       - ./backend:/app        # live code reload in development
     ports:
