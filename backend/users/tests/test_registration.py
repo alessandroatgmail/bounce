@@ -1,5 +1,6 @@
 import pytest
 from rest_framework import status
+from unittest.mock import patch, call
 
 from users.models import User
 from utils.mock_user import make_user_payload
@@ -182,3 +183,31 @@ class TestRegistration:
         client.post(REGISTER_URL, payload, format="json")
 
         assert len(mail.outbox) == 0
+
+    # ── Kafka notification task ───────────────────────────────────────────────
+
+    def test_register_dispatches_kafka_task_with_user_data(self, client, world_data):
+        """
+        Registration must fire the send_to_kafka Celery task so the Kafka
+        consumer can create admin notifications. Verifies the signal→task wiring.
+        """
+        payload = make_user_payload()
+
+        with patch("users.tasks.send_to_kafka.delay") as mock_delay:
+            response = client.post(REGISTER_URL, payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_delay.assert_called_once()
+
+        task_kwargs = mock_delay.call_args.kwargs["data"]
+        assert task_kwargs["type"] == "user_registered"
+        assert task_kwargs["email"] == payload["email"]
+
+    def test_failed_registration_does_not_dispatch_kafka_task(self, client, world_data):
+        payload = make_user_payload()
+        del payload["first_name"]
+
+        with patch("users.tasks.send_to_kafka.delay") as mock_delay:
+            client.post(REGISTER_URL, payload, format="json")
+
+        mock_delay.assert_not_called()
