@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
+import { CitySearch, type CityResult } from '../components/CitySearch';
+import { apiUrl } from '../../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -10,31 +12,52 @@ import { Alert, AlertDescription } from '../components/ui/alert';
 import { Separator } from '../components/ui/separator';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
+// Maps backend field names to frontend field names for error display
+const backendToFrontend: Record<string, string> = {
+  first_name: 'name',
+  last_name: 'surname',
+  address: 'street',
+  postal_code: 'postcode',
+  place_of_birth: 'placeOfBirth',
+  date_of_birth: 'dateOfBirth',
+  ci: 'fiscalCode',
+  acsi_number: 'acsiNumber',
+  acsi_expiration_date: 'acsiExpirationDate',
+  privacy_consent: 'termsAccepted',
+  marketing_consent: 'marketingConsent',
+};
+
 export function Register() {
   const { language } = useLanguage();
   const navigate = useNavigate();
-  
+
   const [formData, setFormData] = useState({
     name: '',
     surname: '',
     email: '',
+    phone: '',
     password: '',
     confirmPassword: '',
     street: '',
     postcode: '',
     city: '',
+    cityName: '',
     country: '',
+    countryName: '',
     placeOfBirth: '',
+    placeOfBirthName: '',
     dateOfBirth: '',
     fiscalCode: '',
     acsiNumber: '',
-    isAcsiMember: true,
+    acsiExpirationDate: '',
+    isAcsiMember: false,
     termsAccepted: false,
     marketingConsent: false,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -52,14 +75,14 @@ export function Register() {
     setFormData(prev => ({
       ...prev,
       isAcsiMember: checked,
-      acsiNumber: checked ? prev.acsiNumber : ''
+      acsiNumber: checked ? prev.acsiNumber : '',
+      acsiExpirationDate: checked ? prev.acsiExpirationDate : '',
     }));
   };
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    // Required fields
     if (!formData.name.trim()) {
       newErrors.name = language === 'it' ? 'Nome richiesto' : 'Name required';
     }
@@ -71,10 +94,13 @@ export function Register() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = language === 'it' ? 'Email non valida' : 'Invalid email';
     }
+    if (!formData.phone.trim()) {
+      newErrors.phone = language === 'it' ? 'Telefono richiesto' : 'Phone required';
+    }
     if (!formData.password) {
       newErrors.password = language === 'it' ? 'Password richiesta' : 'Password required';
-    } else if (formData.password.length < 6) {
-      newErrors.password = language === 'it' ? 'Password deve essere almeno 6 caratteri' : 'Password must be at least 6 characters';
+    } else if (formData.password.length < 8) {
+      newErrors.password = language === 'it' ? 'La password deve essere di almeno 8 caratteri' : 'Password must be at least 8 characters';
     }
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = language === 'it' ? 'Le password non corrispondono' : 'Passwords do not match';
@@ -88,9 +114,6 @@ export function Register() {
     if (!formData.city.trim()) {
       newErrors.city = language === 'it' ? 'Città richiesta' : 'City required';
     }
-    if (!formData.country.trim()) {
-      newErrors.country = language === 'it' ? 'Paese richiesto' : 'Country required';
-    }
     if (!formData.placeOfBirth.trim()) {
       newErrors.placeOfBirth = language === 'it' ? 'Luogo di nascita richiesto' : 'Place of birth required';
     }
@@ -100,8 +123,13 @@ export function Register() {
     if (!formData.fiscalCode.trim()) {
       newErrors.fiscalCode = language === 'it' ? 'Codice fiscale/N.I. richiesto' : 'Fiscal code/N.I. required';
     }
-    if (formData.isAcsiMember && !formData.acsiNumber.trim()) {
-      newErrors.acsiNumber = language === 'it' ? 'Numero ACSI richiesto' : 'ACSI number required';
+    if (formData.isAcsiMember) {
+      if (!formData.acsiNumber.trim()) {
+        newErrors.acsiNumber = language === 'it' ? 'Numero ACSI richiesto' : 'ACSI number required';
+      }
+      if (!formData.acsiExpirationDate) {
+        newErrors.acsiExpirationDate = language === 'it' ? 'Data scadenza ACSI richiesta' : 'ACSI expiration date required';
+      }
     }
     if (!formData.termsAccepted) {
       newErrors.termsAccepted = language === 'it' ? 'Devi accettare i termini e condizioni' : 'You must accept the terms and conditions';
@@ -111,18 +139,63 @@ export function Register() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (validateForm()) {
-      // Simulate registration
-      console.log('Registration data:', formData);
-      setSuccess(true);
-      
-      // Redirect to login after 2 seconds
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
+
+    if (!validateForm()) return;
+
+    setLoading(true);
+    setErrors({});
+
+    const payload = {
+      email: formData.email,
+      password: formData.password,
+      password2: formData.confirmPassword,
+      first_name: formData.name,
+      last_name: formData.surname,
+      phone: formData.phone,
+      date_of_birth: formData.dateOfBirth,
+      place_of_birth: Number(formData.placeOfBirth),
+      ci: formData.fiscalCode,
+      address: formData.street,
+      city: Number(formData.city),
+      postal_code: formData.postcode,
+      country: Number(formData.country),
+      acsi: formData.isAcsiMember,
+      acsi_number: formData.acsiNumber ? Number(formData.acsiNumber) : undefined,
+      acsi_expiration_date: formData.acsiExpirationDate || undefined,
+      privacy_consent: formData.termsAccepted,
+      marketing_consent: formData.marketingConsent,
+    };
+
+    try {
+      const response = await fetch(apiUrl('/api/auth/register/'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        setSuccess(true);
+        setTimeout(() => navigate('/login'), 3000);
+        return;
+      }
+
+      const data = await response.json();
+      const newErrors: Record<string, string> = {};
+
+      // Map backend field names back to frontend field names
+      for (const [backendKey, messages] of Object.entries(data as Record<string, unknown>)) {
+        const frontendKey = backendToFrontend[backendKey] ?? backendKey;
+        const message = Array.isArray(messages) ? messages[0] : String(messages);
+        newErrors[frontendKey] = message;
+      }
+
+      setErrors(newErrors);
+    } catch {
+      setErrors({ form: language === 'it' ? 'Errore di rete. Riprova.' : 'Network error. Please try again.' });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -134,12 +207,15 @@ export function Register() {
             <div className="text-center">
               <CheckCircle2 className="size-16 text-green-600 mx-auto mb-4" />
               <h2 className="text-2xl font-bold text-[#2b2b2b] mb-2">
-                {language === 'it' ? 'Registrazione Completata!' : 'Registration Complete!'}
+                {language === 'it' ? 'Registrazione Inviata!' : 'Registration Submitted!'}
               </h2>
               <p className="text-gray-600">
-                {language === 'it' 
-                  ? 'Il tuo account è stato creato con successo. Verrai reindirizzato alla pagina di login...' 
-                  : 'Your account has been created successfully. You will be redirected to the login page...'}
+                {language === 'it'
+                  ? 'La tua richiesta è stata ricevuta. Il tuo account è in attesa di approvazione. Riceverai una email di conferma una volta attivato.'
+                  : 'Your request has been received. Your account is pending admin approval. You will receive a confirmation email once it is activated.'}
+              </p>
+              <p className="text-gray-500 text-sm mt-2">
+                {language === 'it' ? 'Reindirizzamento al login...' : 'Redirecting to login...'}
               </p>
             </div>
           </CardContent>
@@ -203,12 +279,18 @@ export function Register() {
                     <Label htmlFor="placeOfBirth">
                       {language === 'it' ? 'Luogo di Nascita' : 'Place of Birth'} <span className="text-red-500">*</span>
                     </Label>
-                    <Input
-                      id="placeOfBirth"
-                      name="placeOfBirth"
-                      value={formData.placeOfBirth}
-                      onChange={handleChange}
-                      className={errors.placeOfBirth ? 'border-red-500' : ''}
+                    <CitySearch
+                      value={formData.placeOfBirth ? Number(formData.placeOfBirth) : null}
+                      displayValue={formData.placeOfBirthName}
+                      onSelect={(city: CityResult) =>
+                        setFormData(prev => ({
+                          ...prev,
+                          placeOfBirth: String(city.id),
+                          placeOfBirthName: city.name,
+                        }))
+                      }
+                      placeholder={language === 'it' ? 'Cerca città...' : 'Search city...'}
+                      error={!!errors.placeOfBirth}
                     />
                     {errors.placeOfBirth && <p className="text-sm text-red-500 mt-1">{errors.placeOfBirth}</p>}
                   </div>
@@ -228,19 +310,36 @@ export function Register() {
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <Label htmlFor="fiscalCode">
-                    {language === 'it' ? 'Codice Fiscale / N.I. Number' : 'Fiscal Code / N.I. Number'} <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="fiscalCode"
-                    name="fiscalCode"
-                    value={formData.fiscalCode}
-                    onChange={handleChange}
-                    placeholder={language === 'it' ? 'es. RSSMRA85M01H501U' : 'e.g. RSSMRA85M01H501U'}
-                    className={errors.fiscalCode ? 'border-red-500' : ''}
-                  />
-                  {errors.fiscalCode && <p className="text-sm text-red-500 mt-1">{errors.fiscalCode}</p>}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <Label htmlFor="fiscalCode">
+                      {language === 'it' ? 'Codice Fiscale / N.I. Number' : 'Fiscal Code / N.I. Number'} <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="fiscalCode"
+                      name="fiscalCode"
+                      value={formData.fiscalCode}
+                      onChange={handleChange}
+                      placeholder={language === 'it' ? 'es. RSSMRA85M01H501U' : 'e.g. RSSMRA85M01H501U'}
+                      className={errors.fiscalCode ? 'border-red-500' : ''}
+                    />
+                    {errors.fiscalCode && <p className="text-sm text-red-500 mt-1">{errors.fiscalCode}</p>}
+                  </div>
+                  <div>
+                    <Label htmlFor="phone">
+                      {language === 'it' ? 'Telefono' : 'Phone'} <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="phone"
+                      name="phone"
+                      type="tel"
+                      value={formData.phone}
+                      onChange={handleChange}
+                      placeholder="+39 333 1234567"
+                      className={errors.phone ? 'border-red-500' : ''}
+                    />
+                    {errors.phone && <p className="text-sm text-red-500 mt-1">{errors.phone}</p>}
+                  </div>
                 </div>
               </div>
 
@@ -285,27 +384,34 @@ export function Register() {
                       <Label htmlFor="city">
                         {language === 'it' ? 'Città' : 'City'} <span className="text-red-500">*</span>
                       </Label>
-                      <Input
-                        id="city"
-                        name="city"
-                        value={formData.city}
-                        onChange={handleChange}
-                        placeholder="Roma"
-                        className={errors.city ? 'border-red-500' : ''}
+                      <CitySearch
+                        value={formData.city ? Number(formData.city) : null}
+                        displayValue={formData.cityName}
+                        onSelect={(city: CityResult) =>
+                          setFormData(prev => ({
+                            ...prev,
+                            city: String(city.id),
+                            cityName: city.name,
+                            country: String(city.country_id),
+                            countryName: city.country_name,
+                          }))
+                        }
+                        placeholder={language === 'it' ? 'Cerca città...' : 'Search city...'}
+                        error={!!errors.city}
                       />
                       {errors.city && <p className="text-sm text-red-500 mt-1">{errors.city}</p>}
                     </div>
                     <div>
                       <Label htmlFor="country">
-                        {language === 'it' ? 'Paese' : 'Country'} <span className="text-red-500">*</span>
+                        {language === 'it' ? 'Paese' : 'Country'}
                       </Label>
                       <Input
                         id="country"
                         name="country"
-                        value={formData.country}
-                        onChange={handleChange}
-                        placeholder="Italia"
-                        className={errors.country ? 'border-red-500' : ''}
+                        value={formData.countryName}
+                        readOnly
+                        placeholder={language === 'it' ? 'Auto-compilato dalla città' : 'Auto-filled from city'}
+                        className="bg-muted cursor-not-allowed"
                       />
                       {errors.country && <p className="text-sm text-red-500 mt-1">{errors.country}</p>}
                     </div>
@@ -389,19 +495,35 @@ export function Register() {
                   </div>
 
                   {formData.isAcsiMember ? (
-                    <div>
-                      <Label htmlFor="acsiNumber">
-                        {language === 'it' ? 'Numero Tessera ACSI' : 'ACSI Membership Number'} <span className="text-red-500">*</span>
-                      </Label>
-                      <Input
-                        id="acsiNumber"
-                        name="acsiNumber"
-                        value={formData.acsiNumber}
-                        onChange={handleChange}
-                        placeholder="ACSI123456"
-                        className={errors.acsiNumber ? 'border-red-500' : ''}
-                      />
-                      {errors.acsiNumber && <p className="text-sm text-red-500 mt-1">{errors.acsiNumber}</p>}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="acsiNumber">
+                          {language === 'it' ? 'Numero Tessera ACSI' : 'ACSI Membership Number'} <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="acsiNumber"
+                          name="acsiNumber"
+                          value={formData.acsiNumber}
+                          onChange={handleChange}
+                          placeholder="123456"
+                          className={errors.acsiNumber ? 'border-red-500' : ''}
+                        />
+                        {errors.acsiNumber && <p className="text-sm text-red-500 mt-1">{errors.acsiNumber}</p>}
+                      </div>
+                      <div>
+                        <Label htmlFor="acsiExpirationDate">
+                          {language === 'it' ? 'Data Scadenza Tessera' : 'Membership Expiration Date'} <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="acsiExpirationDate"
+                          name="acsiExpirationDate"
+                          type="date"
+                          value={formData.acsiExpirationDate}
+                          onChange={handleChange}
+                          className={errors.acsiExpirationDate ? 'border-red-500' : ''}
+                        />
+                        {errors.acsiExpirationDate && <p className="text-sm text-red-500 mt-1">{errors.acsiExpirationDate}</p>}
+                      </div>
                     </div>
                   ) : (
                     <Alert>
@@ -473,11 +595,21 @@ export function Register() {
                 </div>
               </div>
 
+              {errors.form && (
+                <Alert variant="destructive">
+                  <AlertCircle className="size-4" />
+                  <AlertDescription>{errors.form}</AlertDescription>
+                </Alert>
+              )}
+
               <Button
                 type="submit"
-                className="w-full bg-[#e67e22] hover:bg-[#d4b896] text-white py-6 text-lg"
+                disabled={loading}
+                className="w-full bg-[#e67e22] hover:bg-[#d4b896] text-white py-6 text-lg disabled:opacity-50"
               >
-                {language === 'it' ? 'Registrati' : 'Register'}
+                {loading
+                  ? (language === 'it' ? 'Registrazione in corso...' : 'Registering...')
+                  : (language === 'it' ? 'Registrati' : 'Register')}
               </Button>
 
               <p className="text-center text-sm text-gray-600">

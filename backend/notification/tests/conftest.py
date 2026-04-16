@@ -5,7 +5,17 @@ from unittest.mock import patch, MagicMock
 from notification.constants import EventType
 from notification.models import Notification
 from users.models import User
+from channels.db import database_sync_to_async
 
+@pytest.fixture(autouse=True)
+def mock_celery_tasks():
+    """
+    Block Celery tasks from firing during notification tests.
+    transaction=True causes real commits which trigger on_commit signals.
+    """
+    with patch("users.tasks.send_to_kafka.delay"), \
+         patch("users.tasks.send_activation_email.delay"):
+        yield
 
 @pytest.fixture(autouse=True)
 def mock_kafka_producer():
@@ -20,6 +30,8 @@ def process_event_sync(event_data: dict) -> None:
     Replicates the notification-creation step from consume_user_events().
     Use this in sync tests (test_kafka_consumer.py).
     """
+    from django.db import connection
+    print(f"\n>>> DB: {connection.settings_dict['NAME']}")
     admins = list(User.objects.filter(is_active=True, is_staff=True))
     Notification.objects.bulk_create([
         Notification(
@@ -34,8 +46,13 @@ def process_event_sync(event_data: dict) -> None:
 # thread_sensitive=False runs in a real thread-pool worker (no running event loop
 # there), avoiding SynchronousOnlyOperation when called from pytest-asyncio's
 # main-thread event loop.
-process_event = sync_to_async(process_event_sync, thread_sensitive=False)
+process_event = database_sync_to_async(process_event_sync, thread_sensitive=True)
 
+# @pytest.fixture
+# def process_event():
+#     async def _process_event(event_data: dict) -> None:
+#         await sync_to_async(process_event_sync, thread_sensitive=True)(event_data)
+#     return _process_event
 
 @pytest.fixture(autouse=True)
 async def close_thread_db_connections():
@@ -77,7 +94,10 @@ def in_memory_channel_layer(settings):
 
 @pytest.fixture
 def admin_user(db):
+
     from users.models import User
+    from django.db import connection
+    print(f"\n>>> admin_user DB: {connection.settings_dict['NAME']}")
     return User.objects.create_user(
         email="admin@bounce.test",
         password="AdminPass123!",

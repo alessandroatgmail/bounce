@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { apiUrl } from '../../lib/api';
 
 export type UserRole = 'guest' | 'student' | 'admin';
 
@@ -39,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [adminViewMode, setAdminViewMode] = useState<'admin' | 'student'>('admin');
 
   const login = async (email: string, password: string): Promise<User | null> => {
-    const response = await fetch('/api/auth/token/', {
+    const response = await fetch(apiUrl('/api/auth/token/'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),

@@ -7,7 +7,9 @@ from channels.layers import get_channel_layer
 from django.contrib.auth import get_user_model
 from .models import Notification
 from .constants import EventType
+import logging
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
@@ -15,7 +17,7 @@ async def consume_user_events():
     # Initialize the Kafka consumer, connecting to the user.registered topic
     consumer = AIOKafkaConsumer(
         "user.registered",
-        bootstrap_servers="kafka:9092",
+        bootstrap_servers="kafka:29092",
         group_id="notification_group",
         value_deserializer=lambda m: json.loads(m.decode("utf-8"))
     )
@@ -28,7 +30,8 @@ async def consume_user_events():
         # Iterate over incoming Kafka messages indefinitely
         async for message in consumer:
             event_data = message.value  # already deserialized to dict
-
+            logger.info("Received Kafka message: topic=%s offset=%d value=%s",
+                        message.topic, message.offset, event_data)
             # Fetch all active admin users from the database
             admins = await sync_to_async(list)(
                 User.objects.filter(is_active=True, is_staff=True)

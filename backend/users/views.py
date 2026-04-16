@@ -1,5 +1,9 @@
+from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.conf import settings
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
@@ -8,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from .models import City
 from .serializers import BounceTokenObtainPairSerializer, RegisterSerializer
 
 
@@ -85,3 +90,75 @@ class RegisterView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class ActivateView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="ActivateResponse",
+                fields={"detail": serializers.CharField()},
+            ),
+            400: inline_serializer(
+                name="ActivateErrorResponse",
+                fields={"detail": serializers.CharField()},
+            ),
+        }
+    )
+    def get(self, request, uidb64, token):
+        User = get_user_model()
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({"detail": "Invalid activation link."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if user.is_active:
+            return Response({"detail": "Account is already active."}, status=status.HTTP_200_OK)
+
+        if not default_token_generator.check_token(user, token):
+            return Response({"detail": "Activation link is invalid or has expired."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+        return Response({"detail": "Account activated successfully."}, status=status.HTTP_200_OK)
+
+
+class CitySearchView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="CitySearchResponse",
+                fields={
+                    "id": serializers.IntegerField(),
+                    "name": serializers.CharField(),
+                    "country_id": serializers.IntegerField(),
+                    "country_name": serializers.CharField(),
+                },
+                many=True,
+            )
+        }
+    )
+    def get(self, request):
+        q = request.query_params.get("q", "").strip()
+        if len(q) < 2:
+            return Response([])
+        cities = (
+            City.objects.filter(name__icontains=q)
+            .select_related("country")
+            .order_by("name")[:10]
+        )
+        data = [
+            {
+                "id": city.pk,
+                "name": city.name,
+                "country_id": city.country_id,
+                "country_name": city.country.name,
+            }
+            for city in cities
+        ]
+        return Response(data)

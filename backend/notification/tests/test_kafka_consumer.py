@@ -9,6 +9,8 @@ import pytest
 
 from notification.constants import EventType
 from notification.models import Notification
+from notification import kafka_consumer
+from users import tasks
 from users.models import User
 from .conftest import process_event_sync
 
@@ -43,6 +45,33 @@ class TestKafkaConsumerNotificationCreation:
     def test_no_notifications_when_no_admins_exist(self, db, regular_user):
         process_event_sync(SAMPLE_EVENT)
         assert Notification.objects.count() == 0
+
+    def test_consumer_and_producer_use_same_bootstrap_server(self):
+        """
+        The Kafka consumer and producer must connect to the same broker address.
+        A mismatch (e.g. 9092 vs 29092) causes messages to be produced to a
+        broker the consumer never reads from, silently dropping notifications.
+        Reads source files directly to avoid interference from autouse mocks.
+        """
+        import re
+        import inspect
+        import pathlib
+
+        # Resolve paths from the module file attributes — immune to mocking
+        consumer_path = pathlib.Path(inspect.getfile(kafka_consumer))
+        producer_path = pathlib.Path(inspect.getfile(tasks))
+
+        consumer_source = consumer_path.read_text()
+        producer_source = producer_path.read_text()
+
+        consumer_servers = re.findall(r'bootstrap_servers\s*=\s*["\']([^"\']+)["\']', consumer_source)
+        producer_servers = re.findall(r'"([^"]+)"', re.search(r'bootstrap_servers\s*=\s*\[([^\]]+)\]', producer_source).group(1))
+
+        assert consumer_servers, "Could not find bootstrap_servers in kafka_consumer.py"
+        assert producer_servers, "Could not find bootstrap_servers in tasks.py"
+        assert consumer_servers[0] == producer_servers[0], (
+            f"Bootstrap server mismatch: consumer={consumer_servers[0]!r}, producer={producer_servers[0]!r}"
+        )
 
     def test_inactive_admin_does_not_receive_notification(self, db):
         User.objects.create_user(

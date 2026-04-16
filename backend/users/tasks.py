@@ -13,13 +13,13 @@ def get_producer():
     global producer
     if producer is None:
         producer = KafkaProducer(
-            bootstrap_servers=["kafka:9092"],
+            bootstrap_servers=["kafka:29092"],
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
             acks='all'  # Ensures all replicas have the message
         )
     return producer
 
-@shared_task(bind=True)
+@shared_task(bind=True, max_retries=10)
 def send_to_kafka(self, data):
     try:
         p = get_producer()
@@ -31,7 +31,7 @@ def send_to_kafka(self, data):
 
     except Exception as exc:
         # If the broker is down or the send fails, retry the Celery task
-        raise self.retry(exc=exc, countdown=5)
+        raise self.retry(exc=exc, countdown=10)
 
 @shared_task
 def send_activation_email(user_id):
@@ -39,7 +39,7 @@ def send_activation_email(user_id):
     user = User.objects.get(pk=user_id)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
-    activation_link = f"http://localhost:3000/activate/{uid}/{token}/"
+    activation_link = f"http://localhost:5173/activate/{uid}/{token}/"
     send_mail(
         subject="Activate your Bounce account",
         message=(
