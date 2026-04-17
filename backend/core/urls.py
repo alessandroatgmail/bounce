@@ -9,6 +9,7 @@ from drf_spectacular.views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
+    path('api/events/', include('event.urls')),
 
     # generates the raw schema file (yaml/json)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     # local
     'users',
     'notification',
+    'event'
 ]
 
 MIDDLEWARE = [
