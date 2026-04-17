@@ -10,10 +10,11 @@ Usage:
 """
 
 from faker import Faker
+from event.models import Frequency
 
 _fake = Faker()
 
-_FREQUENCIES = ["daily", "weekly", "biweekly", "monthly", "yearly", "one-off"]
+_FREQUENCIES = [f.value for f in Frequency]
 
 
 def make_event_type_payload(**overrides) -> dict:

@@ -19,13 +19,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
 import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Music, Eye, Crown, ArrowLeftRight, Menu, ChevronDown } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockEvents, mockStudents, mockRegularClasses, mockFestivals, mockFestivalEvents, mockMemberships, mockUserMemberships, RegularClass, Festival, FestivalEvent, Membership, UserMembership } from '../data/mockData';
 import { useState } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
 import { FestivalWizard } from '../components/FestivalWizard';
 import { FestivalScheduleBuilder } from '../components/FestivalScheduleBuilder';
 import { FestivalEventForm } from '../components/FestivalEventForm';
+import { EventTypePanel } from '../components/EventTypePanel';
 
 export function AdminDashboard() {
   const { user, setAdminViewMode } = useAuth();
@@ -45,6 +46,19 @@ export function AdminDashboard() {
 
   const [activeTab, setActiveTab] = useState('events');
   const [showStats, setShowStats] = useState(true);
+  const [selectedEventModel, setSelectedEventModel] = useState<string | null>(null);
+
+  const eventModels = [
+    { key: 'event',        label: language === 'it' ? 'Eventi'           : 'Events'       },
+    { key: 'event-type',   label: language === 'it' ? 'Tipi di Evento'   : 'Event Types'  },
+    { key: 'type',         label: language === 'it' ? 'Tipi'             : 'Types'        },
+    { key: 'location',     label: language === 'it' ? 'Sedi'             : 'Locations'    },
+    { key: 'room',         label: language === 'it' ? 'Sale'             : 'Rooms'        },
+    { key: 'style',        label: language === 'it' ? 'Stili'            : 'Styles'       },
+    { key: 'genre',        label: language === 'it' ? 'Generi'           : 'Genres'       },
+    { key: 'artist-type',  label: language === 'it' ? 'Tipi di Artista'  : 'Artist Types' },
+    { key: 'artist',       label: language === 'it' ? 'Artisti'          : 'Artists'      },
+  ];
 
   const tabs = [
     { value: 'events',          label: language === 'it' ? 'Eventi' : 'Events',                  icon: <Calendar className="size-4" /> },
@@ -54,7 +68,9 @@ export function AdminDashboard() {
     { value: 'festivals',       label: language === 'it' ? 'Festival' : 'Festivals',              icon: <PartyPopper className="size-4" /> },
   ];
 
-  const activeTabLabel = tabs.find(t => t.value === activeTab)?.label ?? '';
+  const activeTabLabel = activeTab === 'events' && selectedEventModel
+    ? (eventModels.find(m => m.key === selectedEventModel)?.label ?? (language === 'it' ? 'Eventi' : 'Events'))
+    : (tabs.find(t => t.value === activeTab)?.label ?? '');
 
   if (!user || user.role !== 'admin') {
     return <Navigate to="/login" replace />;
@@ -154,7 +170,38 @@ export function AdminDashboard() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Desktop tab bar */}
           <TabsList className="hidden md:flex">
-            {tabs.map(tab => (
+            {/* Events entry — dropdown with all event models */}
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={[
+                    'inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow]',
+                    activeTab === 'events'
+                      ? 'bg-card border-transparent shadow-sm'
+                      : 'border-transparent text-muted-foreground hover:text-foreground',
+                  ].join(' ')}
+                  onClick={() => setActiveTab('events')}
+                >
+                  <Calendar className="size-4" />
+                  {language === 'it' ? 'Eventi' : 'Events'}
+                  <ChevronDown className="size-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent modal={false}>
+                {eventModels.map(model => (
+                  <DropdownMenuItem
+                    key={model.key}
+                    className="cursor-pointer"
+                    onSelect={() => { setActiveTab('events'); setSelectedEventModel(model.key); }}
+                  >
+                    {model.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Remaining tabs */}
+            {tabs.filter(t => t.value !== 'events').map(tab => (
               <TabsTrigger key={tab.value} value={tab.value} className="flex items-center gap-2">
                 {tab.icon}
                 {tab.label}
@@ -175,11 +222,25 @@ export function AdminDashboard() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-full min-w-[--radix-dropdown-menu-trigger-width]">
-                {tabs.map(tab => (
+                <DropdownMenuLabel className="flex items-center gap-2">
+                  <Calendar className="size-4" />
+                  {language === 'it' ? 'Eventi' : 'Events'}
+                </DropdownMenuLabel>
+                {eventModels.map(model => (
+                  <DropdownMenuItem
+                    key={model.key}
+                    className="pl-6 cursor-pointer"
+                    onSelect={() => { setActiveTab('events'); setSelectedEventModel(model.key); }}
+                  >
+                    {model.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                {tabs.filter(t => t.value !== 'events').map(tab => (
                   <DropdownMenuItem
                     key={tab.value}
                     className="flex items-center gap-2 cursor-pointer"
-                    onSelect={() => setActiveTab(tab.value)}
+                    onSelect={() => { setActiveTab(tab.value); setSelectedEventModel(null); }}
                   >
                     {tab.icon}
                     {tab.label}
@@ -190,7 +251,8 @@ export function AdminDashboard() {
           </div>
 
           <TabsContent value="events" className="mt-6">
-            <Card>
+            {selectedEventModel === 'event-type' && <EventTypePanel />}
+            {(selectedEventModel === null || selectedEventModel === 'event') && <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
                   <div>
@@ -260,7 +322,7 @@ export function AdminDashboard() {
                   </TableBody>
                 </Table>
               </CardContent>
-            </Card>
+            </Card>}
           </TabsContent>
 
           <TabsContent value="regular-classes" className="mt-6">

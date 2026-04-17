@@ -12,3 +12,20 @@ export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 export function apiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
+
+/** Authenticated fetch — attaches Bearer token and sets Content-Type. */
+export function authFetch(
+  path: string,
+  token: string,
+  options: RequestInit = {},
+): Promise<Response> {
+  const { headers, ...rest } = options;
+  return fetch(apiUrl(path), {
+    ...rest,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(headers ?? {}),
+    },
+  });
+}

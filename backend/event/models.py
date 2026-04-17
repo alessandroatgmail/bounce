@@ -7,9 +7,15 @@ class Status(models.TextChoices):
     CONFIRMED = "confirmed", "Confirmed"
     PUBLISHED = "published", "Published"
 
+class Frequency(models.TextChoices):
+    SINGLE = "single", "One Shot"
+    WEEKLY = "weekly", "Weekly"
+    MONTHLY = "monthly", "Monyhly"
+
+
 class EventType(models.Model):
     name = models.CharField(max_length=55)
-    frequency = models.CharField(max_length=55)
+    frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.SINGLE)
     partners = models.IntegerField()
 
     def __str__(self):

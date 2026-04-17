@@ -2,7 +2,7 @@ import pytest
 from django.urls import reverse
 from rest_framework import status
 
-from event.models import EventType
+from event.models import EventType, Frequency
 from utils.mock_event_type import make_event_type_payload, make_event_type_payloads
 
 LIST_URL = "/api/events/event-types/"
@@ -89,7 +89,7 @@ class TestEventTypeCreate:
         assert response.data["frequency"] == payload["frequency"]
         assert response.data["partners"] == payload["partners"]
 
-    @pytest.mark.parametrize("field", ["name", "frequency", "partners"])
+    @pytest.mark.parametrize("field", ["name", "partners"])
     def test_create_missing_required_field_returns_400(self, staff_client, db, field):
         payload = make_event_type_payload()
         del payload[field]
@@ -134,12 +134,12 @@ class TestEventTypeUpdate:
 
     def test_full_update_changes_fields(self, staff_client, db):
         event_type = EventType.objects.create(**make_event_type_payload())
-        new_payload = make_event_type_payload(name="Updated Name", frequency="daily", partners=0)
+        new_payload = make_event_type_payload(name="Updated Name", frequency=Frequency.SINGLE, partners=0)
         staff_client.put(detail_url(event_type.pk), new_payload, format="json")
 
         event_type.refresh_from_db()
         assert event_type.name == "Updated Name"
-        assert event_type.frequency == "daily"
+        assert event_type.frequency == Frequency.SINGLE
         assert event_type.partners == 0
 
     def test_full_update_missing_field_returns_400(self, staff_client, db):
@@ -160,14 +160,14 @@ class TestEventTypePartialUpdate:
         assert response.status_code == status.HTTP_200_OK
 
     def test_partial_update_changes_only_provided_fields(self, staff_client, db):
-        payload = make_event_type_payload(frequency="weekly", partners=2)
+        payload = make_event_type_payload(frequency=Frequency.WEEKLY, partners=2)
         event_type = EventType.objects.create(**payload)
 
         staff_client.patch(detail_url(event_type.pk), {"name": "Patched Name"}, format="json")
 
         event_type.refresh_from_db()
         assert event_type.name == "Patched Name"
-        assert event_type.frequency == "weekly"
+        assert event_type.frequency == Frequency.WEEKLY
         assert event_type.partners == 2
 
 
