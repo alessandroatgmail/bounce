@@ -28,6 +28,7 @@ import { FestivalScheduleBuilder } from '../components/FestivalScheduleBuilder';
 import { FestivalEventForm } from '../components/FestivalEventForm';
 import { EventTypePanel } from '../components/EventTypePanel';
 import { LocationPanel } from '../components/LocationPanel';
+import { RoomPanel } from '../components/RoomPanel';
 
 export function AdminDashboard() {
   const { user, setAdminViewMode } = useAuth();
@@ -253,6 +254,7 @@ export function AdminDashboard() {
           <TabsContent value="events" className="mt-6">
             {selectedEventModel === 'event-type' && <EventTypePanel />}
             {selectedEventModel === 'location' && <LocationPanel />}
+            {selectedEventModel === 'room' && <RoomPanel />}
             {(selectedEventModel === null || selectedEventModel === 'event') && <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
