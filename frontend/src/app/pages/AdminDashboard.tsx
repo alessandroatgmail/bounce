@@ -33,6 +33,7 @@ import { SimpleNamePanel } from '../components/SimpleNamePanel';
 import { useStyles } from '../hooks/useStyles';
 import { useGenres } from '../hooks/useGenres';
 import { useArtistTypes } from '../hooks/useArtistTypes';
+import { ArtistPanel } from '../components/ArtistPanel';
 
 export function AdminDashboard() {
   const { user, setAdminViewMode, accessToken } = useAuth();
@@ -293,6 +294,7 @@ export function AdminDashboard() {
                 onRemove={removeArtistType}
               />
             )}
+            {selectedEventModel === 'artist' && <ArtistPanel />}
             {(selectedEventModel === null || selectedEventModel === 'event') && <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
