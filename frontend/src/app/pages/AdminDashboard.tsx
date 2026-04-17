@@ -18,7 +18,8 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Music, Eye, Crown, ArrowLeftRight } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Music, Eye, Crown, ArrowLeftRight, Menu, ChevronDown } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockEvents, mockStudents, mockRegularClasses, mockFestivals, mockFestivalEvents, mockMemberships, mockUserMemberships, RegularClass, Festival, FestivalEvent, Membership, UserMembership } from '../data/mockData';
 import { useState } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
@@ -41,6 +42,19 @@ export function AdminDashboard() {
   const [showFestivalWizard, setShowFestivalWizard] = useState(false);
   const [showEventForm, setShowEventForm] = useState(false);
   const [eventFormData, setEventFormData] = useState<{dayIndex: number, room: string, startTime: string} | null>(null);
+
+  const [activeTab, setActiveTab] = useState('events');
+  const [showStats, setShowStats] = useState(true);
+
+  const tabs = [
+    { value: 'events',          label: language === 'it' ? 'Eventi' : 'Events',                  icon: <Calendar className="size-4" /> },
+    { value: 'regular-classes', label: language === 'it' ? 'Corsi Regolari' : 'Regular Classes', icon: <Repeat className="size-4" /> },
+    { value: 'students',        label: language === 'it' ? 'Studenti' : 'Students',               icon: <Users className="size-4" /> },
+    { value: 'memberships',     label: language === 'it' ? 'Membresie' : 'Memberships',           icon: <Crown className="size-4" /> },
+    { value: 'festivals',       label: language === 'it' ? 'Festival' : 'Festivals',              icon: <PartyPopper className="size-4" /> },
+  ];
+
+  const activeTabLabel = tabs.find(t => t.value === activeTab)?.label ?? '';
 
   if (!user || user.role !== 'admin') {
     return <Navigate to="/login" replace />;
@@ -83,8 +97,23 @@ export function AdminDashboard() {
       </div>
 
       <div className="container mx-auto px-4 py-8">
+        {/* Stats toggle */}
+        <div className="flex justify-end mb-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowStats(v => !v)}
+            className="text-gray-500 hover:text-gray-800 flex items-center gap-1"
+          >
+            {showStats
+              ? <><ChevronDown className="size-4" />{language === 'it' ? 'Nascondi riepilogo' : 'Hide summary'}</>
+              : <><ChevronDown className="size-4 rotate-180" />{language === 'it' ? 'Mostra riepilogo' : 'Show summary'}</>
+            }
+          </Button>
+        </div>
+
         {/* Stats Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
+        {showStats && <div className="grid md:grid-cols-3 gap-6 mb-8">
           <Card className="border-[#d4b896]/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
@@ -119,30 +148,46 @@ export function AdminDashboard() {
               <p className="text-xs text-gray-600 mt-1">Corsi & eventi programmati</p>
             </CardContent>
           </Card>
-        </div>
+        </div>}
 
         {/* Management Tabs */}
-        <Tabs defaultValue="events" className="w-full">
-          <TabsList>
-            <TabsTrigger value="events">
-              {language === 'it' ? 'Eventi' : 'Events'}
-            </TabsTrigger>
-            <TabsTrigger value="regular-classes">
-              <Repeat className="size-4 mr-2" />
-              {language === 'it' ? 'Corsi Regolari' : 'Regular Classes'}
-            </TabsTrigger>
-            <TabsTrigger value="students">
-              {language === 'it' ? 'Studenti' : 'Students'}
-            </TabsTrigger>
-            <TabsTrigger value="memberships">
-              <Crown className="size-4 mr-2" />
-              {language === 'it' ? 'Membresie' : 'Memberships'}
-            </TabsTrigger>
-            <TabsTrigger value="festivals">
-              <PartyPopper className="size-4 mr-2" />
-              {language === 'it' ? 'Festival' : 'Festivals'}
-            </TabsTrigger>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          {/* Desktop tab bar */}
+          <TabsList className="hidden md:flex">
+            {tabs.map(tab => (
+              <TabsTrigger key={tab.value} value={tab.value} className="flex items-center gap-2">
+                {tab.icon}
+                {tab.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
+
+          {/* Mobile burger menu */}
+          <div className="md:hidden">
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="w-full justify-between">
+                  <span className="flex items-center gap-2">
+                    <Menu className="size-4" />
+                    {activeTabLabel}
+                  </span>
+                  <ChevronDown className="size-4 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-full min-w-[--radix-dropdown-menu-trigger-width]">
+                {tabs.map(tab => (
+                  <DropdownMenuItem
+                    key={tab.value}
+                    className="flex items-center gap-2 cursor-pointer"
+                    onSelect={() => setActiveTab(tab.value)}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
           <TabsContent value="events" className="mt-6">
             <Card>
