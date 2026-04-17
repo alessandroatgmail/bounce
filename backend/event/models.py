@@ -12,17 +12,16 @@ class Frequency(models.TextChoices):
     WEEKLY = "weekly", "Weekly"
     MONTHLY = "monthly", "Monyhly"
 
+class Type(models.TextChoices):
+    FREE = "free", "Free"
+    MEMBERS = "members", "Members"
+    COLLABORATION = "collaboration", "Collaboration"
 
 class EventType(models.Model):
     name = models.CharField(max_length=55)
     frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.SINGLE)
     partners = models.IntegerField()
 
-    def __str__(self):
-        return self.name
-
-class Type(models.Model):
-    name = models.CharField(max_length=55)
     def __str__(self):
         return self.name
 
@@ -75,7 +74,7 @@ class Event(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     name = models.CharField(max_length=100)
     event_type = models.ForeignKey(EventType, on_delete=models.PROTECT)
-    type = models.ForeignKey(Type, on_delete=models.PROTECT)
+    type = models.CharField(max_length=20, choices=Type.choices, default=Type.MEMBERS)
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
     duration = models.IntegerField(verbose_name="Duration (Mins)")

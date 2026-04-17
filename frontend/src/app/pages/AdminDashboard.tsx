@@ -51,7 +51,6 @@ export function AdminDashboard() {
   const eventModels = [
     { key: 'event',        label: language === 'it' ? 'Eventi'           : 'Events'       },
     { key: 'event-type',   label: language === 'it' ? 'Tipi di Evento'   : 'Event Types'  },
-    { key: 'type',         label: language === 'it' ? 'Tipi'             : 'Types'        },
     { key: 'location',     label: language === 'it' ? 'Sedi'             : 'Locations'    },
     { key: 'room',         label: language === 'it' ? 'Sale'             : 'Rooms'        },
     { key: 'style',        label: language === 'it' ? 'Stili'            : 'Styles'       },

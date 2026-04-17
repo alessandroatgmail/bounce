@@ -1,9 +1,8 @@
 from rest_framework.routers import DefaultRouter
-from .views import EventTypeViewSet, TypeViewSet, LocationViewSet, RoomViewSet, StyleViewSet, GenreViewSet, ArtistTypeViewSet, ArtistViewSet, EventViewSet
+from .views import EventTypeViewSet, LocationViewSet, RoomViewSet, StyleViewSet, GenreViewSet, ArtistTypeViewSet, ArtistViewSet, EventViewSet
 
 router = DefaultRouter()
 router.register("event-types", EventTypeViewSet, basename="event-type")
-router.register("types", TypeViewSet, basename="type")
 router.register("locations", LocationViewSet, basename="location")
 router.register("rooms", RoomViewSet, basename="room")
 router.register("styles", StyleViewSet, basename="style")

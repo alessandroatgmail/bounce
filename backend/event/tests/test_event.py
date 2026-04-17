@@ -12,14 +12,12 @@ def detail_url(pk):
 
 
 def create_event(**overrides):
-    print (overrides)
     payload = make_event_payload(**overrides)
-    print (payload)
     return Event.objects.create(
         name=payload["name"],
         status=payload["status"],
         event_type_id=payload["event_type_id"],
-        type_id=payload["type_id"],
+        type=payload["type"],
         room_id=payload["room_id"],
         start_date=payload["start_date"],
         end_date=payload["end_date"],
@@ -168,9 +166,10 @@ class TestEventCreate:
         response = staff_client.post(LIST_URL, make_event_payload(), format="json")
         assert set(response.data["event_type"].keys()) == {"id", "name", "frequency", "partners"}
 
-    def test_create_returns_nested_type(self, staff_client, world_data):
-        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
-        assert set(response.data["type"].keys()) == {"id", "name"}
+    def test_create_returns_type_as_string(self, staff_client, world_data):
+        payload = make_event_payload()
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["type"] == payload["type"]
 
     def test_create_returns_nested_room_with_location(self, staff_client, world_data):
         response = staff_client.post(LIST_URL, make_event_payload(), format="json")
@@ -195,7 +194,7 @@ class TestEventCreate:
         assert len(response.data["artists"]) == len(payload["artist_ids"])
         assert "full_name" in response.data["artists"][0]
 
-    @pytest.mark.parametrize("field", ["name", "event_type_id", "type_id", "room_id",
+    @pytest.mark.parametrize("field", ["name", "event_type_id", "room_id",
                                         "start_date", "end_date", "duration", "capacity"])
     def test_create_missing_required_field_returns_400(self, staff_client, world_data, field):
         payload = make_event_payload()

@@ -10,11 +10,6 @@ class EventTypeSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "frequency", "partners"]
 
 
-class TypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Type
-        fields = ["id", "name"]
-
 
 class CitySerializer(serializers.ModelSerializer):
     country = serializers.StringRelatedField()
@@ -141,10 +136,7 @@ class EventSerializer(serializers.ModelSerializer):
     event_type_id = serializers.PrimaryKeyRelatedField(
         queryset=EventType.objects.all(), source="event_type", write_only=True
     )
-    type = TypeSerializer(read_only=True)
-    type_id = serializers.PrimaryKeyRelatedField(
-        queryset=Type.objects.all(), source="type", write_only=True
-    )
+    type = serializers.ChoiceField(choices=Type.choices)
     room = RoomSerializer(read_only=True)
     room_id = serializers.PrimaryKeyRelatedField(
         queryset=Room.objects.all(), source="room", write_only=True
@@ -171,7 +163,7 @@ class EventSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "status",
             "event_type", "event_type_id",
-            "type", "type_id",
+            "type",
             "start_date", "end_date", "duration",
             "room", "room_id",
             "capacity",

@@ -2,7 +2,7 @@
 Factory functions for Event API payloads.
 
 Creates all required dependencies in the DB:
-  EventType, Type, Room (→ Location → City), Style x2, Genre x2, Artist x1.
+  EventType, Room (→ Location → City), Style x2, Genre x2, Artist x1.
 
 Requires City rows in the database (use the world_data fixture in tests).
 
@@ -21,17 +21,16 @@ from faker import Faker
 
 from event.models import EventType, Type, Room, Style, Genre, Artist, Status
 from utils.mock_event_type import make_event_type_payload
-from utils.mock_type import make_type_payload
 from utils.mock_room import make_room_payload
 from utils.mock_style import make_style_payload
 from utils.mock_genre import make_genre_payload
 
 _fake = Faker("it_IT")
+_TYPES = [t.value for t in Type]
 
 
 def _create_dependencies():
     event_type = EventType.objects.create(**make_event_type_payload())
-    type_ = Type.objects.create(**make_type_payload())
     room = Room.objects.create(**make_room_payload())
     styles = [Style.objects.create(**make_style_payload()) for _ in range(2)]
     genres = [Genre.objects.create(**make_genre_payload()) for _ in range(2)]
@@ -39,12 +38,12 @@ def _create_dependencies():
         first_name=_fake.first_name(),
         last_name=_fake.last_name(),
     )
-    return event_type, type_, room, styles, genres, artist
+    return event_type, room, styles, genres, artist
 
 
 def make_event_payload(**overrides) -> dict:
     """Return a dict with all required Event fields. Creates all dependencies in the DB."""
-    event_type, type_, room, styles, genres, artist = _create_dependencies()
+    event_type, room, styles, genres, artist = _create_dependencies()
 
     start = datetime.now() + timedelta(days=random.randint(1, 30))
     end = start + timedelta(hours=random.randint(1, 4))
@@ -53,7 +52,7 @@ def make_event_payload(**overrides) -> dict:
         "name": _fake.sentence(nb_words=3).rstrip("."),
         "status": Status.DRAFT,
         "event_type_id": event_type.pk,
-        "type_id": type_.pk,
+        "type": random.choice(_TYPES),
         "room_id": room.pk,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
