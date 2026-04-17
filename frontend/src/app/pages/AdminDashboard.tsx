@@ -29,9 +29,13 @@ import { FestivalEventForm } from '../components/FestivalEventForm';
 import { EventTypePanel } from '../components/EventTypePanel';
 import { LocationPanel } from '../components/LocationPanel';
 import { RoomPanel } from '../components/RoomPanel';
+import { SimpleNamePanel } from '../components/SimpleNamePanel';
+import { useStyles } from '../hooks/useStyles';
+import { useGenres } from '../hooks/useGenres';
+import { useArtistTypes } from '../hooks/useArtistTypes';
 
 export function AdminDashboard() {
-  const { user, setAdminViewMode } = useAuth();
+  const { user, setAdminViewMode, accessToken } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [events, setEvents] = useState(mockEvents);
@@ -49,6 +53,10 @@ export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('events');
   const [showStats, setShowStats] = useState(true);
   const [selectedEventModel, setSelectedEventModel] = useState<string | null>(null);
+
+  const { styles, loading: stylesLoading, error: stylesError, create: createStyle, update: updateStyle, remove: removeStyle } = useStyles(accessToken);
+  const { genres, loading: genresLoading, error: genresError, create: createGenre, update: updateGenre, remove: removeGenre } = useGenres(accessToken);
+  const { artistTypes, loading: artistTypesLoading, error: artistTypesError, create: createArtistType, update: updateArtistType, remove: removeArtistType } = useArtistTypes(accessToken);
 
   const eventModels = [
     { key: 'event',        label: language === 'it' ? 'Eventi'           : 'Events'       },
@@ -255,6 +263,36 @@ export function AdminDashboard() {
             {selectedEventModel === 'event-type' && <EventTypePanel />}
             {selectedEventModel === 'location' && <LocationPanel />}
             {selectedEventModel === 'room' && <RoomPanel />}
+            {selectedEventModel === 'style' && (
+              <SimpleNamePanel
+                title="Styles" titleIt="Stili"
+                description="Manage dance styles" descriptionIt="Gestisci gli stili di danza"
+                items={styles} loading={stylesLoading} error={stylesError}
+                onCreate={name => createStyle({ name })}
+                onUpdate={(id, name) => updateStyle(id, { name })}
+                onRemove={removeStyle}
+              />
+            )}
+            {selectedEventModel === 'genre' && (
+              <SimpleNamePanel
+                title="Genres" titleIt="Generi"
+                description="Manage music genres" descriptionIt="Gestisci i generi musicali"
+                items={genres} loading={genresLoading} error={genresError}
+                onCreate={name => createGenre({ name })}
+                onUpdate={(id, name) => updateGenre(id, { name })}
+                onRemove={removeGenre}
+              />
+            )}
+            {selectedEventModel === 'artist-type' && (
+              <SimpleNamePanel
+                title="Artist Types" titleIt="Tipi di Artista"
+                description="Manage artist types" descriptionIt="Gestisci i tipi di artista"
+                items={artistTypes} loading={artistTypesLoading} error={artistTypesError}
+                onCreate={name => createArtistType({ name })}
+                onUpdate={(id, name) => updateArtistType(id, { name })}
+                onRemove={removeArtistType}
+              />
+            )}
             {(selectedEventModel === null || selectedEventModel === 'event') && <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
