@@ -217,7 +217,7 @@ export function Chatbot() {
                   <p className={`text-xs mt-1 ${
                     message.sender === 'user' ? 'text-gray-300' : 'text-gray-500'
                   }`}>
-                    {message.timestamp.toLocaleTimeString(language === 'it' ? 'it-IT' : 'en-US', { 
+                    {message.timestamp.toLocaleTimeString(language === 'it' ? 'it-IT' : 'en-GB', { 
                       hour: '2-digit', 
                       minute: '2-digit' 
                     })}

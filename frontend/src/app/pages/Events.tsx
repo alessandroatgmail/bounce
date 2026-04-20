@@ -150,7 +150,7 @@ export function Events() {
               <div className="lg:col-span-2">
                 <h3 className="text-xl font-bold mb-4">
                   {selectedDate
-                    ? `${language === 'it' ? 'Eventi del' : 'Events on'} ${selectedDate.toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                    ? `${language === 'it' ? 'Eventi del' : 'Events on'} ${selectedDate.toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                         weekday: 'long',
                         month: 'long',
                         day: 'numeric',
@@ -211,7 +211,7 @@ function EventCard({
         <div className="space-y-2 text-sm text-gray-600 mb-4">
           <div className="flex items-center gap-2">
             <CalendarIcon className="size-4 text-[#d4b896]" />
-            {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+            {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
               weekday: 'long',
               month: 'long',
               day: 'numeric',

@@ -188,7 +188,7 @@ export function SocialFeed({ posts, onAddPost, onLikePost, onAddComment }: Socia
                 <div className="flex flex-wrap gap-3 text-sm text-gray-600">
                   <span className="flex items-center gap-1">
                     <Calendar className="size-4" />
-                    {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                    {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                       weekday: 'long',
                       month: 'short',
                       day: 'numeric',

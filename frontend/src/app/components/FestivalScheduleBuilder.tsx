@@ -203,7 +203,7 @@ export function FestivalScheduleBuilder({
     return {
       index: i,
       date: date,
-      label: date.toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+      label: date.toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
         weekday: 'long',
         month: 'short',
         day: 'numeric',

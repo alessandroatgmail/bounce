@@ -631,7 +631,7 @@ export function StudentDashboard() {
                               <div className="flex gap-4 text-sm text-gray-500">
                                 <span className="flex items-center gap-1">
                                   <Calendar className="size-4" />
-                                  {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                                  {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                                     weekday: 'long',
                                     month: 'short',
                                     day: 'numeric',
@@ -699,7 +699,7 @@ export function StudentDashboard() {
                         <TableRow key={payment.id}>
                           <TableCell className="font-mono text-sm">{payment.id}</TableCell>
                           <TableCell>
-                            {new Date(payment.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                            {new Date(payment.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',
@@ -797,7 +797,7 @@ export function StudentDashboard() {
                         <TableRow key={doc.id}>
                           <TableCell className="font-mono text-sm">{doc.name}</TableCell>
                           <TableCell>
-                            {new Date(doc.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                            {new Date(doc.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',

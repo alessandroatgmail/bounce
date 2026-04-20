@@ -145,7 +145,7 @@ class EventSerializer(serializers.ModelSerializer):
     type = serializers.ChoiceField(choices=Type.choices)
     level = LevelSerializer(read_only=True)
     level_id = serializers.PrimaryKeyRelatedField(
-        queryset=Level.objects.all(), source="level", write_only=True
+        queryset=Level.objects.all(), source="level", write_only=True, required=False, allow_null=True
     )
     room = RoomSerializer(read_only=True)
     room_id = serializers.PrimaryKeyRelatedField(

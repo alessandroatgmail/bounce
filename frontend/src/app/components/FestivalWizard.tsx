@@ -236,14 +236,14 @@ export function FestivalWizard({ onComplete, onCancel }: FestivalWizardProps) {
                         : `Festival Duration: ${formData.numberOfDays} days`}
                     </div>
                     <div className="text-sm text-blue-700">
-                      {new Date(formData.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                      {new Date(formData.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                         weekday: 'long',
                         year: 'numeric',
                         month: 'long',
                         day: 'numeric',
                       })}
                       {' - '}
-                      {new Date(formData.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                      {new Date(formData.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                         weekday: 'long',
                         year: 'numeric',
                         month: 'long',

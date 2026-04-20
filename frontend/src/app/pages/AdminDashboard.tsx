@@ -34,12 +34,18 @@ import { useStyles } from '../hooks/useStyles';
 import { useGenres } from '../hooks/useGenres';
 import { useArtistTypes } from '../hooks/useArtistTypes';
 import { ArtistPanel } from '../components/ArtistPanel';
+import { useEventTypes } from '../hooks/useEventTypes';
+import { useArtists } from '../hooks/useArtists';
+import { useRooms } from '../hooks/useRooms';
+import { useLevels } from '../hooks/useLevels';
+import { useEvents, type EventItem } from '../hooks/useEvents';
+import { MultiSearchSelect } from '../components/MultiSearchSelect';
 
 export function AdminDashboard() {
   const { user, setAdminViewMode, accessToken } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  const [events, setEvents] = useState(mockEvents);
+  const { events, loading: loadingEvents, refetch: refetchEvents } = useEvents(accessToken);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
   const [festivals, setFestivals] = useState(mockFestivals);
@@ -295,77 +301,7 @@ export function AdminDashboard() {
               />
             )}
             {selectedEventModel === 'artist' && <ArtistPanel />}
-            {(selectedEventModel === null || selectedEventModel === 'event') && <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>Events Management</CardTitle>
-                    <CardDescription>Create and manage dance classes and events</CardDescription>
-                  </div>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button>
-                        <Plus className="size-4 mr-2" />
-                        Add Event
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>Create New Event</DialogTitle>
-                        <DialogDescription>Add a new class, workshop, or event</DialogDescription>
-                      </DialogHeader>
-                      <EventForm />
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Event</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Instructor</TableHead>
-                      <TableHead>Enrolled</TableHead>
-                      <TableHead>Revenue</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {events.map((event) => (
-                      <TableRow key={event.id}>
-                        <TableCell className="font-medium">{event.title}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{event.type}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {new Date(event.date).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                          })}
-                        </TableCell>
-                        <TableCell>{event.instructor}</TableCell>
-                        <TableCell>
-                          {event.currentEnrollment} / {event.maxCapacity}
-                        </TableCell>
-                        <TableCell>${event.currentEnrollment * event.price}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="ghost">
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button size="sm" variant="ghost" className="text-red-600">
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>}
+            {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel events={events} loading={loadingEvents} onRefetch={refetchEvents} />}
           </TabsContent>
 
           <TabsContent value="regular-classes" className="mt-6">
@@ -428,10 +364,10 @@ export function AdminDashboard() {
                           </TableCell>
                           <TableCell>{regularClass.instructor}</TableCell>
                           <TableCell className="text-sm">
-                            {new Date(regularClass.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                            {new Date(regularClass.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                               month: 'short',
                               day: 'numeric',
-                            })} - {new Date(regularClass.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                            })} - {new Date(regularClass.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',
@@ -531,7 +467,7 @@ export function AdminDashboard() {
                           )}
                         </TableCell>
                         <TableCell>
-                          {new Date(student.joinedDate).toLocaleDateString('en-US', {
+                          {new Date(student.joinedDate).toLocaleDateString('en-GB', {
                             month: 'short',
                             day: 'numeric',
                             year: 'numeric',
@@ -575,7 +511,7 @@ export function AdminDashboard() {
                                         <div>
                                           <Label className="text-gray-600">{language === 'it' ? 'Data di Nascita' : 'Date of Birth'}</Label>
                                           <p className="font-medium">
-                                            {new Date(student.dateOfBirth).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                                            {new Date(student.dateOfBirth).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                                               day: 'numeric',
                                               month: 'long',
                                               year: 'numeric'
@@ -684,7 +620,7 @@ export function AdminDashboard() {
                                       <div>
                                         <Label className="text-gray-600">{language === 'it' ? 'Data Iscrizione' : 'Registration Date'}</Label>
                                         <p className="font-medium">
-                                          {new Date(student.joinedDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                                          {new Date(student.joinedDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                                             day: 'numeric',
                                             month: 'long',
                                             year: 'numeric'
@@ -780,13 +716,13 @@ export function AdminDashboard() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {new Date(userMembership.validFrom).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                            {new Date(userMembership.validFrom).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                               month: 'short',
                               day: 'numeric',
                             })}
                           </TableCell>
                           <TableCell>
-                            {new Date(userMembership.validTo).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                            {new Date(userMembership.validTo).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',
@@ -896,10 +832,10 @@ export function AdminDashboard() {
                                   <div className="flex items-center gap-2">
                                     <Calendar className="size-4 text-[#e67e22]" />
                                     <span>
-                                      {new Date(festival.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                                      {new Date(festival.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                                         month: 'short',
                                         day: 'numeric',
-                                      })} - {new Date(festival.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                                      })} - {new Date(festival.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                                         month: 'short',
                                         day: 'numeric',
                                         year: 'numeric',
@@ -1038,10 +974,19 @@ export function AdminDashboard() {
                         startTime={eventFormData.startTime}
                         onSubmit={(eventData) => {
                           const newEvent: FestivalEvent = {
-                            ...eventData,
                             id: `fe${festivalEvents.length + 1}`,
                             festivalId: selectedFestival.id,
+                            title: eventData.name,
+                            type: 'workshop',
+                            dayIndex: eventData.dayIndex,
+                            room: eventData.room,
+                            startTime: eventData.startTime,
+                            duration: eventData.duration,
+                            maxCapacity: eventData.maxCapacity,
                             currentEnrollment: 0,
+                            description: eventData.description,
+                            style: eventData.style,
+                            price: 0,
                           };
                           setFestivalEvents([...festivalEvents, newEvent]);
                           setShowEventForm(false);
@@ -1064,90 +1009,290 @@ export function AdminDashboard() {
   );
 }
 
-function EventForm() {
+function EventsPanel({ events, loading, onRefetch }: { events: EventItem[]; loading: boolean; onRefetch: () => void }) {
+  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const { accessToken } = useAuth();
+  const { remove } = useEvents(accessToken);
+
+  const handleDelete = async (id: number) => {
+    await remove(id);
+    onRefetch();
+  };
+
   return (
-    <form className="space-y-4">
+    <Card>
+      <CardHeader>
+        <div className="flex justify-between items-center">
+          <div>
+            <CardTitle>Events Management</CardTitle>
+            <CardDescription>Create and manage dance classes and events</CardDescription>
+          </div>
+          <EventFormDialog onSuccess={onRefetch} />
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <p className="text-sm text-gray-500 py-4">Loading events...</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Event</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Start Date</TableHead>
+                <TableHead>Room</TableHead>
+                <TableHead>Artists</TableHead>
+                <TableHead>Capacity</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {events.map((event) => (
+                <TableRow key={event.id}>
+                  <TableCell className="font-medium">{event.name}</TableCell>
+                  <TableCell><Badge variant="outline">{event.event_type.name}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{event.status}</Badge></TableCell>
+                  <TableCell>{new Date(event.start_date).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })}</TableCell>
+                  <TableCell>{event.room.name}</TableCell>
+                  <TableCell>{event.artists.map(a => a.full_name).join(', ') || '—'}</TableCell>
+                  <TableCell>{event.capacity}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setEditingEvent(event)}>
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDelete(event.id)}>
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      {editingEvent && (
+        <Dialog open onOpenChange={(o) => { if (!o) setEditingEvent(null); }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Event</DialogTitle>
+              <DialogDescription>Update event details</DialogDescription>
+            </DialogHeader>
+            <EventForm
+              initialData={editingEvent}
+              onSuccess={() => { onRefetch(); setEditingEvent(null); }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+    </Card>
+  );
+}
+
+function EventFormDialog({ onSuccess }: { onSuccess: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button><Plus className="size-4 mr-2" />Add Event</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create New Event</DialogTitle>
+          <DialogDescription>Add a new class, workshop, or event</DialogDescription>
+        </DialogHeader>
+        <EventForm onSuccess={() => { onSuccess(); setOpen(false); }} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialData?: EventItem }) {
+  const { accessToken } = useAuth();
+  const { eventTypes, loading: loadingTypes } = useEventTypes(accessToken);
+  const { rooms, loading: loadingRooms } = useRooms(accessToken);
+  const { levels, loading: loadingLevels } = useLevels(accessToken);
+  const { artists, loading: loadingArtists } = useArtists(accessToken);
+  const { genres, loading: loadingGenres } = useGenres(accessToken);
+  const { styles, loading: loadingStyles } = useStyles(accessToken);
+  const { create, update } = useEvents(accessToken);
+
+  const parseDate = (iso: string) => iso ? iso.slice(0, 10) : '';
+  const parseTime = (iso: string) => iso ? iso.slice(11, 16) : '';
+
+  const [name, setName] = useState(initialData?.name ?? '');
+  const [status, setStatus] = useState(initialData?.status ?? 'draft');
+  const [eventTypeId, setEventTypeId] = useState(initialData?.event_type.id.toString() ?? '');
+  const [accessType, setAccessType] = useState(initialData?.type ?? 'members');
+  const [levelId, setLevelId] = useState(initialData?.level?.id.toString() ?? '');
+  const [roomId, setRoomId] = useState(initialData?.room.id.toString() ?? '');
+  const [startDate, setStartDate] = useState(parseDate(initialData?.start_date ?? ''));
+  const [startTime, setStartTime] = useState(parseTime(initialData?.start_date ?? ''));
+  const [endDate, setEndDate] = useState(parseDate(initialData?.end_date ?? ''));
+  const [endTime, setEndTime] = useState(parseTime(initialData?.end_date ?? ''));
+  const [duration, setDuration] = useState(initialData?.duration.toString() ?? '');
+  const [capacity, setCapacity] = useState(initialData?.capacity.toString() ?? '');
+  const [selectedArtists, setSelectedArtists] = useState<{ id: number; name: string }[]>(
+    initialData?.artists.map(a => ({ id: a.id, name: a.full_name })) ?? []
+  );
+  const [selectedGenres, setSelectedGenres] = useState<{ id: number; name: string }[]>(
+    initialData?.genres ?? []
+  );
+  const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(
+    initialData?.styles ?? []
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const artistItems = artists.map(a => ({ id: a.id, name: a.full_name }));
+  const isEdit = !!initialData;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    const payload = {
+      name,
+      status,
+      event_type_id: Number(eventTypeId),
+      type: accessType,
+      start_date: `${startDate}T${startTime}:00`,
+      end_date: `${endDate}T${endTime}:00`,
+      duration: Number(duration),
+      room_id: Number(roomId),
+      capacity: Number(capacity),
+      level_id: levelId ? Number(levelId) : null,
+      artist_ids: selectedArtists.map(a => a.id),
+      genre_ids: selectedGenres.map(g => g.id),
+      style_ids: selectedStyles.map(s => s.id),
+    };
+    try {
+      if (isEdit) {
+        await update(initialData.id, payload);
+      } else {
+        await create(payload);
+      }
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save event');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded">{error}</p>}
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2 space-y-2">
-          <Label htmlFor="title">Event Title</Label>
-          <Input id="title" placeholder="e.g., Swing Dancing Fundamentals" />
+          <Label htmlFor="name">Event Title *</Label>
+          <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g., Swing Dancing Fundamentals" required />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="type">Event Type</Label>
-          <Select>
-            <SelectTrigger id="type">
-              <SelectValue placeholder="Select type" />
-            </SelectTrigger>
+          <Label htmlFor="status">Status</Label>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger id="status"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="class">Class</SelectItem>
-              <SelectItem value="workshop">Workshop</SelectItem>
-              <SelectItem value="social">Social Dance</SelectItem>
-              <SelectItem value="performance">Performance</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="published">Published</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="event_type">Event Type *</Label>
+          <Select value={eventTypeId} onValueChange={setEventTypeId} disabled={loadingTypes}>
+            <SelectTrigger id="event_type"><SelectValue placeholder={loadingTypes ? 'Loading...' : 'Select type'} /></SelectTrigger>
+            <SelectContent>
+              {eventTypes.map(et => <SelectItem key={et.id} value={et.id.toString()}>{et.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="access_type">Access</Label>
+          <Select value={accessType} onValueChange={setAccessType}>
+            <SelectTrigger id="access_type"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="free">Free</SelectItem>
+              <SelectItem value="members">Members</SelectItem>
+              <SelectItem value="collaboration">Collaboration</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="level">Level</Label>
-          <Select>
-            <SelectTrigger id="level">
-              <SelectValue placeholder="Select level" />
-            </SelectTrigger>
+          <Select value={levelId} onValueChange={setLevelId} disabled={loadingLevels}>
+            <SelectTrigger id="level"><SelectValue placeholder={loadingLevels ? 'Loading...' : 'Select level'} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="Beginner">Beginner</SelectItem>
-              <SelectItem value="Intermediate">Intermediate</SelectItem>
-              <SelectItem value="Advanced">Advanced</SelectItem>
-              <SelectItem value="All Levels">All Levels</SelectItem>
+              {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="instructor">Instructor</Label>
-          <Input id="instructor" placeholder="Instructor name" />
+          <Label htmlFor="room">Room *</Label>
+          <Select value={roomId} onValueChange={setRoomId} disabled={loadingRooms}>
+            <SelectTrigger id="room"><SelectValue placeholder={loadingRooms ? 'Loading...' : 'Select room'} /></SelectTrigger>
+            <SelectContent>
+              {rooms.map(r => <SelectItem key={r.id} value={r.id.toString()}>{r.name} — {r.location.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="date">Date</Label>
-          <Input id="date" type="date" />
+          <Label htmlFor="start_date">Start Date *</Label>
+          <Input id="start_date" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="time">Time</Label>
-          <Input id="time" type="time" />
+          <Label htmlFor="start_time">Start Time *</Label>
+          <Input id="start_time" type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="duration">Duration (minutes)</Label>
-          <Input id="duration" type="number" placeholder="90" />
+          <Label htmlFor="end_date">End Date *</Label>
+          <Input id="end_date" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="price">Price ($)</Label>
-          <Input id="price" type="number" placeholder="25" />
+          <Label htmlFor="end_time">End Time *</Label>
+          <Input id="end_time" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="capacity">Max Capacity</Label>
-          <Input id="capacity" type="number" placeholder="20" />
+          <Label htmlFor="duration">Duration (minutes) *</Label>
+          <Input id="duration" type="number" value={duration} onChange={e => setDuration(e.target.value)} placeholder="90" required />
         </div>
 
-        <div className="col-span-2 space-y-2">
-          <Label htmlFor="description">Description</Label>
-          <Textarea
-            id="description"
-            placeholder="Describe the event..."
-            rows={3}
-          />
+        <div className="space-y-2">
+          <Label htmlFor="capacity">Max Capacity *</Label>
+          <Input id="capacity" type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="20" required />
+        </div>
+
+        <div className="col-span-2">
+          <MultiSearchSelect label="Instructors / Artists" items={artistItems} selected={selectedArtists} loading={loadingArtists} placeholder="Search artist..." onChange={setSelectedArtists} />
+        </div>
+
+        <div className="col-span-2">
+          <MultiSearchSelect label="Genres" items={genres} selected={selectedGenres} loading={loadingGenres} placeholder="Search genre..." onChange={setSelectedGenres} />
+        </div>
+
+        <div className="col-span-2">
+          <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style..." onChange={setSelectedStyles} />
         </div>
       </div>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline">
-          Cancel
+        <Button type="submit" disabled={submitting}>
+          {submitting ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Event'}
         </Button>
-        <Button type="submit">Create Event</Button>
       </div>
     </form>
   );

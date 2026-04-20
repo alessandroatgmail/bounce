@@ -57,7 +57,7 @@ export function MembershipCard({ membership, userMembership, onPurchase, onUpgra
               <span className="text-gray-700">
                 {language === 'it' ? 'Valido fino al' : 'Valid until'}:{' '}
                 <span className="font-semibold">
-                  {new Date(userMembership.validTo).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                  {new Date(userMembership.validTo).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                     day: 'numeric',
                     month: 'long',
                     year: 'numeric',

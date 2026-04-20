@@ -4,99 +4,136 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
+import { Checkbox } from './ui/checkbox';
 import { useLanguage } from '../contexts/LanguageContext';
-import { FestivalEvent, Festival } from '../data/mockData';
+import { useAuth } from '../contexts/AuthContext';
+import { useEventTypes } from '../hooks/useEventTypes';
+import { useArtists } from '../hooks/useArtists';
+import { Festival } from '../data/mockData';
+
+type Status = 'draft' | 'confirmed' | 'published';
 
 interface FestivalEventFormProps {
   festival: Festival;
   dayIndex?: number;
   room?: string;
   startTime?: string;
-  onSubmit?: (event: Omit<FestivalEvent, 'id' | 'festivalId' | 'currentEnrollment'>) => void;
+  onSubmit?: (data: EventFormData) => void;
   onCancel?: () => void;
 }
 
-export function FestivalEventForm({ 
-  festival, 
+export interface EventFormData {
+  name: string;
+  status: Status;
+  event_type_id: number | '';
+  artist_ids: number[];
+  dayIndex: number;
+  room: string;
+  startTime: string;
+  duration: number;
+  maxCapacity: number;
+  description: string;
+  style: string;
+}
+
+export function FestivalEventForm({
+  festival,
   dayIndex = 0,
   room,
   startTime = '10:00',
-  onSubmit, 
-  onCancel 
+  onSubmit,
+  onCancel,
 }: FestivalEventFormProps) {
   const { language } = useLanguage();
-  const [formData, setFormData] = useState({
-    title: '',
-    type: 'workshop' as 'workshop' | 'party' | 'social' | 'performance',
-    instructor: '',
-    dj: '',
-    dayIndex: dayIndex,
+  const { accessToken } = useAuth();
+  const { eventTypes, loading: loadingTypes } = useEventTypes(accessToken);
+  const { artists, loading: loadingArtists } = useArtists(accessToken);
+
+  const [formData, setFormData] = useState<EventFormData>({
+    name: '',
+    status: 'draft',
+    event_type_id: '',
+    artist_ids: [],
+    dayIndex,
     room: room || festival.rooms[0] || '',
-    startTime: startTime,
+    startTime,
     duration: 90,
-    level: 'Intermediate' as 'Beginner' | 'Intermediate' | 'Advanced' | 'All Levels' | undefined,
-    price: 35,
     maxCapacity: 30,
     description: '',
     style: '',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (onSubmit) {
-      onSubmit({
-        ...formData,
-        level: formData.type === 'party' ? undefined : formData.level,
-        instructor: formData.type === 'party' ? undefined : formData.instructor,
-        dj: formData.type === 'party' ? formData.dj : undefined,
-      });
-    }
+  const handleChange = (field: keyof EventFormData, value: unknown) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleChange = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const toggleArtist = (id: number) => {
+    setFormData(prev => ({
+      ...prev,
+      artist_ids: prev.artist_ids.includes(id)
+        ? prev.artist_ids.filter(a => a !== id)
+        : [...prev.artist_ids, id],
+    }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit?.(formData);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
-          <Label htmlFor="title">
+          <Label htmlFor="name">
             {language === 'it' ? 'Titolo Evento' : 'Event Title'} *
           </Label>
           <Input
-            id="title"
-            value={formData.title}
-            onChange={(e) => handleChange('title', e.target.value)}
+            id="name"
+            value={formData.name}
+            onChange={(e) => handleChange('name', e.target.value)}
             placeholder={language === 'it' ? 'es. Lindy Hop Fundamentals' : 'e.g. Lindy Hop Fundamentals'}
             required
           />
         </div>
 
         <div>
-          <Label htmlFor="type">
-            {language === 'it' ? 'Tipo' : 'Type'} *
+          <Label htmlFor="status">
+            {language === 'it' ? 'Stato' : 'Status'} *
           </Label>
           <Select
-            value={formData.type}
-            onValueChange={(value) => handleChange('type', value)}
+            value={formData.status}
+            onValueChange={(value) => handleChange('status', value as Status)}
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="workshop">
-                {language === 'it' ? 'Workshop' : 'Workshop'}
-              </SelectItem>
-              <SelectItem value="party">
-                {language === 'it' ? 'Festa' : 'Party'}
-              </SelectItem>
-              <SelectItem value="social">
-                {language === 'it' ? 'Social' : 'Social'}
-              </SelectItem>
-              <SelectItem value="performance">
-                {language === 'it' ? 'Performance' : 'Performance'}
-              </SelectItem>
+              <SelectItem value="draft">{language === 'it' ? 'Bozza' : 'Draft'}</SelectItem>
+              <SelectItem value="confirmed">{language === 'it' ? 'Confermato' : 'Confirmed'}</SelectItem>
+              <SelectItem value="published">{language === 'it' ? 'Pubblicato' : 'Published'}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <Label htmlFor="event_type_id">
+            {language === 'it' ? 'Tipo Evento' : 'Event Type'} *
+          </Label>
+          <Select
+            value={formData.event_type_id.toString()}
+            onValueChange={(value) => handleChange('event_type_id', parseInt(value))}
+            disabled={loadingTypes}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={loadingTypes ? '...' : (language === 'it' ? 'Seleziona tipo' : 'Select type')} />
+            </SelectTrigger>
+            <SelectContent>
+              {eventTypes.map((et) => (
+                <SelectItem key={et.id} value={et.id.toString()}>
+                  {et.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -112,64 +149,6 @@ export function FestivalEventForm({
             placeholder={language === 'it' ? 'es. Lindy Hop' : 'e.g. Lindy Hop'}
           />
         </div>
-
-        {formData.type !== 'party' ? (
-          <div>
-            <Label htmlFor="instructor">
-              {language === 'it' ? 'Istruttore' : 'Instructor'} *
-            </Label>
-            <Input
-              id="instructor"
-              value={formData.instructor}
-              onChange={(e) => handleChange('instructor', e.target.value)}
-              placeholder={language === 'it' ? 'es. Mike Thompson' : 'e.g. Mike Thompson'}
-              required={formData.type !== 'party'}
-            />
-          </div>
-        ) : (
-          <div>
-            <Label htmlFor="dj">
-              DJ *
-            </Label>
-            <Input
-              id="dj"
-              value={formData.dj}
-              onChange={(e) => handleChange('dj', e.target.value)}
-              placeholder="DJ Swing Master"
-              required
-            />
-          </div>
-        )}
-
-        {formData.type !== 'party' && (
-          <div>
-            <Label htmlFor="level">
-              {language === 'it' ? 'Livello' : 'Level'}
-            </Label>
-            <Select
-              value={formData.level}
-              onValueChange={(value) => handleChange('level', value)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Beginner">
-                  {language === 'it' ? 'Principiante' : 'Beginner'}
-                </SelectItem>
-                <SelectItem value="Intermediate">
-                  {language === 'it' ? 'Intermedio' : 'Intermediate'}
-                </SelectItem>
-                <SelectItem value="Advanced">
-                  {language === 'it' ? 'Avanzato' : 'Advanced'}
-                </SelectItem>
-                <SelectItem value="All Levels">
-                  {language === 'it' ? 'Tutti i Livelli' : 'All Levels'}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
 
         <div>
           <Label htmlFor="dayIndex">
@@ -188,7 +167,8 @@ export function FestivalEventForm({
                 date.setDate(date.getDate() + i);
                 return (
                   <SelectItem key={i} value={i.toString()}>
-                    {language === 'it' ? 'Giorno' : 'Day'} {i + 1} - {date.toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+                    {language === 'it' ? 'Giorno' : 'Day'} {i + 1} -{' '}
+                    {date.toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
                       weekday: 'short',
                       month: 'short',
                       day: 'numeric',
@@ -248,19 +228,6 @@ export function FestivalEventForm({
         </div>
 
         <div>
-          <Label htmlFor="price">
-            {language === 'it' ? 'Prezzo (€)' : 'Price (€)'} *
-          </Label>
-          <Input
-            id="price"
-            type="number"
-            value={formData.price}
-            onChange={(e) => handleChange('price', parseFloat(e.target.value))}
-            required
-          />
-        </div>
-
-        <div>
           <Label htmlFor="maxCapacity">
             {language === 'it' ? 'Capacità Massima' : 'Max Capacity'} *
           </Label>
@@ -271,6 +238,34 @@ export function FestivalEventForm({
             onChange={(e) => handleChange('maxCapacity', parseInt(e.target.value))}
             required
           />
+        </div>
+
+        <div className="col-span-2">
+          <Label>
+            {language === 'it' ? 'Istruttori / Artisti' : 'Instructors / Artists'}
+          </Label>
+          {loadingArtists ? (
+            <p className="text-sm text-gray-500 mt-1">...</p>
+          ) : artists.length === 0 ? (
+            <p className="text-sm text-gray-500 mt-1">
+              {language === 'it' ? 'Nessun artista disponibile' : 'No artists available'}
+            </p>
+          ) : (
+            <div className="mt-2 grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border rounded-md p-3">
+              {artists.map((artist) => (
+                <div key={artist.id} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`artist-${artist.id}`}
+                    checked={formData.artist_ids.includes(artist.id)}
+                    onCheckedChange={() => toggleArtist(artist.id)}
+                  />
+                  <label htmlFor={`artist-${artist.id}`} className="text-sm cursor-pointer">
+                    {artist.full_name}
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="col-span-2">
