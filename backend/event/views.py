@@ -1,8 +1,8 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
-from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Event, Status
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, EventSerializer
+from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer
 
 
 class EventTypeViewSet(viewsets.ModelViewSet):
@@ -44,6 +44,12 @@ class ArtistTypeViewSet(viewsets.ModelViewSet):
 class ArtistViewSet(viewsets.ModelViewSet):
     queryset = Artist.objects.all()
     serializer_class = ArtistSerializer
+    permission_classes = [IsAdminUser]
+
+
+class LevelViewSet(viewsets.ModelViewSet):
+    queryset = Level.objects.all()
+    serializer_class = LevelSerializer
     permission_classes = [IsAdminUser]
 
 

@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from users.models import City
-from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Event, Status
+from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status
 
 
 class EventTypeSerializer(serializers.ModelSerializer):
@@ -56,6 +56,12 @@ class GenreSerializer(serializers.ModelSerializer):
 class ArtistTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ArtistType
+        fields = ["id", "name"]
+
+
+class LevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Level
         fields = ["id", "name"]
 
 
@@ -137,6 +143,10 @@ class EventSerializer(serializers.ModelSerializer):
         queryset=EventType.objects.all(), source="event_type", write_only=True
     )
     type = serializers.ChoiceField(choices=Type.choices)
+    level = LevelSerializer(read_only=True)
+    level_id = serializers.PrimaryKeyRelatedField(
+        queryset=Level.objects.all(), source="level", write_only=True
+    )
     room = RoomSerializer(read_only=True)
     room_id = serializers.PrimaryKeyRelatedField(
         queryset=Room.objects.all(), source="room", write_only=True
@@ -164,6 +174,7 @@ class EventSerializer(serializers.ModelSerializer):
             "id", "name", "status",
             "event_type", "event_type_id",
             "type",
+            "level", "level_id",
             "start_date", "end_date", "duration",
             "room", "room_id",
             "capacity",

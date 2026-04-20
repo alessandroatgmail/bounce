@@ -70,6 +70,13 @@ class Artist(models.Model):
         else:
             return f"{self.first_name} {self.last_name}"
 
+class Level(models.Model):
+    name = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.name
+
+
 class Event(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     name = models.CharField(max_length=100)
@@ -84,6 +91,7 @@ class Event(models.Model):
     styles = models.ManyToManyField(Style,)
     genres = models.ManyToManyField(Genre,)
     artists = models.ManyToManyField(Artist,)
+    level = models.ForeignKey(Level, on_delete=models.PROTECT, null=True)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"

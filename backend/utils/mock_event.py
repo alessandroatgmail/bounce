@@ -19,11 +19,12 @@ from datetime import datetime, timedelta
 
 from faker import Faker
 
-from event.models import EventType, Type, Room, Style, Genre, Artist, Status
+from event.models import EventType, Type, Room, Style, Genre, Artist, Level, Status
 from utils.mock_event_type import make_event_type_payload
 from utils.mock_room import make_room_payload
 from utils.mock_style import make_style_payload
 from utils.mock_genre import make_genre_payload
+from utils.mock_level import make_level_payload
 
 _fake = Faker("it_IT")
 _TYPES = [t.value for t in Type]
@@ -31,6 +32,7 @@ _TYPES = [t.value for t in Type]
 
 def _create_dependencies():
     event_type = EventType.objects.create(**make_event_type_payload())
+    level = Level.objects.create(**make_level_payload())
     room = Room.objects.create(**make_room_payload())
     styles = [Style.objects.create(**make_style_payload()) for _ in range(2)]
     genres = [Genre.objects.create(**make_genre_payload()) for _ in range(2)]
@@ -38,12 +40,12 @@ def _create_dependencies():
         first_name=_fake.first_name(),
         last_name=_fake.last_name(),
     )
-    return event_type, room, styles, genres, artist
+    return event_type, level, room, styles, genres, artist
 
 
 def make_event_payload(**overrides) -> dict:
     """Return a dict with all required Event fields. Creates all dependencies in the DB."""
-    event_type, room, styles, genres, artist = _create_dependencies()
+    event_type, level, room, styles, genres, artist = _create_dependencies()
 
     start = datetime.now() + timedelta(days=random.randint(1, 30))
     end = start + timedelta(hours=random.randint(1, 4))
@@ -53,6 +55,7 @@ def make_event_payload(**overrides) -> dict:
         "status": Status.DRAFT,
         "event_type_id": event_type.pk,
         "type": random.choice(_TYPES),
+        "level_id": level.pk,
         "room_id": room.pk,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
