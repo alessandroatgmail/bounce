@@ -36,6 +36,9 @@ djangorestframework-simplejwt==5.3.1
 # OpenAPI schema generation
 drf-spectacular==0.28.0
 
+# Color field
+django-colorfield==0.11.0
+
 # Testing
 pytest-django==4.9.0
 pytest==8.3.5

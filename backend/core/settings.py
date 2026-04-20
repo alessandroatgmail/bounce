@@ -27,10 +27,13 @@ INSTALLED_APPS = [
     'corsheaders',
     "channels",
     'drf_spectacular',
+    'colorfield',
     # local
     'users',
     'notification',
-    'event'
+    'event',
+    'membership',
+
 ]
 
 MIDDLEWARE = [
