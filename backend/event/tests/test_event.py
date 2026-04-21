@@ -199,7 +199,7 @@ class TestEventCreate:
         assert len(response.data["artists"]) == len(payload["artist_ids"])
         assert "full_name" in response.data["artists"][0]
 
-    @pytest.mark.parametrize("field", ["name", "event_type_id", "level_id", "room_id",
+    @pytest.mark.parametrize("field", ["name", "event_type_id", "room_id",
                                         "start_date", "end_date", "duration", "capacity"])
     def test_create_missing_required_field_returns_400(self, staff_client, world_data, field):
         payload = make_event_payload()

@@ -34,6 +34,7 @@ import { useStyles } from '../hooks/useStyles';
 import { useGenres } from '../hooks/useGenres';
 import { useArtistTypes } from '../hooks/useArtistTypes';
 import { ArtistPanel } from '../components/ArtistPanel';
+import { MembershipPanel } from '../components/MembershipPanel';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useArtists } from '../hooks/useArtists';
 import { useRooms } from '../hooks/useRooms';
@@ -680,7 +681,8 @@ export function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="memberships" className="mt-6">
+          <TabsContent value="memberships" className="mt-6 space-y-6">
+            <MembershipPanel />
             <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
