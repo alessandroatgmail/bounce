@@ -1016,6 +1016,41 @@ function EventsPanel({ events, loading, onRefetch }: { events: EventItem[]; load
   const { accessToken } = useAuth();
   const { remove } = useEvents(accessToken);
 
+  const [filterName, setFilterName] = useState('');
+  const [filterParent, setFilterParent] = useState(false);
+  const [filterActive, setFilterActive] = useState(false);
+  const [filterStyleId, setFilterStyleId] = useState<string>('');
+  const [filterLevelId, setFilterLevelId] = useState<string>('');
+  const [filterAccess, setFilterAccess] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterCityId, setFilterCityId] = useState<string>('');
+
+  const now = new Date();
+
+  const allStyles = Array.from(
+    new Map(events.flatMap(e => e.styles).map(s => [s.id, s])).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  const allLevels = Array.from(
+    new Map(events.flatMap(e => e.level ? [e.level] : []).map(l => [l.id, l])).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  const allCities = Array.from(
+    new Map(events.map(e => e.room.location.city).map(c => [c.id, c])).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  const filtered = events.filter(e => {
+    if (filterName && !e.name.toLowerCase().includes(filterName.toLowerCase())) return false;
+    if (filterParent && e.events.length === 0) return false;
+    if (filterActive && new Date(e.end_date) <= now) return false;
+    if (filterStyleId && !e.styles.some(s => s.id === Number(filterStyleId))) return false;
+    if (filterLevelId && e.level?.id !== Number(filterLevelId)) return false;
+    if (filterAccess && e.type !== filterAccess) return false;
+    if (filterStatus && e.status !== filterStatus) return false;
+    if (filterCityId && e.room.location.city.id !== Number(filterCityId)) return false;
+    return true;
+  });
+
   const handleDelete = async (id: number) => {
     await remove(id);
     onRefetch();
@@ -1032,7 +1067,115 @@ function EventsPanel({ events, loading, onRefetch }: { events: EventItem[]; load
           <EventFormDialog onSuccess={onRefetch} />
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {/* Filter bar */}
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-[160px] space-y-1">
+            <Label className="text-xs text-gray-500">Name</Label>
+            <Input
+              placeholder="Search name…"
+              value={filterName}
+              onChange={e => setFilterName(e.target.value)}
+              className="h-8 text-sm"
+            />
+          </div>
+
+          <div className="min-w-[140px] space-y-1">
+            <Label className="text-xs text-gray-500">Style</Label>
+            <Select value={filterStyleId || 'all'} onValueChange={v => setFilterStyleId(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All styles" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All styles</SelectItem>
+                {allStyles.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="min-w-[140px] space-y-1">
+            <Label className="text-xs text-gray-500">Level</Label>
+            <Select value={filterLevelId || 'all'} onValueChange={v => setFilterLevelId(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All levels" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All levels</SelectItem>
+                {allLevels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="min-w-[140px] space-y-1">
+            <Label className="text-xs text-gray-500">Access</Label>
+            <Select value={filterAccess || 'all'} onValueChange={v => setFilterAccess(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="free">Free</SelectItem>
+                <SelectItem value="members">Members</SelectItem>
+                <SelectItem value="collaboration">Collaboration</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="min-w-[140px] space-y-1">
+            <Label className="text-xs text-gray-500">Status</Label>
+            <Select value={filterStatus || 'all'} onValueChange={v => setFilterStatus(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="published">Published</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="min-w-[140px] space-y-1">
+            <Label className="text-xs text-gray-500">City</Label>
+            <Select value={filterCityId || 'all'} onValueChange={v => setFilterCityId(v === 'all' ? '' : v)}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All cities" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All cities</SelectItem>
+                {allCities.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setFilterParent(v => !v)}
+            className={[
+              'h-8 px-3 rounded-md border text-xs font-medium transition-colors',
+              filterParent
+                ? 'bg-[#2b2b2b] text-white border-[#2b2b2b]'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400',
+            ].join(' ')}
+          >
+            Parent only
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterActive(v => !v)}
+            className={[
+              'h-8 px-3 rounded-md border text-xs font-medium transition-colors',
+              filterActive
+                ? 'bg-[#2b2b2b] text-white border-[#2b2b2b]'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400',
+            ].join(' ')}
+          >
+            Active only
+          </button>
+
+          {(filterName || filterParent || filterActive || filterStyleId || filterLevelId || filterAccess || filterStatus || filterCityId) && (
+            <button
+              type="button"
+              onClick={() => { setFilterName(''); setFilterParent(false); setFilterActive(false); setFilterStyleId(''); setFilterLevelId(''); setFilterAccess(''); setFilterStatus(''); setFilterCityId(''); }}
+              className="h-8 px-3 rounded-md border text-xs text-red-500 border-red-200 hover:bg-red-50"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
         {loading ? (
           <p className="text-sm text-gray-500 py-4">Loading events...</p>
         ) : (
@@ -1050,9 +1193,21 @@ function EventsPanel({ events, loading, onRefetch }: { events: EventItem[]; load
               </TableRow>
             </TableHeader>
             <TableBody>
-              {events.map((event) => (
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-gray-400 py-8">No events match the current filters.</TableCell>
+                </TableRow>
+              )}
+              {filtered.map((event) => (
                 <TableRow key={event.id}>
-                  <TableCell className="font-medium">{event.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {event.name}
+                      {event.events.length > 0 && (
+                        <Badge variant="outline" className="text-xs">{event.events.length} children</Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell><Badge variant="outline">{event.event_type.name}</Badge></TableCell>
                   <TableCell><Badge variant="outline">{event.status}</Badge></TableCell>
                   <TableCell>{new Date(event.start_date).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })}</TableCell>

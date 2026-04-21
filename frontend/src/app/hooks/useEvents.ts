@@ -12,12 +12,13 @@ export interface EventItem {
   start_date: string;
   end_date: string;
   duration: number;
-  room: { id: number; name: string; location: { id: number; name: string } };
+  room: { id: number; name: string; location: { id: number; name: string; city: { id: number; name: string } } };
   capacity: number;
   level: { id: number; name: string } | null;
   artists: { id: number; full_name: string }[];
   genres: { id: number; name: string }[];
   styles: { id: number; name: string }[];
+  events: number[];
 }
 
 export interface EventPayload {

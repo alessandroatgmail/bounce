@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from users.models import City
 
+
 class Status(models.TextChoices):
     DRAFT = "draft", "Draft"
     CONFIRMED = "confirmed", "Confirmed"
@@ -87,7 +88,7 @@ class Event(models.Model):
     duration = models.IntegerField(verbose_name="Duration (Mins)")
     room = models.ForeignKey(Room, on_delete=models.PROTECT)
     capacity = models.IntegerField(verbose_name="Capacity")
-    events = models.ManyToManyField("self",)
+    events = models.ManyToManyField("self", symmetrical=False, blank=True)
     styles = models.ManyToManyField(Style,)
     genres = models.ManyToManyField(Genre,)
     artists = models.ManyToManyField(Artist,)
