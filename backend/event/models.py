@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from colorfield.fields import ColorField
 from users.models import City
 
 
@@ -94,6 +95,7 @@ class Event(models.Model):
     artists = models.ManyToManyField(Artist,)
     level = models.ForeignKey(Level, on_delete=models.PROTECT, null=True)
     info = models.TextField(blank=True, null=True)
+    color = ColorField(format="hex", null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"

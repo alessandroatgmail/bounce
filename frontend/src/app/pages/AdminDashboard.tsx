@@ -18,14 +18,12 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Music, Eye, Crown, ArrowLeftRight, Menu, ChevronDown } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
-import { mockEvents, mockStudents, mockRegularClasses, mockFestivals, mockFestivalEvents, mockMemberships, mockUserMemberships, RegularClass, Festival, FestivalEvent, Membership, UserMembership } from '../data/mockData';
+import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
 import { useState } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
-import { FestivalWizard } from '../components/FestivalWizard';
-import { FestivalScheduleBuilder } from '../components/FestivalScheduleBuilder';
-import { FestivalEventForm } from '../components/FestivalEventForm';
+import { FestivalPanel } from '../components/FestivalPanel';
 import { EventTypePanel } from '../components/EventTypePanel';
 import { LocationPanel } from '../components/LocationPanel';
 import { RoomPanel } from '../components/RoomPanel';
@@ -49,14 +47,8 @@ export function AdminDashboard() {
   const { events, loading: loadingEvents, refetch: refetchEvents } = useEvents(accessToken);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
-  const [festivals, setFestivals] = useState(mockFestivals);
-  const [festivalEvents, setFestivalEvents] = useState(mockFestivalEvents);
   const [memberships, setMemberships] = useState(mockMemberships);
   const [userMemberships, setUserMemberships] = useState(mockUserMemberships);
-  const [selectedFestival, setSelectedFestival] = useState<Festival | null>(null);
-  const [showFestivalWizard, setShowFestivalWizard] = useState(false);
-  const [showEventForm, setShowEventForm] = useState(false);
-  const [eventFormData, setEventFormData] = useState<{dayIndex: number, room: string, startTime: string} | null>(null);
 
   const [activeTab, setActiveTab] = useState('events');
   const [showStats, setShowStats] = useState(true);
@@ -750,260 +742,7 @@ export function AdminDashboard() {
           </TabsContent>
 
           <TabsContent value="festivals" className="mt-6">
-            {!selectedFestival ? (
-              // List of Festivals
-              <Card>
-                <CardHeader>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <CardTitle>
-                        {language === 'it' ? 'Gestione Festival' : 'Festivals Management'}
-                      </CardTitle>
-                      <CardDescription>
-                        {language === 'it' 
-                          ? 'Crea e gestisci festival di danza con workshop e feste' 
-                          : 'Create and manage dance festivals with workshops and parties'}
-                      </CardDescription>
-                    </div>
-                    <Dialog open={showFestivalWizard} onOpenChange={setShowFestivalWizard}>
-                      <DialogTrigger asChild>
-                        <Button className="bg-[#e67e22] hover:bg-[#d4b896]">
-                          <Plus className="size-4 mr-2" />
-                          {language === 'it' ? 'Nuovo Festival' : 'New Festival'}
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-                        <DialogHeader>
-                          <DialogTitle>
-                            {language === 'it' ? 'Crea Nuovo Festival' : 'Create New Festival'}
-                          </DialogTitle>
-                          <DialogDescription>
-                            {language === 'it' 
-                              ? 'Configura il festival e aggiungi workshop e feste' 
-                              : 'Configure the festival and add workshops and parties'}
-                          </DialogDescription>
-                        </DialogHeader>
-                        <FestivalWizard
-                          onComplete={(festivalData) => {
-                            const newFestival: Festival = {
-                              ...festivalData,
-                              id: `fest${festivals.length + 1}`,
-                              status: 'draft',
-                            };
-                            setFestivals([...festivals, newFestival]);
-                            setShowFestivalWizard(false);
-                            setSelectedFestival(newFestival);
-                          }}
-                          onCancel={() => setShowFestivalWizard(false)}
-                        />
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {festivals.length === 0 ? (
-                    <div className="text-center py-12">
-                      <PartyPopper className="size-12 mx-auto text-gray-400 mb-4" />
-                      <p className="text-gray-600 mb-4">
-                        {language === 'it' 
-                          ? 'Nessun festival creato ancora' 
-                          : 'No festivals created yet'}
-                      </p>
-                      <Button 
-                        onClick={() => setShowFestivalWizard(true)}
-                        className="bg-[#e67e22] hover:bg-[#d4b896]"
-                      >
-                        <Plus className="size-4 mr-2" />
-                        {language === 'it' ? 'Crea il tuo primo festival' : 'Create your first festival'}
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="grid gap-4">
-                      {festivals.map((festival) => (
-                        <Card key={festival.id} className="hover:shadow-md transition-shadow cursor-pointer"
-                          onClick={() => setSelectedFestival(festival)}
-                        >
-                          <CardContent className="p-6">
-                            <div className="flex justify-between items-start">
-                              <div className="flex-1">
-                                <h3 className="text-xl font-bold text-[#2b2b2b] mb-2">
-                                  {festival.title}
-                                </h3>
-                                <p className="text-gray-600 mb-3">{festival.description}</p>
-                                <div className="flex flex-wrap gap-4 text-sm">
-                                  <div className="flex items-center gap-2">
-                                    <Calendar className="size-4 text-[#e67e22]" />
-                                    <span>
-                                      {new Date(festival.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                      })} - {new Date(festival.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        year: 'numeric',
-                                      })}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Music className="size-4 text-[#e67e22]" />
-                                    <span>
-                                      {festivalEvents.filter(e => e.festivalId === festival.id).length}{' '}
-                                      {language === 'it' ? 'eventi' : 'events'}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              <Badge 
-                                variant={festival.status === 'published' ? 'default' : 'outline'}
-                                className={festival.status === 'published' ? 'bg-green-500' : ''}
-                              >
-                                {festival.status === 'published' 
-                                  ? (language === 'it' ? 'Pubblicato' : 'Published')
-                                  : (language === 'it' ? 'Bozza' : 'Draft')}
-                              </Badge>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              // Festival Schedule Builder
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setSelectedFestival(null)}
-                  >
-                    ← {language === 'it' ? 'Torna ai Festival' : 'Back to Festivals'}
-                  </Button>
-                  <div className="flex gap-2">
-                    <Badge 
-                      variant={selectedFestival.status === 'published' ? 'default' : 'outline'}
-                      className={selectedFestival.status === 'published' ? 'bg-green-500' : ''}
-                    >
-                      {selectedFestival.status === 'published' 
-                        ? (language === 'it' ? 'Pubblicato' : 'Published')
-                        : (language === 'it' ? 'Bozza' : 'Draft')}
-                    </Badge>
-                    <Button 
-                      className="bg-[#e67e22] hover:bg-[#d4b896]"
-                      onClick={() => {
-                        setFestivals(festivals.map(f => 
-                          f.id === selectedFestival.id 
-                            ? { ...f, status: f.status === 'published' ? 'draft' : 'published' }
-                            : f
-                        ));
-                        setSelectedFestival({
-                          ...selectedFestival,
-                          status: selectedFestival.status === 'published' ? 'draft' : 'published',
-                        });
-                      }}
-                    >
-                      {selectedFestival.status === 'published'
-                        ? (language === 'it' ? 'Rimuovi Pubblicazione' : 'Unpublish')
-                        : (language === 'it' ? 'Pubblica' : 'Publish')}
-                    </Button>
-                  </div>
-                </div>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{selectedFestival.title}</CardTitle>
-                    <CardDescription>{selectedFestival.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-3 gap-4 mb-6">
-                      <div>
-                        <div className="text-sm text-gray-600">
-                          {language === 'it' ? 'Durata' : 'Duration'}
-                        </div>
-                        <div className="font-medium">{selectedFestival.numberOfDays} {language === 'it' ? 'giorni' : 'days'}</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-gray-600">
-                          {language === 'it' ? 'Sale' : 'Rooms'}
-                        </div>
-                        <div className="font-medium">{selectedFestival.rooms.length}</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-gray-600">
-                          {language === 'it' ? 'Eventi' : 'Events'}
-                        </div>
-                        <div className="font-medium">
-                          {festivalEvents.filter(e => e.festivalId === selectedFestival.id).length}
-                        </div>
-                      </div>
-                    </div>
-
-                    <FestivalScheduleBuilder
-                      festival={selectedFestival}
-                      events={festivalEvents.filter(e => e.festivalId === selectedFestival.id)}
-                      onEventsChange={(updatedEvents) => {
-                        setFestivalEvents([
-                          ...festivalEvents.filter(e => e.festivalId !== selectedFestival.id),
-                          ...updatedEvents,
-                        ]);
-                      }}
-                      onAddEvent={(dayIndex, room, startTime) => {
-                        setEventFormData({ dayIndex, room, startTime });
-                        setShowEventForm(true);
-                      }}
-                    />
-                  </CardContent>
-                </Card>
-
-                {/* Add Event Dialog */}
-                <Dialog open={showEventForm} onOpenChange={setShowEventForm}>
-                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>
-                        {language === 'it' ? 'Aggiungi Evento al Festival' : 'Add Event to Festival'}
-                      </DialogTitle>
-                      <DialogDescription>
-                        {language === 'it' 
-                          ? 'Crea un workshop o una festa per il festival' 
-                          : 'Create a workshop or party for the festival'}
-                      </DialogDescription>
-                    </DialogHeader>
-                    {eventFormData && (
-                      <FestivalEventForm
-                        festival={selectedFestival}
-                        dayIndex={eventFormData.dayIndex}
-                        room={eventFormData.room}
-                        startTime={eventFormData.startTime}
-                        onSubmit={(eventData) => {
-                          const newEvent: FestivalEvent = {
-                            id: `fe${festivalEvents.length + 1}`,
-                            festivalId: selectedFestival.id,
-                            title: eventData.name,
-                            type: 'workshop',
-                            dayIndex: eventData.dayIndex,
-                            room: eventData.room,
-                            startTime: eventData.startTime,
-                            duration: eventData.duration,
-                            maxCapacity: eventData.maxCapacity,
-                            currentEnrollment: 0,
-                            description: eventData.description,
-                            style: eventData.style,
-                            price: 0,
-                          };
-                          setFestivalEvents([...festivalEvents, newEvent]);
-                          setShowEventForm(false);
-                          setEventFormData(null);
-                        }}
-                        onCancel={() => {
-                          setShowEventForm(false);
-                          setEventFormData(null);
-                        }}
-                      />
-                    )}
-                  </DialogContent>
-                </Dialog>
-              </div>
-            )}
+            <FestivalPanel />
           </TabsContent>
         </Tabs>
       </div>

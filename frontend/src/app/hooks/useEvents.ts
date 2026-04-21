@@ -19,6 +19,8 @@ export interface EventItem {
   genres: { id: number; name: string }[];
   styles: { id: number; name: string }[];
   events: number[];
+  info: string | null;
+  color: string | null;
 }
 
 export interface EventPayload {
@@ -35,6 +37,8 @@ export interface EventPayload {
   artist_ids?: number[];
   genre_ids?: number[];
   style_ids?: number[];
+  info?: string | null;
+  color?: string | null;
 }
 
 export function useEvents(token: string | null) {

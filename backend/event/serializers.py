@@ -182,6 +182,7 @@ class EventSerializer(serializers.ModelSerializer):
             "genres", "genre_ids",
             "artists", "artist_ids",
             "events", "event_ids",
+            "info", "color",
         ]
 
     def validate(self, data):
