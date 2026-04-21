@@ -257,16 +257,22 @@ function RoomColumn({
   dayEvents,
   onSlotClick,
   onEventClick,
+  onEventDrop,
 }: {
   festivalRoom: FestivalRoom;
   dayDate: string;
   dayEvents: EventItem[];
   onSlotClick: (slot: AddSlot) => void;
   onEventClick: (event: EventItem) => void;
+  onEventDrop: (eventId: number, room: FestivalRoom, date: string, startMin: number) => void;
 }) {
   const colRef = useRef<HTMLDivElement>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const roomEvents = dayEvents.filter(e => e.room.id === festivalRoom.room.id);
+
+  const yToMinutes = (y: number) =>
+    Math.round((y / PIXELS_PER_MINUTE + DAY_START_MIN) / 15) * 15;
 
   const handleClick = (e: React.MouseEvent) => {
     if (!colRef.current) return;
@@ -282,12 +288,34 @@ function RoomColumn({
     });
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOver(true);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!colRef.current) return;
+    const eventId = Number(e.dataTransfer.getData('eventId'));
+    const offsetY = Number(e.dataTransfer.getData('offsetY'));
+    const rect = colRef.current.getBoundingClientRect();
+    const y = e.clientY - rect.top + colRef.current.scrollTop - offsetY;
+    const startMin = Math.max(DAY_START_MIN, Math.min(yToMinutes(y), DAY_END_MIN - 15));
+    onEventDrop(eventId, festivalRoom, dayDate, startMin);
+  };
+
   return (
     <div
       ref={colRef}
-      className="relative border-l border-gray-100 cursor-crosshair select-none"
+      className={`relative border-l border-gray-100 cursor-crosshair select-none transition-colors ${dragOver ? 'bg-orange-50' : ''}`}
       style={{ width: ROOM_COL_W, height: GRID_HEIGHT, flexShrink: 0 }}
       onClick={handleClick}
+      onDragOver={handleDragOver}
+      onDragEnter={() => setDragOver(true)}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
     >
       {/* 30-min grid lines */}
       {TIME_LABELS.map(({ minutes }) => (
@@ -307,7 +335,14 @@ function RoomColumn({
         return (
           <div
             key={ev.id}
-            className="absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 transition-opacity hover:opacity-90"
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('eventId', String(ev.id));
+              const rect = e.currentTarget.getBoundingClientRect();
+              e.dataTransfer.setData('offsetY', String(e.clientY - rect.top));
+            }}
+            className="absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 cursor-grab active:cursor-grabbing hover:opacity-90"
             style={{ top, height, backgroundColor: ev.color ?? '#e67e22' }}
             onClick={e => { e.stopPropagation(); onEventClick(ev); }}
           >
@@ -328,12 +363,14 @@ function DayGrid({
   allEvents,
   onSlotClick,
   onEventClick,
+  onEventDrop,
 }: {
   day: FestivalDay;
   festival: EventItem;
   allEvents: EventItem[];
   onSlotClick: (slot: AddSlot) => void;
   onEventClick: (event: EventItem) => void;
+  onEventDrop: (eventId: number, room: FestivalRoom, date: string, startMin: number) => void;
 }) {
   // Events belonging to this festival that fall on this day
   const festivalEventIds = new Set(festival.events);
@@ -400,6 +437,7 @@ function DayGrid({
             dayEvents={dayEvents}
             onSlotClick={onSlotClick}
             onEventClick={onEventClick}
+            onEventDrop={onEventDrop}
           />
         ))}
       </div>
@@ -418,6 +456,9 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
   const [addingSlot, setAddingSlot] = useState<AddSlot | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
 
+  // Keep festival in sync with the live events list so festival.events reflects newly added children
+  const liveFestival = allEvents.find(e => e.id === festival.id) ?? festival;
+
   const selectedDay = days.find(d => d.id === selectedDayId) ?? days[0] ?? null;
 
   const formatDayLabel = (date: string) =>
@@ -426,6 +467,76 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
   const handleSaved = () => {
     setAddingSlot(null);
     setEditingEvent(null);
+    refetchEvents();
+  };
+
+  const handleEventDrop = async (
+    draggedId: number,
+    targetRoom: FestivalRoom,
+    targetDate: string,
+    newStartMin: number,
+  ) => {
+    if (!accessToken) return;
+    const dragged = allEvents.find(e => e.id === draggedId);
+    if (!dragged) return;
+
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const toISO = (date: string, totalMin: number) => {
+      const h = Math.floor(totalMin / 60) % 24;
+      const m = totalMin % 60;
+      return `${date}T${pad(h)}:${pad(m)}:00`;
+    };
+
+    // All other festival events in the target room on the target date, sorted by start
+    const festivalIds = new Set(liveFestival.events);
+    const siblings = allEvents
+      .filter(e => festivalIds.has(e.id) && e.id !== draggedId && e.room.id === targetRoom.room.id && e.start_date.slice(0, 10) === targetDate)
+      .map(e => ({ id: e.id, start: eventMinutes(e.start_date), duration: e.duration }))
+      .sort((a, b) => a.start - b.start);
+
+    // Build sorted list including the moved event at its new position
+    const sorted = [{ id: draggedId, start: newStartMin, duration: dragged.duration }, ...siblings]
+      .sort((a, b) => a.start - b.start);
+
+    // Cascade: if event[i] end > event[i+1] start, push event[i+1] down
+    const updates = new Map<number, number>(sorted.map(e => [e.id, e.start]));
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const currStart = updates.get(sorted[i].id)!;
+      const currEnd = currStart + sorted[i].duration;
+      const nextStart = updates.get(sorted[i + 1].id)!;
+      if (nextStart < currEnd) {
+        updates.set(sorted[i + 1].id, currEnd);
+        sorted[i + 1] = { ...sorted[i + 1], start: currEnd };
+      }
+    }
+
+    // PUT all changed events in parallel
+    await Promise.all(
+      Array.from(updates.entries()).map(([id, startMin]) => {
+        const ev = id === draggedId ? dragged : allEvents.find(e => e.id === id)!;
+        const date = id === draggedId ? targetDate : ev.start_date.slice(0, 10);
+        const endMin = startMin + ev.duration;
+        return authFetch(`/api/events/events/${id}/`, accessToken, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: ev.name,
+            status: ev.status,
+            event_type_id: ev.event_type.id,
+            type: ev.type,
+            start_date: toISO(date, startMin),
+            end_date: toISO(date, endMin),
+            duration: ev.duration,
+            room_id: id === draggedId ? targetRoom.room.id : ev.room.id,
+            capacity: ev.capacity,
+            artist_ids: ev.artists.map(a => a.id),
+            genre_ids: ev.genres.map(g => g.id),
+            style_ids: ev.styles.map(s => s.id),
+            color: ev.color,
+          } satisfies EventPayload),
+        });
+      })
+    );
+
     refetchEvents();
   };
 
@@ -438,15 +549,15 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
             <ArrowLeft className="size-4 mr-1" /> Festivals
           </Button>
           <div>
-            <h2 className="font-semibold text-lg text-[#2b2b2b]">{festival.name}</h2>
+            <h2 className="font-semibold text-lg text-[#2b2b2b]">{liveFestival.name}</h2>
             <p className="text-xs text-gray-500">
-              {formatDate(festival.start_date, { day: 'numeric', month: 'short', year: 'numeric' })}
+              {formatDate(liveFestival.start_date, { day: 'numeric', month: 'short', year: 'numeric' })}
               {' – '}
-              {formatDate(festival.end_date, { day: 'numeric', month: 'short', year: 'numeric' })}
+              {formatDate(liveFestival.end_date, { day: 'numeric', month: 'short', year: 'numeric' })}
             </p>
           </div>
         </div>
-        <Badge variant="outline">{festival.status}</Badge>
+        <Badge variant="outline">{liveFestival.status}</Badge>
       </div>
 
       {/* Day tabs */}
@@ -476,10 +587,11 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
           {selectedDay && (
             <DayGrid
               day={selectedDay}
-              festival={festival}
+              festival={liveFestival}
               allEvents={allEvents}
               onSlotClick={setAddingSlot}
               onEventClick={setEditingEvent}
+              onEventDrop={handleEventDrop}
             />
           )}
         </>
@@ -489,7 +601,7 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
       {addingSlot && (
         <EventSlotDialog
           slot={addingSlot}
-          festival={festival}
+          festival={liveFestival}
           onClose={() => setAddingSlot(null)}
           onSaved={handleSaved}
         />
@@ -499,7 +611,7 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
       {editingEvent && (
         <EventSlotDialog
           editEvent={editingEvent}
-          festival={festival}
+          festival={liveFestival}
           onClose={() => setEditingEvent(null)}
           onSaved={handleSaved}
         />
