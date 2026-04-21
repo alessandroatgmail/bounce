@@ -93,6 +93,7 @@ class Event(models.Model):
     genres = models.ManyToManyField(Genre,)
     artists = models.ManyToManyField(Artist,)
     level = models.ForeignKey(Level, on_delete=models.PROTECT, null=True)
+    info = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"

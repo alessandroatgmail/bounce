@@ -11,6 +11,7 @@ urlpatterns = [
     path('api/auth/', include('users.urls')),
     path('api/events/', include('event.urls')),
     path('api/membership/', include('membership.urls')),
+    path('api/festival/', include('festival.urls')),
 
     # generates the raw schema file (yaml/json)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

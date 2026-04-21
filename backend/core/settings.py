@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'notification',
     'event',
     'membership',
+    'festival',
 
 ]
 
