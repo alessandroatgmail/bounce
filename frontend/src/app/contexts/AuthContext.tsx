@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { apiUrl } from '../../lib/api';
 
 export type UserRole = 'guest' | 'student' | 'admin';
@@ -38,49 +38,112 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [adminViewMode, setAdminViewMode] = useState<'admin' | 'student'>('admin');
+  const [initializing, setInitializing] = useState(true);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref so the scheduled timer always calls the latest version of tryRefresh
+  const tryRefreshRef = useRef<() => Promise<string | null>>();
 
-  const login = async (email: string, password: string): Promise<User | null> => {
-    const response = await fetch(apiUrl('/api/auth/token/'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    const { access, refresh } = data as { access: string; refresh: string };
-
-    const payload = decodeJwtPayload(access);
-    const role = mapRole(payload['role'] as string);
-
-    const loggedInUser: User = {
-      id: String(payload['user_id']),
-      email: payload['email'] as string,
-      name: '',
-      role,
-    };
-
-    localStorage.setItem('refresh_token', refresh);
-    setAccessToken(access);
-    setUser(loggedInUser);
-
-    if (role === 'admin') setAdminViewMode('admin');
-
-    return loggedInUser;
+  const clearRefreshTimer = () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
   };
 
-  const logout = () => {
+  const performLogout = () => {
+    clearRefreshTimer();
     localStorage.removeItem('refresh_token');
     setAccessToken(null);
     setUser(null);
     setAdminViewMode('admin');
   };
 
-  const isAuthenticated = user !== null;
+  // Apply a fresh token pair to state and schedule the next silent refresh.
+  const applySession = (access: string, refresh: string): User => {
+    const payload = decodeJwtPayload(access);
+    const role = mapRole(payload['role'] as string);
+    const newUser: User = {
+      id: String(payload['user_id']),
+      email: payload['email'] as string,
+      name: '',
+      role,
+    };
+    localStorage.setItem('refresh_token', refresh);
+    setAccessToken(access);
+    setUser(newUser);
+    if (role === 'admin') setAdminViewMode('admin');
+
+    // Refresh 60 s before the access token expires
+    const exp = payload['exp'] as number;
+    const msUntilRefresh = Math.max((exp - Date.now() / 1000 - 60) * 1000, 0);
+    clearRefreshTimer();
+    refreshTimerRef.current = setTimeout(() => tryRefreshRef.current?.(), msUntilRefresh);
+
+    return newUser;
+  };
+
+  const tryRefresh = async (): Promise<string | null> => {
+    const storedRefresh = localStorage.getItem('refresh_token');
+    if (!storedRefresh) {
+      performLogout();
+      return null;
+    }
+    try {
+      const res = await fetch(apiUrl('/api/auth/token/refresh/'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh: storedRefresh }),
+      });
+      if (!res.ok) {
+        performLogout();
+        return null;
+      }
+      const data = await res.json();
+      const newAccess = data.access as string;
+      // SimpleJWT can rotate the refresh token; use the new one if provided
+      const newRefresh = (data.refresh as string | undefined) ?? storedRefresh;
+      applySession(newAccess, newRefresh);
+      return newAccess;
+    } catch {
+      performLogout();
+      return null;
+    }
+  };
+
+  // Keep the ref pointing at the latest closure so the timer never goes stale
+  tryRefreshRef.current = tryRefresh;
+
+  // On mount: silently restore session from the stored refresh token
+  useEffect(() => {
+    tryRefresh().finally(() => setInitializing(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => { clearRefreshTimer(); }, []);
+
+  const login = async (email: string, password: string): Promise<User | null> => {
+    const res = await fetch(apiUrl('/api/auth/token/'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return applySession(data.access as string, data.refresh as string);
+  };
+
+  // Render nothing while we check for a stored session — avoids a flash of the login page
+  if (initializing) return null;
 
   return (
-    <AuthContext.Provider value={{ user, accessToken, login, logout, isAuthenticated, adminViewMode, setAdminViewMode }}>
+    <AuthContext.Provider value={{
+      user,
+      accessToken,
+      login,
+      logout: performLogout,
+      isAuthenticated: user !== null,
+      adminViewMode,
+      setAdminViewMode,
+    }}>
       {children}
     </AuthContext.Provider>
   );
