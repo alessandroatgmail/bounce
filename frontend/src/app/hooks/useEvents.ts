@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authFetch } from '../../lib/api';
+import { authFetch, apiUrl } from '../../lib/api';
 
 const BASE = '/api/events/events/';
 
@@ -47,11 +47,12 @@ export function useEvents(token: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
-    if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(BASE, token);
+      const res = token
+        ? await authFetch(BASE, token)
+        : await fetch(apiUrl(BASE), { headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) throw new Error(`${res.status}`);
       setEvents(await res.json());
     } catch {

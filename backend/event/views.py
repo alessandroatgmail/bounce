@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from rest_framework import viewsets
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 
 from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency
 from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer
@@ -37,7 +37,7 @@ def _create_recurring_events(original: Event) -> None:
             end_date=current + duration,
             duration=original.duration,
             capacity=original.capacity,
-
+            color=original.color,
         )
         child.styles.set(original.styles.all())
         child.genres.set(original.genres.all())
@@ -102,7 +102,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
-            return [IsAuthenticated()]
+            return [AllowAny()]
         return [IsAdminUser()]
 
     def get_queryset(self):
@@ -132,10 +132,18 @@ class EventViewSet(viewsets.ModelViewSet):
         if not children:
             return
         for child in children:
+            # Each child lives on its own calendar date; only the time-of-day and
+            # duration should change, so shift the child by the same offset as the parent.
+            day_delta = child.start_date.date() - instance.start_date.date()
+            new_start = instance.start_date + timedelta(days=day_delta.days)
+            new_end = new_start + timedelta(minutes=instance.duration)
+
             child.room = instance.room
-            child.start_date = instance.start_date
-            child.end_date = instance.end_date
-            child.save(update_fields=['room', 'start_date', 'end_date'])
+            child.start_date = new_start
+            child.end_date = new_end
+            child.duration = instance.duration
+            child.color = instance.color
+            child.save(update_fields=['room', 'start_date', 'end_date', 'duration', 'color'])
             child.artists.set(instance.artists.all())
             child.styles.set(instance.styles.all())
             child.genres.set(instance.genres.all())
