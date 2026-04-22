@@ -48,7 +48,8 @@ def make_event_payload(**overrides) -> dict:
     event_type, level, room, styles, genres, artist = _create_dependencies()
 
     start = datetime.now() + timedelta(days=random.randint(1, 30))
-    end = start + timedelta(hours=random.randint(1, 4))
+    duration_minutes = random.randint(30, 240)
+    end = start + timedelta(minutes=duration_minutes)
 
     payload = {
         "name": _fake.sentence(nb_words=3).rstrip("."),
@@ -59,7 +60,7 @@ def make_event_payload(**overrides) -> dict:
         "room_id": room.pk,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
-        "duration": random.randint(30, 240),
+        "duration": duration_minutes,
         "capacity": random.randint(10, 100),
         "style_ids": [s.pk for s in styles],
         "genre_ids": [g.pk for g in genres],

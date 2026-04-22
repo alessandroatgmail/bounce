@@ -31,14 +31,20 @@ def create_event(**overrides):
 
 class TestEventAuthentication:
 
-    def test_unauthenticated_list_returns_401(self, client, world_data):
+    def test_unauthenticated_list_returns_200(self, client, world_data):
         response = client.get(LIST_URL)
-        assert response.status_code == http_status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == http_status.HTTP_200_OK
 
-    def test_unauthenticated_retrieve_returns_401(self, client, world_data):
+    def test_unauthenticated_list_empty_when_no_published(self, client, world_data):
+        create_event(status=Status.DRAFT)
+        response = client.get(LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_unauthenticated_retrieve_returns_200_for_published(self, client, world_data):
         event = create_event(status=Status.PUBLISHED)
         response = client.get(detail_url(event.pk))
-        assert response.status_code == http_status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == http_status.HTTP_200_OK
 
     def test_unauthenticated_create_returns_401(self, client, world_data):
         response = client.post(LIST_URL, make_event_payload(), format="json")

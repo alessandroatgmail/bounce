@@ -85,8 +85,9 @@ def test_put_propagates_room_and_dates(parent_with_children, staff_client, world
     for child in [child1, child2]:
         child.refresh_from_db()
         assert child.room_id == new_room.pk
-        assert child.start_date == updated_parent.start_date
-        assert child.end_date == updated_parent.end_date
+        # Children keep their own calendar date; only time-of-day must match the parent
+        assert child.start_date.time() == updated_parent.start_date.time()
+        assert child.end_date.time() == updated_parent.end_date.time()
 
 
 @pytest.mark.django_db
