@@ -24,6 +24,7 @@ import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships,
 import { useState } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
 import { FestivalPanel } from '../components/FestivalPanel';
+import { WeeklyGrid } from '../components/WeeklyGrid';
 import { EventTypePanel } from '../components/EventTypePanel';
 import { LocationPanel } from '../components/LocationPanel';
 import { RoomPanel } from '../components/RoomPanel';
@@ -44,7 +45,7 @@ export function AdminDashboard() {
   const { user, setAdminViewMode, accessToken } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  const { events, loading: loadingEvents, refetch: refetchEvents } = useEvents(accessToken);
+  const { events, loading: loadingEvents, refetch: refetchEvents, remove: removeEvent } = useEvents(accessToken);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
   const [memberships, setMemberships] = useState(mockMemberships);
@@ -294,95 +295,11 @@ export function AdminDashboard() {
               />
             )}
             {selectedEventModel === 'artist' && <ArtistPanel />}
-            {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel events={events} loading={loadingEvents} onRefetch={refetchEvents} />}
+            {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel events={events} loading={loadingEvents} onRefetch={refetchEvents} onRemove={removeEvent} />}
           </TabsContent>
 
           <TabsContent value="regular-classes" className="mt-6">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>Regular Classes Management</CardTitle>
-                    <CardDescription>Manage regular dance classes</CardDescription>
-                  </div>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button>
-                        <Plus className="size-4 mr-2" />
-                        Add Regular Class
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>Create New Regular Class</DialogTitle>
-                        <DialogDescription>Add a new regular dance class</DialogDescription>
-                      </DialogHeader>
-                      <RegularClassForm />
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{language === 'it' ? 'Corso' : 'Class'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Giorno' : 'Day'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Ora' : 'Time'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Frequenza' : 'Frequency'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Istruttore' : 'Instructor'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Periodo' : 'Period'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Azioni' : 'Actions'}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {regularClasses.map((regularClass) => {
-                      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                      const dayNamesIt = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
-                      const dayName = language === 'it' ? dayNamesIt[regularClass.dayOfWeek] : dayNames[regularClass.dayOfWeek];
-                      
-                      return (
-                        <TableRow key={regularClass.id}>
-                          <TableCell className="font-medium">{regularClass.title}</TableCell>
-                          <TableCell>{dayName}</TableCell>
-                          <TableCell>{regularClass.time}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {regularClass.frequency === 'weekly' 
-                                ? (language === 'it' ? 'Settimanale' : 'Weekly')
-                                : regularClass.frequency === 'fortnightly'
-                                ? (language === 'it' ? 'Bisettimanale' : 'Fortnightly')
-                                : (language === 'it' ? 'Mensile' : 'Monthly')}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{regularClass.instructor}</TableCell>
-                          <TableCell className="text-sm">
-                            {new Date(regularClass.startDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                              month: 'short',
-                              day: 'numeric',
-                            })} - {new Date(regularClass.endDate).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="ghost">
-                                <Pencil className="size-4" />
-                              </Button>
-                              <Button size="sm" variant="ghost" className="text-red-600">
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <WeeklyGrid events={events} loading={loadingEvents} onRefetch={refetchEvents} />
           </TabsContent>
 
           <TabsContent value="students" className="mt-6">
@@ -750,10 +667,8 @@ export function AdminDashboard() {
   );
 }
 
-function EventsPanel({ events, loading, onRefetch }: { events: EventItem[]; loading: boolean; onRefetch: () => void }) {
+function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventItem[]; loading: boolean; onRefetch: () => void; onRemove: (id: number) => Promise<void> }) {
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
-  const { accessToken } = useAuth();
-  const { remove } = useEvents(accessToken);
 
   const [filterName, setFilterName] = useState('');
   const [filterParent, setFilterParent] = useState(false);
@@ -791,8 +706,7 @@ function EventsPanel({ events, loading, onRefetch }: { events: EventItem[]; load
   });
 
   const handleDelete = async (id: number) => {
-    await remove(id);
-    onRefetch();
+    await onRemove(id);
   };
 
   return (

@@ -113,4 +113,29 @@ class EventViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         event = serializer.save()
         logger.info(f"Created event {event.name}")
-        _create_recurring_events(event)
+
+    def perform_update(self, serializer):
+        # Capture state before save
+        prev_status = serializer.instance.status
+        if self.request.method == 'PUT':
+            children = list(serializer.instance.events.all())
+        else:
+            children = []
+
+        instance = serializer.save()
+
+        # Trigger recurring generation when status moves draft → confirmed (only once)
+        if prev_status == Status.DRAFT and instance.status == Status.CONFIRMED and not instance.events.exists():
+            _create_recurring_events(instance)
+
+        # Cascade field changes to existing children (PUT only)
+        if not children:
+            return
+        for child in children:
+            child.room = instance.room
+            child.start_date = instance.start_date
+            child.end_date = instance.end_date
+            child.save(update_fields=['room', 'start_date', 'end_date'])
+            child.artists.set(instance.artists.all())
+            child.styles.set(instance.styles.all())
+            child.genres.set(instance.genres.all())
