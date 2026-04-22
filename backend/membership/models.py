@@ -1,6 +1,6 @@
 from django.db import models
 from colorfield.fields import ColorField
-from event.models import Event
+from event.models import EventType
 
 class MembershipType(models.TextChoices):
     SINGLE = "single", "Single"
@@ -12,12 +12,14 @@ class Membership(models.Model):
     name = models.CharField(max_length=100)
     type = models.CharField(max_length=20, choices=MembershipType.choices, default=MembershipType.SINGLE)
     contribution = models.IntegerField(default=0)
-    max_courses = models.IntegerField(default=0)
-    max_parties = models.IntegerField(default=0)
     color = ColorField(format="hex", null=True, blank=True)
-    events = models.ManyToManyField(Event, blank=True)
+    max_events = models.IntegerField(default=0)
 
     def __str__(self):
         return self.name
 
+class MembershipRule(models.Model):
+    membership = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    event_type = models.ForeignKey(EventType, on_delete=models.PROTECT)
+    max_events = models.IntegerField(default=1)
 

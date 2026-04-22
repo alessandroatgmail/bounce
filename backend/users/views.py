@@ -2,18 +2,21 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.conf import settings
+from django.db.models import Q
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
-from rest_framework.permissions import AllowAny
+from rest_framework.generics import ListAPIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import City
-from .serializers import BounceTokenObtainPairSerializer, RegisterSerializer
+from .serializers import BounceTokenObtainPairSerializer, RegisterSerializer, UserListSerializer
 
 
 class LoginView(TokenObtainPairView):
@@ -162,3 +165,37 @@ class CitySearchView(APIView):
             for city in cities
         ]
         return Response(data)
+
+
+class UserListPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class UserListView(ListAPIView):
+    serializer_class = UserListSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = UserListPagination
+
+    def get_queryset(self):
+        User = get_user_model()
+        qs = (
+            User.objects
+            .prefetch_related('contribution_set__membership')
+            .order_by('last_name', 'first_name')
+        )
+
+        name = self.request.query_params.get('name', '').strip()
+        if name:
+            qs = qs.filter(Q(first_name__icontains=name) | Q(last_name__icontains=name))
+
+        membership_id = self.request.query_params.get('membership', '').strip()
+        if membership_id:
+            qs = qs.filter(contribution_set__membership__id=membership_id).distinct()
+
+        event_id = self.request.query_params.get('event', '').strip()
+        if event_id:
+            qs = qs.filter(contribution_set__events__id=event_id).distinct()
+
+        return qs

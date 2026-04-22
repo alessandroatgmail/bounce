@@ -93,3 +93,24 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.is_active = False
         user.save()
         return user
+
+
+class UserListSerializer(serializers.ModelSerializer):
+    memberships = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'first_name', 'last_name', 'email', 'role', 'memberships']
+
+    def get_memberships(self, obj):
+        seen = set()
+        result = []
+        for c in obj.contribution_set.all():
+            if c.membership_id and c.membership_id not in seen:
+                seen.add(c.membership_id)
+                result.append({
+                    'id': c.membership.id,
+                    'name': c.membership.name,
+                    'color': c.membership.color,
+                })
+        return result

@@ -11,10 +11,7 @@ def make_membership_payload(**overrides) -> dict:
         "name": _fake.word().capitalize() + " Membership",
         "type": random.choice(_TYPES),
         "contribution": random.randint(10, 200),
-        "max_courses": random.randint(0, 10),
-        "max_parties": random.randint(0, 10),
         "color": "#e67e22",
-        "event_ids": [],
     }
     payload.update(overrides)
     return payload

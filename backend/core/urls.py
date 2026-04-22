@@ -12,6 +12,7 @@ urlpatterns = [
     path('api/events/', include('event.urls')),
     path('api/membership/', include('membership.urls')),
     path('api/festival/', include('festival.urls')),
+    path('api/booking/', include('booking.urls')),
 
     # generates the raw schema file (yaml/json)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

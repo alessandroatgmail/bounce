@@ -1,0 +1,27 @@
+from django.contrib import admin
+
+from .models import Booking, Contribution
+
+
+@admin.register(Booking)
+class BookingAdmin(admin.ModelAdmin):
+    list_display = ("user", "event")
+    search_fields = (
+        "user__first_name", "user__last_name",
+        "event__name",
+    )
+    ordering = ("user__last_name", "user__first_name")
+    autocomplete_fields = ("user", "event")
+
+
+@admin.register(Contribution)
+class ContributionAdmin(admin.ModelAdmin):
+    list_display = ("user", "membership", "amount")
+    search_fields = (
+        "user__first_name", "user__last_name",
+        "membership__name",
+    )
+    ordering = ("user__last_name", "user__first_name")
+    list_filter = ("membership",)
+    filter_horizontal = ("events",)
+    autocomplete_fields = ("user", "membership")

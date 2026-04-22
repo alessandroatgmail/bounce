@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useMemberships, Membership, MembershipPayload, MEMBERSHIP_TYPES } from '../hooks/useMemberships';
+import { useMemberships, Membership, MembershipPayload, MembershipRule, MEMBERSHIP_TYPES } from '../hooks/useMemberships';
+import { useEventTypes } from '../hooks/useEventTypes';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -12,37 +13,50 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Badge } from './ui/badge';
 
-const EMPTY: MembershipPayload = {
+interface RuleDraft {
+  id?: number;
+  event_type_id: number | '';
+  max_events: number;
+}
+
+const EMPTY_PAYLOAD: MembershipPayload = {
   name: '',
   type: 'single',
   contribution: 0,
-  max_courses: 0,
-  max_parties: 0,
   color: null,
-  event_ids: [],
 };
 
 interface FormProps {
   initial?: MembershipPayload;
-  onSubmit: (data: MembershipPayload) => Promise<void>;
+  initialRules?: RuleDraft[];
+  eventTypeOptions: { id: number; name: string }[];
+  onSubmit: (data: MembershipPayload, rules: RuleDraft[]) => Promise<void>;
   onCancel: () => void;
 }
 
-function MembershipForm({ initial = EMPTY, onSubmit, onCancel }: FormProps) {
+function MembershipForm({ initial = EMPTY_PAYLOAD, initialRules = [], eventTypeOptions, onSubmit, onCancel }: FormProps) {
   const { language } = useLanguage();
   const [form, setForm] = useState<MembershipPayload>(initial);
+  const [rules, setRules] = useState<RuleDraft[]>(initialRules);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const set = <K extends keyof MembershipPayload>(field: K, value: MembershipPayload[K]) =>
     setForm(f => ({ ...f, [field]: value }));
 
+  const addRule = () => setRules(r => [...r, { event_type_id: '', max_events: 1 }]);
+
+  const removeRule = (i: number) => setRules(r => r.filter((_, j) => j !== i));
+
+  const updateRule = (i: number, patch: Partial<RuleDraft>) =>
+    setRules(r => r.map((row, j) => j === i ? { ...row, ...patch } : row));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError(null);
     try {
-      await onSubmit(form);
+      await onSubmit(form, rules);
     } catch {
       setError(language === 'it' ? 'Errore durante il salvataggio.' : 'Failed to save.');
     } finally {
@@ -53,6 +67,7 @@ function MembershipForm({ initial = EMPTY, onSubmit, onCancel }: FormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4 pt-2">
       <div className="grid grid-cols-2 gap-4">
+
         <div className="col-span-2 space-y-2">
           <Label htmlFor="m-name">{language === 'it' ? 'Nome' : 'Name'} *</Label>
           <Input
@@ -86,28 +101,6 @@ function MembershipForm({ initial = EMPTY, onSubmit, onCancel }: FormProps) {
           />
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="m-courses">{language === 'it' ? 'Max Corsi' : 'Max Courses'}</Label>
-          <Input
-            id="m-courses"
-            type="number"
-            min={0}
-            value={form.max_courses}
-            onChange={e => set('max_courses', parseInt(e.target.value) || 0)}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="m-parties">{language === 'it' ? 'Max Feste' : 'Max Parties'}</Label>
-          <Input
-            id="m-parties"
-            type="number"
-            min={0}
-            value={form.max_parties}
-            onChange={e => set('max_parties', parseInt(e.target.value) || 0)}
-          />
-        </div>
-
         <div className="col-span-2 space-y-2">
           <Label htmlFor="m-color">{language === 'it' ? 'Colore' : 'Color'}</Label>
           <div className="flex gap-3 items-center">
@@ -131,6 +124,63 @@ function MembershipForm({ initial = EMPTY, onSubmit, onCancel }: FormProps) {
             )}
           </div>
         </div>
+
+        {/* Rules section */}
+        <div className="col-span-2 space-y-2">
+          <div className="flex justify-between items-center">
+            <Label>{language === 'it' ? 'Regole per tipo evento' : 'Rules by event type'}</Label>
+            <Button type="button" variant="outline" size="sm" onClick={addRule}>
+              <Plus className="size-3 mr-1" />
+              {language === 'it' ? 'Aggiungi regola' : 'Add rule'}
+            </Button>
+          </div>
+
+          {rules.length === 0 ? (
+            <p className="text-sm text-gray-400 py-1">
+              {language === 'it' ? 'Nessuna regola.' : 'No rules yet.'}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {rules.map((rule, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <Select
+                    value={rule.event_type_id === '' ? '' : String(rule.event_type_id)}
+                    onValueChange={v => updateRule(i, { event_type_id: Number(v) })}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder={language === 'it' ? 'Tipo evento' : 'Event type'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eventTypeOptions.map(et => (
+                        <SelectItem key={et.id} value={String(et.id)}>{et.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Input
+                    type="number"
+                    min={1}
+                    value={rule.max_events}
+                    onChange={e => updateRule(i, { max_events: parseInt(e.target.value) || 1 })}
+                    className="w-24"
+                    title={language === 'it' ? 'Max eventi' : 'Max events'}
+                  />
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeRule(i)}
+                    className="text-red-500 hover:text-red-600 shrink-0"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
       </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
@@ -151,41 +201,53 @@ function MembershipForm({ initial = EMPTY, onSubmit, onCancel }: FormProps) {
 export function MembershipPanel() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
-  const { memberships, loading, error, create, update, remove } = useMemberships(accessToken);
+  const { memberships, loading, error, refetch, create, update, remove, createRule, deleteRule } =
+    useMemberships(accessToken);
+  const { eventTypes } = useEventTypes(accessToken);
 
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Membership | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const handleCreate = async (data: MembershipPayload) => {
-    await create(data);
+  const syncRules = async (membershipId: number, oldRules: MembershipRule[], newRules: RuleDraft[]) => {
+    for (const r of oldRules) await deleteRule(r.id);
+    for (const r of newRules) {
+      if (r.event_type_id !== '') {
+        await createRule({ membership: membershipId, event_type_id: r.event_type_id as number, max_events: r.max_events });
+      }
+    }
+  };
+
+  const handleCreate = async (data: MembershipPayload, rules: RuleDraft[]) => {
+    const membership = await create(data);
+    await syncRules(membership.id, [], rules);
+    await refetch();
     setAddOpen(false);
   };
 
-  const handleUpdate = async (data: MembershipPayload) => {
+  const handleUpdate = async (data: MembershipPayload, rules: RuleDraft[]) => {
     if (!editing) return;
     await update(editing.id, data);
+    await syncRules(editing.id, editing.rules, rules);
+    await refetch();
     setEditing(null);
   };
 
   const handleDelete = async (id: number) => {
     setDeletingId(id);
-    try {
-      await remove(id);
-    } finally {
-      setDeletingId(null);
-    }
+    try { await remove(id); }
+    finally { setDeletingId(null); }
   };
 
   const toPayload = (m: Membership): MembershipPayload => ({
     name: m.name,
     type: m.type,
     contribution: m.contribution,
-    max_courses: m.max_courses,
-    max_parties: m.max_parties,
     color: m.color,
-    event_ids: m.events,
   });
+
+  const toRuleDrafts = (rules: MembershipRule[]): RuleDraft[] =>
+    rules.map(r => ({ id: r.id, event_type_id: r.event_type.id, max_events: r.max_events }));
 
   return (
     <Card>
@@ -204,14 +266,18 @@ export function MembershipPanel() {
                 {language === 'it' ? 'Aggiungi' : 'Add'}
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-xl">
               <DialogHeader>
                 <DialogTitle>{language === 'it' ? 'Nuovo Piano' : 'New Membership Plan'}</DialogTitle>
                 <DialogDescription>
                   {language === 'it' ? 'Crea un nuovo piano di iscrizione.' : 'Create a new membership plan.'}
                 </DialogDescription>
               </DialogHeader>
-              <MembershipForm onSubmit={handleCreate} onCancel={() => setAddOpen(false)} />
+              <MembershipForm
+                eventTypeOptions={eventTypes}
+                onSubmit={handleCreate}
+                onCancel={() => setAddOpen(false)}
+              />
             </DialogContent>
           </Dialog>
         </div>
@@ -233,8 +299,7 @@ export function MembershipPanel() {
                 <TableHead>{language === 'it' ? 'Nome' : 'Name'}</TableHead>
                 <TableHead>{language === 'it' ? 'Tipo' : 'Type'}</TableHead>
                 <TableHead>{language === 'it' ? 'Quota' : 'Contribution'}</TableHead>
-                <TableHead>{language === 'it' ? 'Max Corsi' : 'Max Courses'}</TableHead>
-                <TableHead>{language === 'it' ? 'Max Feste' : 'Max Parties'}</TableHead>
+                <TableHead>{language === 'it' ? 'Regole' : 'Rules'}</TableHead>
                 <TableHead>{language === 'it' ? 'Colore' : 'Color'}</TableHead>
                 <TableHead>{language === 'it' ? 'Azioni' : 'Actions'}</TableHead>
               </TableRow>
@@ -242,7 +307,7 @@ export function MembershipPanel() {
             <TableBody>
               {memberships.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-gray-400 py-8">
+                  <TableCell colSpan={6} className="text-center text-gray-400 py-8">
                     {language === 'it' ? 'Nessun piano di iscrizione.' : 'No membership plans yet.'}
                   </TableCell>
                 </TableRow>
@@ -254,15 +319,23 @@ export function MembershipPanel() {
                     <Badge variant="outline">{m.type}</Badge>
                   </TableCell>
                   <TableCell>€{m.contribution}</TableCell>
-                  <TableCell>{m.max_courses}</TableCell>
-                  <TableCell>{m.max_parties}</TableCell>
+                  <TableCell>
+                    {m.rules.length === 0 ? (
+                      <span className="text-xs text-gray-400">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {m.rules.map(r => (
+                          <Badge key={r.id} variant="secondary" className="text-xs">
+                            {r.event_type.name} × {r.max_events}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {m.color ? (
                       <div className="flex items-center gap-2">
-                        <span
-                          className="inline-block size-5 rounded border"
-                          style={{ backgroundColor: m.color }}
-                        />
+                        <span className="inline-block size-5 rounded border" style={{ backgroundColor: m.color }} />
                         <span className="text-xs text-gray-500">{m.color}</span>
                       </div>
                     ) : (
@@ -277,13 +350,15 @@ export function MembershipPanel() {
                             <Pencil className="size-4" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-lg">
+                        <DialogContent className="max-w-xl">
                           <DialogHeader>
                             <DialogTitle>{language === 'it' ? 'Modifica Piano' : 'Edit Membership Plan'}</DialogTitle>
                             <DialogDescription>{m.name}</DialogDescription>
                           </DialogHeader>
                           <MembershipForm
                             initial={toPayload(m)}
+                            initialRules={toRuleDrafts(m.rules)}
+                            eventTypeOptions={eventTypes}
                             onSubmit={handleUpdate}
                             onCancel={() => setEditing(null)}
                           />

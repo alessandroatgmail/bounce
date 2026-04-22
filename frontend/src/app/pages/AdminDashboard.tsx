@@ -34,6 +34,7 @@ import { useGenres } from '../hooks/useGenres';
 import { useArtistTypes } from '../hooks/useArtistTypes';
 import { ArtistPanel } from '../components/ArtistPanel';
 import { MembershipPanel } from '../components/MembershipPanel';
+import { MembershipManagementPanel } from '../components/MembershipManagementPanel';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useArtists } from '../hooks/useArtists';
 import { useRooms } from '../hooks/useRooms';
@@ -52,6 +53,7 @@ export function AdminDashboard() {
   const [userMemberships, setUserMemberships] = useState(mockUserMemberships);
 
   const [activeTab, setActiveTab] = useState('events');
+  const [membershipView, setMembershipView] = useState<'plans' | 'management'>('plans');
   const [showStats, setShowStats] = useState(true);
   const [selectedEventModel, setSelectedEventModel] = useState<string | null>(null);
 
@@ -590,72 +592,29 @@ export function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="memberships" className="mt-6 space-y-6">
-            <MembershipPanel />
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>Membership Management</CardTitle>
-                    <CardDescription>Manage student memberships</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{language === 'it' ? 'Studente' : 'Student'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Tipo di Membresia' : 'Membership Type'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Data di Inizio' : 'Start Date'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Data di Scadenza' : 'End Date'}</TableHead>
-                      <TableHead>{language === 'it' ? 'Azioni' : 'Actions'}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {userMemberships.map((userMembership) => {
-                      const student = students.find(s => s.id === userMembership.userId);
-                      const membership = memberships.find(m => m.id === userMembership.membershipId);
-                      return (
-                        <TableRow key={userMembership.id}>
-                          <TableCell className="font-medium">
-                            {student ? `${student.name} ${student.surname || ''}` : 'Unknown'}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" style={{ backgroundColor: membership?.color, color: 'white' }}>
-                              {membership?.name || 'Unknown'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {new Date(userMembership.validFrom).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                              month: 'short',
-                              day: 'numeric',
-                            })}
-                          </TableCell>
-                          <TableCell>
-                            {new Date(userMembership.validTo).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="ghost">
-                                <Pencil className="size-4" />
-                              </Button>
-                              <Button size="sm" variant="ghost" className="text-red-600">
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+          <TabsContent value="memberships" className="mt-6 space-y-4">
+            {/* Sub-toggle */}
+            <div className="inline-flex rounded-lg border bg-muted p-1 gap-1">
+              <Button
+                size="sm"
+                variant={membershipView === 'plans' ? 'default' : 'ghost'}
+                onClick={() => setMembershipView('plans')}
+              >
+                {language === 'it' ? 'Piani' : 'Plans'}
+              </Button>
+              <Button
+                size="sm"
+                variant={membershipView === 'management' ? 'default' : 'ghost'}
+                onClick={() => setMembershipView('management')}
+              >
+                {language === 'it' ? 'Gestione' : 'Management'}
+              </Button>
+            </div>
+
+            {membershipView === 'plans'
+              ? <MembershipPanel />
+              : <MembershipManagementPanel />
+            }
           </TabsContent>
 
           <TabsContent value="festivals" className="mt-6">
