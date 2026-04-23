@@ -32,6 +32,7 @@ export interface MembershipPayload {
   type: string;
   contribution: number;
   color: string | null;
+  max_events: number;
 }
 
 export const MEMBERSHIP_TYPES = [
