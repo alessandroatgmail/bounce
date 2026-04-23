@@ -25,6 +25,7 @@ const EMPTY_PAYLOAD: MembershipPayload = {
   contribution: 0,
   color: null,
   max_events: 0,
+  duration: 1,
 };
 
 interface FormProps {
@@ -110,6 +111,17 @@ function MembershipForm({ initial = EMPTY_PAYLOAD, initialRules = [], eventTypeO
             min={0}
             value={form.max_events}
             onChange={e => set('max_events', parseInt(e.target.value) || 0)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="m-duration">{language === 'it' ? 'Durata (mesi)' : 'Duration (months)'}</Label>
+          <Input
+            id="m-duration"
+            type="number"
+            min={0}
+            value={form.duration}
+            onChange={e => set('duration', parseInt(e.target.value) || 0)}
           />
         </div>
 
@@ -257,6 +269,7 @@ export function MembershipPanel() {
     contribution: m.contribution,
     color: m.color,
     max_events: m.max_events,
+    duration: m.duration,
   });
 
   const toRuleDrafts = (rules: MembershipRule[]): RuleDraft[] =>
@@ -313,6 +326,7 @@ export function MembershipPanel() {
                 <TableHead>{language === 'it' ? 'Tipo' : 'Type'}</TableHead>
                 <TableHead>{language === 'it' ? 'Quota' : 'Contribution'}</TableHead>
                 <TableHead>{language === 'it' ? 'Max eventi' : 'Max events'}</TableHead>
+                <TableHead>{language === 'it' ? 'Durata' : 'Duration'}</TableHead>
                 <TableHead>{language === 'it' ? 'Regole' : 'Rules'}</TableHead>
                 <TableHead>{language === 'it' ? 'Colore' : 'Color'}</TableHead>
                 <TableHead>{language === 'it' ? 'Azioni' : 'Actions'}</TableHead>
@@ -321,7 +335,7 @@ export function MembershipPanel() {
             <TableBody>
               {memberships.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-gray-400 py-8">
+                  <TableCell colSpan={8} className="text-center text-gray-400 py-8">
                     {language === 'it' ? 'Nessun piano di iscrizione.' : 'No membership plans yet.'}
                   </TableCell>
                 </TableRow>
@@ -334,6 +348,11 @@ export function MembershipPanel() {
                   </TableCell>
                   <TableCell>€{m.contribution}</TableCell>
                   <TableCell>{m.max_events}</TableCell>
+                  <TableCell>
+                    {m.duration > 0
+                      ? (language === 'it' ? `${m.duration} mesi` : `${m.duration} mo`)
+                      : <span className="text-xs text-gray-400">—</span>}
+                  </TableCell>
                   <TableCell>
                     {m.rules.length === 0 ? (
                       <span className="text-xs text-gray-400">—</span>

@@ -14,6 +14,7 @@ class Membership(models.Model):
     contribution = models.IntegerField(default=0)
     color = ColorField(format="hex", null=True, blank=True)
     max_events = models.IntegerField(default=0)
+    duration = models.IntegerField(default=0, verbose_name="duration (months)")
 
     def __str__(self):
         return self.name

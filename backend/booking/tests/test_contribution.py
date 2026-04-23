@@ -130,7 +130,7 @@ class TestContributionCRUD:
 
     def test_create_returns_correct_fields(self, admin_client, subject_user, db):
         res = admin_client.post(LIST_URL, make_contribution_payload(subject_user), format="json")
-        assert set(res.data.keys()) == {"id", "amount", "user", "events", "membership"}
+        assert {"id", "amount", "user", "events", "membership", "start_date", "end_date"}.issubset(res.data.keys())
 
     def test_admin_can_retrieve(self, admin_client, subject_user, db):
         c = Contribution.objects.create(amount=10, user=subject_user)
@@ -558,3 +558,39 @@ class TestMembershipTotalCap:
             format="json",
         )
         assert res.status_code == http_status.HTTP_201_CREATED
+
+
+# ── end_date auto-computation (admin) ─────────────────────────────────────────
+
+class TestContributionEndDate:
+
+    def test_end_date_set_when_membership_has_duration(self, admin_client, subject_user, db):
+        from dateutil.relativedelta import relativedelta
+        from datetime import timedelta
+        m = Membership.objects.create(name="Monthly", contribution=50, duration=2)
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, membership_id=m.pk), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.end_date is not None
+        expected = c.start_date + relativedelta(months=2)
+        assert abs((c.end_date - expected).total_seconds()) < 2
+
+    def test_end_date_none_when_no_membership(self, admin_client, subject_user, db):
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.end_date is None
+
+    def test_end_date_none_when_duration_is_zero(self, admin_client, subject_user, db):
+        m = Membership.objects.create(name="Perpetual", contribution=0, duration=0)
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, membership_id=m.pk), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.end_date is None
+
+    def test_end_date_in_response(self, admin_client, subject_user, db):
+        m = Membership.objects.create(name="Annual", contribution=100, duration=12)
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, membership_id=m.pk), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert "end_date" in res.data
+        assert res.data["end_date"] is not None

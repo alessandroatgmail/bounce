@@ -14,8 +14,6 @@ import {
   mockStudents,
   mockTrips,
   mockDocuments,
-  mockMemberships,
-  mockUserMemberships,
   mockRegularClasses,
   Post,
   DirectMessage,
@@ -27,7 +25,11 @@ import {
   HotelShare,
   Document
 } from '../data/mockData';
+import { useUserMemberships } from '../hooks/useUserMemberships';
+import { useMemberships } from '../hooks/useMemberships';
+import { useEvents } from '../hooks/useEvents';
 import { Card, CardContent } from '../components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
@@ -44,13 +46,15 @@ import {
   FileText,
   Crown,
   Share2,
-  ShieldCheck
+  ShieldCheck,
+  Loader2,
+  CalendarPlus,
+  ArrowUpCircle,
 } from 'lucide-react';
 import { SocialFeed } from '../components/SocialFeed';
 import { DirectMessages } from '../components/DirectMessages';
 import { Friends } from '../components/Friends';
 import { Trips } from '../components/Trips';
-import { MembershipCard } from '../components/MembershipCard';
 import {
   Table,
   TableBody,
@@ -68,7 +72,7 @@ import { it, enUS } from 'date-fns/locale';
 type View = 'feed' | 'classes' | 'payments' | 'friends' | 'messages' | 'trips' | 'documents' | 'memberships';
 
 export function StudentDashboard() {
-  const { user, logout, setAdminViewMode } = useAuth();
+  const { user, logout, setAdminViewMode, accessToken } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<View>('feed');
@@ -78,7 +82,17 @@ export function StudentDashboard() {
   const [notifications, setNotifications] = useState(mockNotifications);
   const [trips, setTrips] = useState(mockTrips);
   const [documents, setDocuments] = useState(mockDocuments);
-  const [memberships, setMemberships] = useState(mockUserMemberships);
+
+  const { userMemberships, loading: contribLoading, create: purchaseMembership, addEvent: addEventToMembership } = useUserMemberships(accessToken);
+  const [purchasingId, setPurchasingId] = useState<number | null>(null);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [activeCardAction, setActiveCardAction] = useState<{ id: number; mode: 'add-event' | 'upgrade' } | null>(null);
+  const [pendingEventId, setPendingEventId] = useState<string>('');
+  const [pendingPlanId, setPendingPlanId] = useState<string>('');
+  const [cardActionLoading, setCardActionLoading] = useState(false);
+  const [cardActionError, setCardActionError] = useState<string | null>(null);
+  const { memberships: membershipPlans } = useMemberships(accessToken);
+  const { events: allEvents } = useEvents(accessToken);
 
   if (!user) {
     return <Navigate to="/login" replace />;
@@ -88,6 +102,15 @@ export function StudentDashboard() {
   if (user.role !== 'student' && user.role !== 'admin') {
     return <Navigate to="/login" replace />;
   }
+
+  const today = new Date().toISOString().split('T')[0];
+  const eventMap = new Map(allEvents.map(e => [e.id, e]));
+  const activeUserMemberships = userMemberships.filter(c =>
+    c.events.length === 0 || c.events.some(eid => (eventMap.get(eid)?.end_date ?? '') >= today)
+  );
+  const pastUserMemberships = userMemberships.filter(c =>
+    c.events.length > 0 && c.events.every(eid => (eventMap.get(eid)?.end_date ?? '') < today)
+  );
 
   const userBookings = mockBookings.filter((b) => b.userId === user.id);
   const userPayments = mockPayments.filter((p) => p.userId === user.id);
@@ -822,65 +845,266 @@ export function StudentDashboard() {
           )}
 
           {currentView === 'memberships' && (
-            <div className="max-w-6xl mx-auto">
-              {/* Current Membership */}
-              {memberships.filter(um => um.userId === user.id && um.status === 'active').length > 0 && (
-                <div className="mb-8">
-                  <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                    {language === 'it' ? 'La Tua Membresia Attiva' : 'Your Active Membership'}
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {memberships
-                      .filter(um => um.userId === user.id && um.status === 'active')
-                      .map(userMem => {
-                        const membership = mockMemberships.find(m => m.id === userMem.membershipId);
-                        if (!membership) return null;
-                        return (
-                          <MembershipCard
-                            key={userMem.id}
-                            membership={membership}
-                            userMembership={userMem}
-                            onUpgrade={() => alert(language === 'it' ? 'Rinnovo in sviluppo' : 'Renewal in development')}
-                          />
-                        );
-                      })}
+            <div className="max-w-4xl mx-auto space-y-8">
+              {/* Available membership plans */}
+              <section>
+                <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
+                  {language === 'it' ? 'Piani Disponibili' : 'Available Plans'}
+                </h2>
+                {purchaseError && (
+                  <p className="text-sm text-red-500 mb-3">{purchaseError}</p>
+                )}
+                {membershipPlans.length === 0 ? (
+                  <p className="text-sm text-gray-400">
+                    {language === 'it' ? 'Nessun piano disponibile.' : 'No plans available.'}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {membershipPlans.map(plan => {
+                      const isOwned = activeUserMemberships.some(c => c.membership?.id === plan.id);
+                      const isPurchasing = purchasingId === plan.id;
+                      return (
+                        <Card key={plan.id} className={`overflow-hidden border-2 flex flex-col ${isOwned ? 'border-[#e67e22]' : 'border-gray-200'}`}>
+                          <div className="h-1.5 shrink-0" style={{ backgroundColor: plan.color ?? '#e67e22' }} />
+                          <CardContent className="p-4 flex flex-col gap-3 flex-1">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <h3 className="font-bold text-lg" style={{ color: plan.color ?? '#2b2b2b' }}>
+                                  {plan.name}
+                                </h3>
+                                <Badge variant="outline" className="mt-1 capitalize text-xs">{plan.type}</Badge>
+                              </div>
+                              {isOwned && (
+                                <Badge className="bg-green-600 text-white text-xs">
+                                  {language === 'it' ? 'Attivo' : 'Active'}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-2xl font-bold text-[#2b2b2b]">€{plan.contribution}</div>
+                            {plan.max_events > 0 && (
+                              <div className="text-xs text-gray-500">
+                                {language === 'it' ? `Max ${plan.max_events} eventi` : `Max ${plan.max_events} events`}
+                              </div>
+                            )}
+                            {plan.rules.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {plan.rules.map(r => (
+                                  <Badge key={r.id} variant="secondary" className="text-xs">
+                                    {r.event_type.name} ×{r.max_events}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                            <Button
+                              className="w-full mt-auto"
+                              style={!isOwned ? { backgroundColor: plan.color ?? '#e67e22' } : undefined}
+                              variant={isOwned ? 'outline' : 'default'}
+                              disabled={isPurchasing}
+                              onClick={async () => {
+                                setPurchasingId(plan.id);
+                                setPurchaseError(null);
+                                try {
+                                  await purchaseMembership(plan.id);
+                                } catch {
+                                  setPurchaseError(language === 'it' ? 'Acquisto fallito.' : 'Purchase failed.');
+                                } finally {
+                                  setPurchasingId(null);
+                                }
+                              }}
+                            >
+                              {isPurchasing && <Loader2 className="size-4 mr-2 animate-spin" />}
+                              {isOwned
+                                ? (language === 'it' ? 'Rinnova' : 'Renew')
+                                : (language === 'it' ? 'Aggiungi' : 'Add')}
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
                   </div>
+                )}
+              </section>
+
+              {contribLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="size-6 animate-spin text-gray-400" />
                 </div>
+              ) : (
+                <>
+                  {/* Active memberships */}
+                  <section>
+                    <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
+                      {language === 'it' ? 'Iscrizioni Attive' : 'Active Memberships'}
+                    </h2>
+                    {activeUserMemberships.length === 0 ? (
+                      <p className="text-sm text-gray-400">
+                        {language === 'it' ? 'Nessuna iscrizione attiva.' : 'No active memberships.'}
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {activeUserMemberships.map(c => {
+                          const isExpanded = activeCardAction?.id === c.id;
+                          const mode = isExpanded ? activeCardAction!.mode : null;
+                          const parentEvents = allEvents.filter(e => e.events.length > 0);
+                          const otherPlans = membershipPlans.filter(p => p.id !== c.membership?.id);
+
+                          const closeAction = () => {
+                            setActiveCardAction(null);
+                            setPendingEventId('');
+                            setPendingPlanId('');
+                            setCardActionError(null);
+                          };
+
+                          const handleConfirm = async () => {
+                            setCardActionLoading(true);
+                            setCardActionError(null);
+                            try {
+                              if (mode === 'add-event' && pendingEventId) {
+                                await addEventToMembership(c.id, Number(pendingEventId));
+                              } else if (mode === 'upgrade' && pendingPlanId) {
+                                await purchaseMembership(Number(pendingPlanId));
+                              }
+                              closeAction();
+                            } catch {
+                              setCardActionError(language === 'it' ? 'Operazione fallita.' : 'Action failed.');
+                            } finally {
+                              setCardActionLoading(false);
+                            }
+                          };
+
+                          return (
+                          <Card key={c.id} className="border-2 border-[#e67e22] overflow-hidden flex flex-col">
+                            {c.membership?.color && <div className="h-1.5 shrink-0" style={{ backgroundColor: c.membership.color }} />}
+                            <CardContent className="p-4 flex flex-col gap-3 flex-1">
+                              <div className="flex items-center gap-2">
+                                <Crown className="size-4 text-[#e67e22]" />
+                                <span className="font-semibold">{c.membership?.name ?? '—'}</span>
+                                <Badge className="bg-green-600 ml-auto text-white">
+                                  {language === 'it' ? 'Attivo' : 'Active'}
+                                </Badge>
+                              </div>
+                              <div className="text-sm text-gray-600">€{c.amount}</div>
+                              {c.events.length > 0 && (
+                                <div className="text-xs text-gray-400">
+                                  {c.events.length} {language === 'it' ? 'evento/i' : 'event(s)'}
+                                </div>
+                              )}
+
+                              {/* Inline action panel */}
+                              {isExpanded && (
+                                <div className="border-t pt-3 space-y-2">
+                                  {mode === 'add-event' && (
+                                    <Select value={pendingEventId} onValueChange={setPendingEventId}>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder={language === 'it' ? 'Seleziona evento...' : 'Select event...'} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {parentEvents.map(e => (
+                                          <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                  {mode === 'upgrade' && (
+                                    <Select value={pendingPlanId} onValueChange={setPendingPlanId}>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder={language === 'it' ? 'Seleziona piano...' : 'Select plan...'} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {otherPlans.map(p => (
+                                          <SelectItem key={p.id} value={String(p.id)}>
+                                            {p.name} — €{p.contribution}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                  {cardActionError && (
+                                    <p className="text-xs text-red-500">{cardActionError}</p>
+                                  )}
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      className="flex-1 bg-[#e67e22] hover:bg-[#d47420]"
+                                      disabled={cardActionLoading || (mode === 'add-event' ? !pendingEventId : !pendingPlanId)}
+                                      onClick={handleConfirm}
+                                    >
+                                      {cardActionLoading && <Loader2 className="size-3.5 mr-1 animate-spin" />}
+                                      {language === 'it' ? 'Conferma' : 'Confirm'}
+                                    </Button>
+                                    <Button size="sm" variant="outline" onClick={closeAction} disabled={cardActionLoading}>
+                                      {language === 'it' ? 'Annulla' : 'Cancel'}
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Action buttons */}
+                              {!isExpanded && (
+                                <div className="flex gap-2 mt-auto">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1"
+                                    onClick={() => { closeAction(); setActiveCardAction({ id: c.id, mode: 'add-event' }); }}
+                                  >
+                                    <CalendarPlus className="size-3.5 mr-1" />
+                                    {language === 'it' ? 'Aggiungi evento' : 'Add event'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1"
+                                    onClick={() => { closeAction(); setActiveCardAction({ id: c.id, mode: 'upgrade' }); }}
+                                  >
+                                    <ArrowUpCircle className="size-3.5 mr-1" />
+                                    {language === 'it' ? 'Cambia piano' : 'Upgrade'}
+                                  </Button>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Past memberships */}
+                  {pastUserMemberships.length > 0 && (
+                    <section>
+                      <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
+                        {language === 'it' ? 'Iscrizioni Passate' : 'Past Memberships'}
+                      </h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {pastUserMemberships.map(c => (
+                          <Card key={c.id} className="overflow-hidden opacity-60">
+                            {c.membership?.color && <div className="h-1.5" style={{ backgroundColor: c.membership.color }} />}
+                            <CardContent className="p-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Crown className="size-4 text-gray-400" />
+                                <span className="font-semibold">{c.membership?.name ?? '—'}</span>
+                                <Badge variant="secondary" className="ml-auto">
+                                  {language === 'it' ? 'Passato' : 'Past'}
+                                </Badge>
+                              </div>
+                              <div className="text-sm text-gray-600">€{c.amount}</div>
+                              {c.events.length > 0 && (
+                                <div className="text-xs text-gray-400 mt-1">
+                                  {c.events.length} {language === 'it' ? 'evento/i' : 'event(s)'}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
 
-              {/* Available Memberships */}
-              <div>
-                <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                  {language === 'it' ? 'Membresie Disponibili' : 'Available Memberships'}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {mockMemberships.map(membership => {
-                    const userMem = memberships.find(
-                      um => um.userId === user.id && um.membershipId === membership.id && um.status === 'active'
-                    );
-                    return (
-                      <MembershipCard
-                        key={membership.id}
-                        membership={membership}
-                        userMembership={userMem}
-                        onPurchase={() => alert(
-                          language === 'it' 
-                            ? `Acquisto membresia ${membership.name} in sviluppo` 
-                            : `Purchase ${membership.name} membership in development`
-                        )}
-                        onUpgrade={() => alert(
-                          language === 'it' 
-                            ? 'Rinnovo in sviluppo' 
-                            : 'Renewal in development'
-                        )}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-
               {/* Download ACSI Form */}
-              <Card className="mt-8">
+              <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -888,8 +1112,8 @@ export function StudentDashboard() {
                         {language === 'it' ? 'Modulo Richiesta Tesseramento ACSI' : 'ACSI Membership Request Form'}
                       </h3>
                       <p className="text-sm text-gray-600">
-                        {language === 'it' 
-                          ? 'Scarica il modulo per la richiesta di tesseramento ACSI da compilare e consegnare.' 
+                        {language === 'it'
+                          ? 'Scarica il modulo per la richiesta di tesseramento ACSI da compilare e consegnare.'
                           : 'Download the ACSI membership request form to fill out and submit.'}
                       </p>
                     </div>

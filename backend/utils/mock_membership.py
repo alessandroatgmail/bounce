@@ -12,6 +12,7 @@ def make_membership_payload(**overrides) -> dict:
         "type": random.choice(_TYPES),
         "contribution": random.randint(10, 200),
         "color": "#e67e22",
+        "duration": 1,
     }
     payload.update(overrides)
     return payload

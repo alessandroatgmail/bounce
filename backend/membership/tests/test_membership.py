@@ -7,7 +7,7 @@ from utils.mock_membership import make_membership_payload
 LIST_URL = "/api/membership/memberships/"
 RULE_URL = "/api/membership/rules/"
 
-MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "rules"}
+MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "duration", "rules"}
 RULE_FIELDS = {"id", "membership", "event_type", "max_events"}
 
 
@@ -432,3 +432,44 @@ class TestMembershipRuleCRUD:
         assert len(response.data["rules"]) == 1
         assert response.data["rules"][0]["max_events"] == 5
         assert response.data["rules"][0]["event_type"]["id"] == event_type.pk
+
+
+# ── Duration field ────────────────────────────────────────────────────────────
+
+class TestMembershipDuration:
+
+    def test_duration_is_returned_in_list(self, staff_client, db):
+        Membership.objects.create(name="Plan", contribution=50, duration=3)
+        response = staff_client.get(LIST_URL)
+        assert response.data[0]["duration"] == 3
+
+    def test_duration_is_returned_in_retrieve(self, staff_client, db):
+        m = Membership.objects.create(name="Plan", contribution=50, duration=6)
+        response = staff_client.get(detail_url(m.pk))
+        assert response.data["duration"] == 6
+
+    def test_create_with_duration(self, staff_client, db):
+        payload = make_membership_payload(duration=12)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert response.data["duration"] == 12
+
+    def test_duration_default_is_zero(self, staff_client, db):
+        payload = make_membership_payload()
+        payload.pop("duration", None)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert response.data["duration"] == 0
+
+    def test_update_duration(self, staff_client, db):
+        m = Membership.objects.create(name="Plan", contribution=50, duration=1)
+        payload = make_membership_payload(duration=24)
+        response = staff_client.put(detail_url(m.pk), payload, format="json")
+        assert response.status_code == http_status.HTTP_200_OK
+        m.refresh_from_db()
+        assert m.duration == 24
+
+    def test_response_includes_duration_field(self, staff_client, db):
+        payload = make_membership_payload()
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert "duration" in response.data
