@@ -1,7 +1,7 @@
 import { Navigate, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
   mockEvents,
@@ -26,6 +26,7 @@ import {
   Document
 } from '../data/mockData';
 import { useUserMemberships, type ContributionStatus } from '../hooks/useUserMemberships';
+import { useUserBookings } from '../hooks/useUserBookings';
 import { useMemberships } from '../hooks/useMemberships';
 import { useEvents } from '../hooks/useEvents';
 import { Card, CardContent } from '../components/ui/card';
@@ -33,9 +34,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
+import { Calendar } from '../components/ui/calendar';
 import {
   Home,
-  Calendar,
+  Calendar as CalendarIcon,
   CreditCard,
   Users,
   Bell,
@@ -66,10 +68,10 @@ import {
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { Toaster } from '../components/ui/sonner';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format, isSameDay } from 'date-fns';
 import { it, enUS } from 'date-fns/locale';
 
-type View = 'feed' | 'classes' | 'payments' | 'friends' | 'messages' | 'trips' | 'documents' | 'memberships';
+type View = 'feed' | 'events' | 'payments' | 'friends' | 'messages' | 'trips' | 'documents' | 'memberships';
 
 export function StudentDashboard() {
   const { user, logout, setAdminViewMode, accessToken } = useAuth();
@@ -84,6 +86,8 @@ export function StudentDashboard() {
   const [documents, setDocuments] = useState(mockDocuments);
 
   const { userMemberships, loading: contribLoading, create: purchaseMembership, upgrade: upgradeMembership, addEvent: addEventToMembership } = useUserMemberships(accessToken);
+  const { userBookings: calendarBookings, loading: bookingsLoading } = useUserBookings(accessToken);
+  const [selectedDay, setSelectedDay] = useState<Date | undefined>(undefined);
   const [purchasingId, setPurchasingId] = useState<number | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [activeCardAction, setActiveCardAction] = useState<{ id: number; mode: 'add-event' | 'upgrade' } | null>(null);
@@ -105,6 +109,18 @@ export function StudentDashboard() {
 
   const today = new Date().toISOString().split('T')[0];
   const eventMap = new Map(allEvents.map(e => [e.id, e]));
+
+  const bookedDates = useMemo(
+    () => calendarBookings.map(b => new Date(b.event.start_date)),
+    [calendarBookings],
+  );
+
+  const now = new Date();
+  const dayBookings = selectedDay
+    ? calendarBookings.filter(b => isSameDay(new Date(b.event.start_date), selectedDay))
+    : calendarBookings
+        .filter(b => new Date(b.event.start_date) >= now)
+        .slice(0, 20);
   const activeUserMemberships = userMemberships.filter(c =>
     c.events.length === 0 || c.events.some(eid => (eventMap.get(eid)?.end_date ?? '') >= today)
   );
@@ -435,7 +451,7 @@ export function StudentDashboard() {
 
   const menuItems = [
     { id: 'feed' as View, label: language === 'it' ? 'Feed' : 'Feed', icon: Home },
-    { id: 'classes' as View, label: language === 'it' ? 'I Miei Corsi' : 'My Classes', icon: Calendar },
+    { id: 'events' as View, label: language === 'it' ? 'I Miei Eventi' : 'My Events', icon: CalendarIcon },
     { id: 'payments' as View, label: language === 'it' ? 'Pagamenti' : 'Payments', icon: CreditCard },
     { id: 'friends' as View, label: language === 'it' ? 'Amici' : 'Friends', icon: Users },
     { id: 'messages' as View, label: language === 'it' ? 'Messaggi' : 'Messages', icon: MessageSquare, badge: unreadMessagesCount },
@@ -644,75 +660,93 @@ export function StudentDashboard() {
             </div>
           )}
 
-          {currentView === 'classes' && (
-            <div className="max-w-4xl mx-auto">
-              <Card>
-                <CardContent className="p-6">
-                  <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                    {language === 'it' ? 'I Miei Prossimi Corsi' : 'My Upcoming Classes'}
-                  </h2>
-                  {upcomingClasses.length > 0 ? (
-                    <div className="space-y-4">
-                      {upcomingClasses.map((event) => (
-                        <div
-                          key={event.id}
-                          className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
-                        >
-                          <div className="flex items-start gap-4 flex-1">
-                            <div className="p-3 bg-[#e67e22]/10 rounded-lg">
-                              <Calendar className="size-6 text-[#e67e22]" />
-                            </div>
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-lg text-[#2b2b2b]">{event.title}</h3>
-                              <p className="text-sm text-gray-600 mb-2">
-                                {language === 'it' ? 'con' : 'with'} {event.instructor}
+          {currentView === 'events' && (
+            <div className="max-w-5xl mx-auto">
+              <style>{`
+                .booked-day:not(.rdp-day_outside)::after {
+                  content: '';
+                  display: block;
+                  position: absolute;
+                  bottom: 3px;
+                  left: 50%;
+                  transform: translateX(-50%);
+                  width: 4px;
+                  height: 4px;
+                  border-radius: 50%;
+                  background-color: #e67e22;
+                }
+              `}</style>
+
+              <div className="flex flex-col lg:flex-row gap-6 items-start">
+                {/* Calendar */}
+                <Card className="lg:w-fit">
+                  <CardContent className="p-2">
+                    <Calendar
+                      mode="single"
+                      selected={selectedDay}
+                      onSelect={setSelectedDay}
+                      locale={language === 'it' ? it : enUS}
+                      modifiers={{ booked: bookedDates }}
+                      modifiersClassNames={{ booked: 'booked-day' }}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Event list */}
+                <Card className="flex-1 min-w-0">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-semibold text-[#2b2b2b]">
+                        {selectedDay
+                          ? format(selectedDay, language === 'it' ? 'EEEE d MMMM yyyy' : 'EEEE, MMMM d yyyy', { locale: language === 'it' ? it : enUS })
+                          : (language === 'it' ? 'Prossimi eventi' : 'Upcoming events')}
+                      </h3>
+                      {selectedDay && (
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedDay(undefined)}>
+                          {language === 'it' ? 'Tutti' : 'All'}
+                        </Button>
+                      )}
+                    </div>
+
+                    {bookingsLoading ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="size-5 animate-spin text-gray-400" />
+                      </div>
+                    ) : dayBookings.length === 0 ? (
+                      <div className="text-center py-10">
+                        <CalendarIcon className="size-10 mx-auto text-gray-300 mb-3" />
+                        <p className="text-sm text-gray-400">
+                          {selectedDay
+                            ? (language === 'it' ? 'Nessun evento questo giorno.' : 'No events on this day.')
+                            : (language === 'it' ? 'Nessun evento in programma.' : 'No upcoming events.')}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {dayBookings.map(b => (
+                          <div key={b.id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-gray-50 transition-colors">
+                            <div
+                              className="size-2.5 rounded-full mt-1.5 shrink-0"
+                              style={{ backgroundColor: b.event.color ?? '#e67e22' }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm text-[#2b2b2b]">{b.event.name}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {format(new Date(b.event.start_date), 'HH:mm')} – {format(new Date(b.event.end_date), 'HH:mm')}
+                                {!selectedDay && (
+                                  <> · {format(new Date(b.event.start_date), language === 'it' ? 'd MMM' : 'MMM d', { locale: language === 'it' ? it : enUS })}</>
+                                )}
                               </p>
-                              <div className="flex gap-4 text-sm text-gray-500">
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="size-4" />
-                                  {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                                    weekday: 'long',
-                                    month: 'short',
-                                    day: 'numeric',
-                                  })}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="size-4" />
-                                  {event.time}
-                                </span>
-                              </div>
+                              <p className="text-xs text-gray-400">{b.event.room.name} · {b.event.room.location.name}</p>
                             </div>
+                            <Badge variant="outline" className="text-xs shrink-0">{b.event.event_type.name}</Badge>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge>{event.level}</Badge>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                handleShareEvent(event);
-                                setCurrentView('feed');
-                              }}
-                              className="text-[#e67e22] hover:bg-[#e67e22]/10"
-                            >
-                              <Share2 className="size-4 mr-1" />
-                              {language === 'it' ? 'Condividi' : 'Share'}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12">
-                      <Calendar className="size-12 mx-auto text-gray-400 mb-4" />
-                      <p className="text-gray-600">
-                        {language === 'it' 
-                          ? 'Non hai prossimi corsi programmati.' 
-                          : 'You don\'t have any upcoming classes.'}
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           )}
 

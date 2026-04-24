@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from config.models import SiteSettings
 from event.models import Event
+from event.serializers import EventSerializer
 from membership.models import Membership
 from membership.serializers import MembershipSerializer
 from .models import Booking, Contribution, ContributionStatus
@@ -41,6 +42,14 @@ def _validate_membership_events(membership, events, field='event_id'):
                 f"event(s) in total (got {len(events)})."
             )
         })
+
+
+class UserBookingSerializer(serializers.ModelSerializer):
+    event = EventSerializer(read_only=True)
+
+    class Meta:
+        model = Booking
+        fields = ['id', 'event']
 
 
 class ContributionSerializer(serializers.ModelSerializer):

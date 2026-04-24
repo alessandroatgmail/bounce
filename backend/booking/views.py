@@ -10,9 +10,26 @@ from rest_framework.response import Response
 from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
-from .models import Contribution, ContributionStatus
-from .serializers import ContributionSerializer, UserContributionSerializer, _validate_membership_events
+from .models import Booking, Contribution, ContributionStatus
+from .serializers import ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
+
+
+class UserBookingViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = UserBookingSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            Booking.objects
+            .filter(user=self.request.user)
+            .select_related(
+                'event', 'event__event_type', 'event__level',
+                'event__room', 'event__room__location', 'event__room__location__city',
+            )
+            .prefetch_related('event__styles', 'event__genres', 'event__artists', 'event__events')
+            .order_by('event__start_date')
+        )
 
 
 class ContributionViewSet(viewsets.ModelViewSet):
