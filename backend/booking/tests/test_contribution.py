@@ -2,17 +2,18 @@
 Tests for the Contribution API and the automatic booking sync logic.
 
 Sync rules:
-  - Event added to contribution  → user booked into all children of that event.
-      If the parent event has already started, only future children are booked.
-  - Event removed from contribution → user's bookings for *future* children are
-      deleted; past bookings (already attended) are preserved.
+  - Bookings are only created/updated when a contribution has status=confirmed.
+  - When status transitions to confirmed → sync bookings for all events.
+  - When events are updated on a confirmed contribution → sync bookings for diff.
+  - Event removed from confirmed contribution → user's bookings for *future*
+    children are deleted; past bookings (already attended) are preserved.
 """
 import pytest
 from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status as http_status
 
-from booking.models import Booking, Contribution
+from booking.models import Booking, Contribution, ContributionStatus
 from event.models import Event, EventType
 from membership.models import Membership, MembershipRule
 from utils.mock_event import make_event_payload
@@ -64,10 +65,11 @@ def make_parent_with_children(n_past, n_future, parent_started=True):
 
 # ── Payload helper ────────────────────────────────────────────────────────────
 
-def make_contribution_payload(user, event_ids=None, **overrides):
+def make_contribution_payload(user, event_ids=None, status=ContributionStatus.RECEIVED, **overrides):
     return {
         "amount": "50.00",
         "user": user.pk,
+        "status": status,
         "event_ids": event_ids if event_ids is not None else [],
         **overrides,
     }
@@ -164,73 +166,107 @@ class TestContributionCRUD:
         assert len(res.data) == 2
 
 
+# ── Booking sync helpers ──────────────────────────────────────────────────────
+
+def confirm_contribution(contribution):
+    """Set status to confirmed via queryset.update to bypass __init__ tracking, then reload."""
+    Contribution.objects.filter(pk=contribution.pk).update(status=ContributionStatus.CONFIRMED)
+    contribution.refresh_from_db()
+    return contribution
+
+
 # ── Booking sync on create ────────────────────────────────────────────────────
 
 class TestBookingSyncOnCreate:
 
-    def test_no_events_creates_no_bookings(self, admin_client, subject_user, db):
-        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[]), format="json")
+    def test_create_does_not_sync_bookings(self, admin_client, subject_user, world_data):
+        parent, _, _ = make_parent_with_children(n_past=0, n_future=3, parent_started=False)
+        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
         assert Booking.objects.filter(user=subject_user).count() == 0
 
-    def test_event_with_no_children_creates_no_bookings(self, admin_client, subject_user, world_data):
-        now = timezone.now()
-        childless_event = make_event_at(now + timedelta(days=1))
-        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[childless_event.pk]), format="json")
+
+# ── Booking sync on confirmation ──────────────────────────────────────────────
+
+class TestBookingSyncOnConfirmation:
+
+    def _create(self, admin_client, subject_user, event_ids=None):
+        payload = make_contribution_payload(subject_user, event_ids=event_ids or [])
+        res = admin_client.post(LIST_URL, payload, format="json")
+        return Contribution.objects.get(pk=res.data["id"])
+
+    def test_confirm_with_no_events_creates_no_bookings(self, admin_client, subject_user, db):
+        c = self._create(admin_client, subject_user)
+        c.status = ContributionStatus.CONFIRMED
+        c.save()
         assert Booking.objects.filter(user=subject_user).count() == 0
 
-    def test_future_parent_books_all_children(self, admin_client, subject_user, world_data):
+    def test_confirm_future_parent_books_all_children(self, admin_client, subject_user, world_data):
         parent, _, future_children = make_parent_with_children(n_past=0, n_future=3, parent_started=False)
-        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
+        c = self._create(admin_client, subject_user, event_ids=[parent.pk])
+        c.status = ContributionStatus.CONFIRMED
+        c.save()
         assert Booking.objects.filter(user=subject_user).count() == 3
 
-    def test_started_parent_books_only_future_children(self, admin_client, subject_user, world_data):
+    def test_confirm_started_parent_books_only_future_children(self, admin_client, subject_user, world_data):
         parent, _, future_children = make_parent_with_children(n_past=2, n_future=3, parent_started=True)
-        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
+        c = self._create(admin_client, subject_user, event_ids=[parent.pk])
+        c.status = ContributionStatus.CONFIRMED
+        c.save()
         assert Booking.objects.filter(user=subject_user).count() == 3
 
-    def test_started_parent_with_no_future_children_creates_no_bookings(self, admin_client, subject_user, world_data):
+    def test_confirm_started_parent_with_no_future_children_creates_no_bookings(self, admin_client, subject_user, world_data):
         parent, _, _ = make_parent_with_children(n_past=2, n_future=0, parent_started=True)
-        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
+        c = self._create(admin_client, subject_user, event_ids=[parent.pk])
+        c.status = ContributionStatus.CONFIRMED
+        c.save()
         assert Booking.objects.filter(user=subject_user).count() == 0
 
-    def test_booked_events_are_exactly_the_future_children(self, admin_client, subject_user, world_data):
+    def test_confirm_books_exactly_future_children(self, admin_client, subject_user, world_data):
         parent, past_children, future_children = make_parent_with_children(n_past=2, n_future=2, parent_started=True)
-        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
+        c = self._create(admin_client, subject_user, event_ids=[parent.pk])
+        c.status = ContributionStatus.CONFIRMED
+        c.save()
         booked_ids = set(Booking.objects.filter(user=subject_user).values_list("event_id", flat=True))
-        assert booked_ids == {c.pk for c in future_children}
+        assert booked_ids == {child.pk for child in future_children}
 
-    def test_past_children_are_not_booked(self, admin_client, subject_user, world_data):
-        parent, past_children, _ = make_parent_with_children(n_past=2, n_future=2, parent_started=True)
-        admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
-        past_ids = {c.pk for c in past_children}
-        booked_ids = set(Booking.objects.filter(user=subject_user).values_list("event_id", flat=True))
-        assert booked_ids.isdisjoint(past_ids)
+    def test_confirming_twice_does_not_duplicate_bookings(self, admin_client, subject_user, world_data):
+        parent, _, _ = make_parent_with_children(n_past=0, n_future=2, parent_started=False)
+        c = self._create(admin_client, subject_user, event_ids=[parent.pk])
+        c.status = ContributionStatus.CONFIRMED
+        c.save()
+        c.save()  # second save, same status — no re-trigger
+        assert Booking.objects.filter(user=subject_user).count() == 2
 
 
-# ── Booking sync on update — adding events ────────────────────────────────────
+# ── Booking sync on update (confirmed contributions) ──────────────────────────
 
 class TestBookingSyncOnUpdateAdd:
 
-    def test_adding_event_books_future_children(self, admin_client, subject_user, world_data):
-        c = Contribution.objects.create(amount=10, user=subject_user)
+    def test_adding_event_to_confirmed_contribution_books_future_children(self, admin_client, subject_user, world_data):
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.CONFIRMED)
         parent, _, future_children = make_parent_with_children(n_past=0, n_future=2, parent_started=False)
-        admin_client.put(detail_url(c.pk), make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
+        admin_client.put(detail_url(c.pk), make_contribution_payload(subject_user, event_ids=[parent.pk], status=ContributionStatus.CONFIRMED), format="json")
         assert Booking.objects.filter(user=subject_user).count() == 2
 
-    def test_adding_started_event_books_only_future_children(self, admin_client, subject_user, world_data):
+    def test_adding_event_to_unconfirmed_contribution_does_not_book(self, admin_client, subject_user, world_data):
         c = Contribution.objects.create(amount=10, user=subject_user)
-        parent, _, future_children = make_parent_with_children(n_past=2, n_future=2, parent_started=True)
+        parent, _, _ = make_parent_with_children(n_past=0, n_future=2, parent_started=False)
         admin_client.put(detail_url(c.pk), make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
+        assert Booking.objects.filter(user=subject_user).count() == 0
+
+    def test_updating_confirmed_with_same_events_does_not_duplicate_bookings(self, admin_client, subject_user, world_data):
+        parent, _, future_children = make_parent_with_children(n_past=0, n_future=2, parent_started=False)
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.CONFIRMED)
+        c.events.set([parent])
+        # Seed the bookings that would have been created on initial confirmation
+        for fc in future_children:
+            Booking.objects.create(user=subject_user, event=fc)
         assert Booking.objects.filter(user=subject_user).count() == 2
 
-    def test_updating_with_same_events_does_not_duplicate_bookings(self, admin_client, subject_user, world_data):
-        parent, _, _ = make_parent_with_children(n_past=0, n_future=2, parent_started=False)
-        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
-        contribution_id = res.data["id"]
-        # PUT with the same event again
+        # PUT same events again — get_or_create means no duplicates
         admin_client.put(
-            detail_url(contribution_id),
-            make_contribution_payload(subject_user, event_ids=[parent.pk]),
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, event_ids=[parent.pk], status=ContributionStatus.CONFIRMED),
             format="json",
         )
         assert Booking.objects.filter(user=subject_user).count() == 2
@@ -240,44 +276,36 @@ class TestBookingSyncOnUpdateAdd:
 
 class TestBookingSyncOnUpdateRemove:
 
-    def test_removing_event_deletes_future_bookings(self, admin_client, subject_user, world_data):
-        parent, _, _ = make_parent_with_children(n_past=0, n_future=3, parent_started=False)
-        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
+    def test_removing_event_from_confirmed_deletes_future_bookings(self, admin_client, subject_user, world_data):
+        parent, _, future_children = make_parent_with_children(n_past=0, n_future=3, parent_started=False)
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.CONFIRMED)
+        c.events.set([parent])
+        for fc in future_children:
+            Booking.objects.create(user=subject_user, event=fc)
         assert Booking.objects.filter(user=subject_user).count() == 3
 
-        admin_client.put(detail_url(res.data["id"]), make_contribution_payload(subject_user, event_ids=[]), format="json")
+        admin_client.put(detail_url(c.pk), make_contribution_payload(subject_user, event_ids=[], status=ContributionStatus.CONFIRMED), format="json")
         assert Booking.objects.filter(user=subject_user).count() == 0
 
     def test_removing_event_preserves_past_bookings(self, admin_client, subject_user, world_data):
-        parent, past_children, _ = make_parent_with_children(n_past=2, n_future=2, parent_started=True)
-        # Simulate user already having attended past sessions
-        for child in past_children:
-            Booking.objects.create(user=subject_user, event=child)
+        parent, past_children, future_children = make_parent_with_children(n_past=2, n_future=2, parent_started=True)
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.CONFIRMED)
+        c.events.set([parent])
+        for child in past_children + future_children:
+            Booking.objects.get_or_create(user=subject_user, event=child)
+        assert Booking.objects.filter(user=subject_user).count() == 4
 
-        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
-        assert Booking.objects.filter(user=subject_user).count() == 4  # 2 past + 2 future
-
-        admin_client.put(detail_url(res.data["id"]), make_contribution_payload(subject_user, event_ids=[]), format="json")
+        admin_client.put(detail_url(c.pk), make_contribution_payload(subject_user, event_ids=[], status=ContributionStatus.CONFIRMED), format="json")
         assert Booking.objects.filter(user=subject_user).count() == 2  # only past survive
-
-    def test_removing_preserves_correct_past_bookings(self, admin_client, subject_user, world_data):
-        parent, past_children, _ = make_parent_with_children(n_past=2, n_future=1, parent_started=True)
-        for child in past_children:
-            Booking.objects.create(user=subject_user, event=child)
-
-        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
-        admin_client.put(detail_url(res.data["id"]), make_contribution_payload(subject_user, event_ids=[]), format="json")
-
-        surviving_ids = set(Booking.objects.filter(user=subject_user).values_list("event_id", flat=True))
-        assert surviving_ids == {c.pk for c in past_children}
 
     def test_removing_event_with_only_past_children_deletes_nothing(self, admin_client, subject_user, world_data):
         parent, past_children, _ = make_parent_with_children(n_past=2, n_future=0, parent_started=True)
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.CONFIRMED)
+        c.events.set([parent])
         for child in past_children:
             Booking.objects.create(user=subject_user, event=child)
 
-        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, event_ids=[parent.pk]), format="json")
-        admin_client.put(detail_url(res.data["id"]), make_contribution_payload(subject_user, event_ids=[]), format="json")
+        admin_client.put(detail_url(c.pk), make_contribution_payload(subject_user, event_ids=[], status=ContributionStatus.CONFIRMED), format="json")
         assert Booking.objects.filter(user=subject_user).count() == 2
 
 

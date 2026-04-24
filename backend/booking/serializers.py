@@ -4,10 +4,12 @@ from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework import serializers
+from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from membership.serializers import MembershipSerializer
-from .models import Booking, Contribution
+from .models import Booking, Contribution, ContributionStatus
+from .utils import sync_bookings
 
 
 def _validate_membership_events(membership, events, field='event_id'):
@@ -41,21 +43,6 @@ def _validate_membership_events(membership, events, field='event_id'):
         })
 
 
-def _sync_bookings(user, added_events, removed_events):
-    now = timezone.now()
-
-    for event in added_events:
-        children = event.events.all()
-        if event.start_date <= now:
-            children = children.filter(start_date__gt=now)
-        for child in children:
-            Booking.objects.get_or_create(user=user, event=child)
-
-    for event in removed_events:
-        future_children = event.events.filter(start_date__gt=now)
-        Booking.objects.filter(user=user, event__in=future_children).delete()
-
-
 class ContributionSerializer(serializers.ModelSerializer):
     events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
@@ -67,11 +54,16 @@ class ContributionSerializer(serializers.ModelSerializer):
         queryset=Membership.objects.all(), source='membership',
         write_only=True, required=False, allow_null=True,
     )
+    upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
 
     class Meta:
         model = Contribution
-        fields = ['id', 'amount', 'user', 'events', 'event_ids', 'membership', 'membership_id', 'start_date', 'end_date']
-        read_only_fields = ['start_date', 'end_date']
+        fields = [
+            'id', 'status', 'amount', 'user',
+            'events', 'event_ids', 'membership', 'membership_id',
+            'start_date', 'end_date', 'upgraded_from',
+        ]
+        read_only_fields = ['start_date', 'end_date', 'upgraded_from']
 
     def validate(self, attrs):
         membership = attrs.get('membership', self.instance.membership if self.instance else None)
@@ -89,7 +81,6 @@ class ContributionSerializer(serializers.ModelSerializer):
         events = validated_data.pop('events', [])
         contribution = Contribution.objects.create(**validated_data)
         contribution.events.set(events)
-        _sync_bookings(contribution.user, added_events=events, removed_events=[])
         if contribution.membership and contribution.membership.duration:
             contribution.end_date = timezone.now() + relativedelta(months=contribution.membership.duration)
             contribution.save(update_fields=['end_date'])
@@ -97,6 +88,7 @@ class ContributionSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         events = validated_data.pop('events', None)
+        old_status = instance.status
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -105,11 +97,12 @@ class ContributionSerializer(serializers.ModelSerializer):
             old_events = set(instance.events.all())
             new_events = set(events)
             instance.events.set(events)
-            _sync_bookings(
-                instance.user,
-                added_events=new_events - old_events,
-                removed_events=old_events - new_events,
-            )
+            if instance.status == ContributionStatus.CONFIRMED:
+                sync_bookings(
+                    instance.user,
+                    added_events=new_events - old_events,
+                    removed_events=old_events - new_events,
+                )
 
         return instance
 
@@ -123,17 +116,34 @@ class UserContributionSerializer(serializers.ModelSerializer):
     event_id = serializers.PrimaryKeyRelatedField(
         queryset=Event.objects.all(), write_only=True, required=False, allow_null=True,
     )
+    upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
 
     class Meta:
         model = Contribution
-        fields = ['id', 'membership', 'membership_id', 'events', 'event_id', 'amount', 'start_date', 'end_date']
-        read_only_fields = ['id', 'amount', 'start_date', 'end_date']
+        fields = [
+            'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
+            'amount', 'start_date', 'end_date', 'upgraded_from',
+        ]
+        read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from']
 
     def validate(self, attrs):
         membership = attrs['membership']
         event = attrs.get('event_id')
         if event:
             _validate_membership_events(membership, [event])
+
+        if self.instance is None and membership.duration:
+            season_end = SiteSettings.load().season_end
+            if season_end:
+                projected_end = (timezone.now() + relativedelta(months=membership.duration)).date()
+                if projected_end > season_end:
+                    raise serializers.ValidationError({
+                        'membership_id': (
+                            f"This membership would end after the season closes on {season_end}. "
+                            "Please upgrade an existing membership instead."
+                        )
+                    })
+
         return attrs
 
     def create(self, validated_data):
@@ -146,5 +156,4 @@ class UserContributionSerializer(serializers.ModelSerializer):
             contribution.save(update_fields=['end_date'])
         if event:
             contribution.events.add(event)
-            _sync_bookings(contribution.user, added_events=[event], removed_events=[])
         return contribution

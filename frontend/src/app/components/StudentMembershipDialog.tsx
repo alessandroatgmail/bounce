@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Loader2, Pencil, Trash2, Plus, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useContributions, type Contribution, type ContributionPayload } from '../hooks/useContributions';
+import { useContributions, type Contribution, type ContributionPayload, type ContributionStatus } from '../hooks/useContributions';
 import { useMemberships, type Membership } from '../hooks/useMemberships';
 import { useEvents } from '../hooks/useEvents';
 import { type UserListItem } from '../hooks/useUserList';
@@ -22,13 +22,26 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+const CONTRIBUTION_STATUSES: { value: ContributionStatus; labelIt: string; labelEn: string }[] = [
+  { value: 'received',  labelIt: 'Ricevuto',   labelEn: 'Received'  },
+  { value: 'accepted',  labelIt: 'Accettato',  labelEn: 'Accepted'  },
+  { value: 'confirmed', labelIt: 'Confermato', labelEn: 'Confirmed' },
+];
+
+const STATUS_BADGE: Record<ContributionStatus, string> = {
+  received:  'bg-yellow-100 text-yellow-800 border-yellow-200',
+  accepted:  'bg-blue-100 text-blue-800 border-blue-200',
+  confirmed: 'bg-green-100 text-green-800 border-green-200',
+};
+
 interface FormState {
   membershipId: number | '';
   amount: string;
+  status: ContributionStatus;
   selectedEvents: { id: number; name: string }[];
 }
 
-const emptyForm = (): FormState => ({ membershipId: '', amount: '', selectedEvents: [] });
+const emptyForm = (): FormState => ({ membershipId: '', amount: '', status: 'received', selectedEvents: [] });
 
 export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
   const { accessToken } = useAuth();
@@ -86,6 +99,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
     setForm({
       membershipId: c.membership ?? '',
       amount: c.amount,
+      status: c.status,
       selectedEvents: eventItems,
     });
     setSaveError(null);
@@ -108,6 +122,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
       const payload: ContributionPayload = {
         amount: form.amount,
         user: user.id,
+        status: form.status,
         event_ids: form.selectedEvents.map(ev => ev.id),
         membership_id: form.membershipId === '' ? null : form.membershipId,
       };
@@ -168,7 +183,12 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
                 className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
               >
                 <div className="flex flex-col gap-0.5">
-                  <span className="font-medium">{membershipName(c.membership)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{membershipName(c.membership)}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${STATUS_BADGE[c.status]}`}>
+                      {CONTRIBUTION_STATUSES.find(s => s.value === c.status)?.[language === 'it' ? 'labelIt' : 'labelEn'] ?? c.status}
+                    </span>
+                  </div>
                   <span className="text-gray-500">
                     €{c.amount}
                     {c.events.length > 0 && (
@@ -249,6 +269,25 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
                 value={form.amount}
                 onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
               />
+            </div>
+
+            <div className="space-y-1">
+              <Label>{language === 'it' ? 'Stato' : 'Status'}</Label>
+              <Select
+                value={form.status}
+                onValueChange={v => setForm(f => ({ ...f, status: v as ContributionStatus }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONTRIBUTION_STATUSES.map(s => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {language === 'it' ? s.labelIt : s.labelEn}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <MultiSearchSelect

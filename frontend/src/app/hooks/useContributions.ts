@@ -3,17 +3,23 @@ import { authFetch } from '../../lib/api';
 
 const BASE = '/api/booking/contributions/';
 
+export type ContributionStatus = 'received' | 'accepted' | 'confirmed';
+
 export interface Contribution {
   id: number;
+  status: ContributionStatus;
   amount: string;
   user: number;
   events: number[];
   membership: number | null;
+  start_date: string | null;
+  end_date: string | null;
 }
 
 export interface ContributionPayload {
   amount: string;
   user: number;
+  status?: ContributionStatus;
   event_ids?: number[];
   membership_id?: number | null;
 }

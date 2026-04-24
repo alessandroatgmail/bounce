@@ -16,12 +16,13 @@ class BookingAdmin(admin.ModelAdmin):
 
 @admin.register(Contribution)
 class ContributionAdmin(admin.ModelAdmin):
-    list_display = ("user", "membership", "amount")
+    list_display = ("user", "membership", "amount", "status", "start_date", "end_date")
     search_fields = (
         "user__first_name", "user__last_name",
         "membership__name",
     )
     ordering = ("user__last_name", "user__first_name")
-    list_filter = ("membership",)
+    list_filter = ("status", "membership")
     filter_horizontal = ("events",)
     autocomplete_fields = ("user", "membership")
+    readonly_fields = ("start_date", "end_date", "upgraded_from")

@@ -25,7 +25,7 @@ import {
   HotelShare,
   Document
 } from '../data/mockData';
-import { useUserMemberships } from '../hooks/useUserMemberships';
+import { useUserMemberships, type ContributionStatus } from '../hooks/useUserMemberships';
 import { useMemberships } from '../hooks/useMemberships';
 import { useEvents } from '../hooks/useEvents';
 import { Card, CardContent } from '../components/ui/card';
@@ -83,7 +83,7 @@ export function StudentDashboard() {
   const [trips, setTrips] = useState(mockTrips);
   const [documents, setDocuments] = useState(mockDocuments);
 
-  const { userMemberships, loading: contribLoading, create: purchaseMembership, addEvent: addEventToMembership } = useUserMemberships(accessToken);
+  const { userMemberships, loading: contribLoading, create: purchaseMembership, upgrade: upgradeMembership, addEvent: addEventToMembership } = useUserMemberships(accessToken);
   const [purchasingId, setPurchasingId] = useState<number | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [activeCardAction, setActiveCardAction] = useState<{ id: number; mode: 'add-event' | 'upgrade' } | null>(null);
@@ -110,6 +110,22 @@ export function StudentDashboard() {
   );
   const pastUserMemberships = userMemberships.filter(c =>
     c.events.length > 0 && c.events.every(eid => (eventMap.get(eid)?.end_date ?? '') < today)
+  );
+
+  const STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
+    received:  { it: 'Ricevuto',   en: 'Received'  },
+    accepted:  { it: 'Accettato',  en: 'Accepted'  },
+    confirmed: { it: 'Confermato', en: 'Confirmed' },
+  };
+  const STATUS_CLASS: Record<ContributionStatus, string> = {
+    received:  'bg-yellow-100 text-yellow-800',
+    accepted:  'bg-blue-100 text-blue-800',
+    confirmed: 'bg-green-600 text-white',
+  };
+  const statusBadge = (status: ContributionStatus) => (
+    <Badge className={`ml-auto ${STATUS_CLASS[status]}`}>
+      {STATUS_LABEL[status][language === 'it' ? 'it' : 'en']}
+    </Badge>
   );
 
   const userBookings = mockBookings.filter((b) => b.userId === user.id);
@@ -905,8 +921,8 @@ export function StudentDashboard() {
                                 setPurchaseError(null);
                                 try {
                                   await purchaseMembership(plan.id);
-                                } catch {
-                                  setPurchaseError(language === 'it' ? 'Acquisto fallito.' : 'Purchase failed.');
+                                } catch (err) {
+                                  setPurchaseError(err instanceof Error ? err.message : (language === 'it' ? 'Acquisto fallito.' : 'Purchase failed.'));
                                 } finally {
                                   setPurchasingId(null);
                                 }
@@ -962,11 +978,11 @@ export function StudentDashboard() {
                               if (mode === 'add-event' && pendingEventId) {
                                 await addEventToMembership(c.id, Number(pendingEventId));
                               } else if (mode === 'upgrade' && pendingPlanId) {
-                                await purchaseMembership(Number(pendingPlanId));
+                                await upgradeMembership(c.id, Number(pendingPlanId));
                               }
                               closeAction();
-                            } catch {
-                              setCardActionError(language === 'it' ? 'Operazione fallita.' : 'Action failed.');
+                            } catch (err) {
+                              setCardActionError(err instanceof Error ? err.message : (language === 'it' ? 'Operazione fallita.' : 'Action failed.'));
                             } finally {
                               setCardActionLoading(false);
                             }
@@ -979,14 +995,33 @@ export function StudentDashboard() {
                               <div className="flex items-center gap-2">
                                 <Crown className="size-4 text-[#e67e22]" />
                                 <span className="font-semibold">{c.membership?.name ?? '—'}</span>
-                                <Badge className="bg-green-600 ml-auto text-white">
-                                  {language === 'it' ? 'Attivo' : 'Active'}
-                                </Badge>
+                                {statusBadge(c.status)}
                               </div>
                               <div className="text-sm text-gray-600">€{c.amount}</div>
+                              <div className="text-xs text-gray-500 space-y-0.5">
+                                {c.start_date && (
+                                  <div>
+                                    <span className="font-medium">{language === 'it' ? 'Inizio:' : 'Start:'}</span>{' '}
+                                    {new Date(c.start_date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </div>
+                                )}
+                                {c.end_date && (
+                                  <div>
+                                    <span className="font-medium">{language === 'it' ? 'Scadenza:' : 'Expires:'}</span>{' '}
+                                    {new Date(c.end_date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </div>
+                                )}
+                              </div>
                               {c.events.length > 0 && (
-                                <div className="text-xs text-gray-400">
-                                  {c.events.length} {language === 'it' ? 'evento/i' : 'event(s)'}
+                                <div className="flex flex-col gap-1">
+                                  {c.events.map(eid => {
+                                    const ev = eventMap.get(eid);
+                                    return ev ? (
+                                      <span key={eid} className="text-xs text-gray-500 bg-gray-100 rounded px-2 py-0.5">
+                                        {ev.name}
+                                      </span>
+                                    ) : null;
+                                  })}
                                 </div>
                               )}
 
@@ -1087,6 +1122,7 @@ export function StudentDashboard() {
                                 <Badge variant="secondary" className="ml-auto">
                                   {language === 'it' ? 'Passato' : 'Past'}
                                 </Badge>
+                                {statusBadge(c.status)}
                               </div>
                               <div className="text-sm text-gray-600">€{c.amount}</div>
                               {c.events.length > 0 && (
