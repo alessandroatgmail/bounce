@@ -1,4 +1,10 @@
+import uuid
+import redis
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+
 from django.contrib.auth import get_user_model
+
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.conf import settings
@@ -10,13 +16,15 @@ from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import City
-from .serializers import BounceTokenObtainPairSerializer, RegisterSerializer, UserListSerializer
+from .serializers import BounceTokenObtainPairSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
 
 
 class LoginView(TokenObtainPairView):
@@ -199,3 +207,57 @@ class UserListView(ListAPIView):
             qs = qs.filter(contribution_set__events__id=event_id).distinct()
 
         return qs
+
+# We connect to the same Redis instance used by Channels/Celery.
+# decode_responses=True so we get strings back instead of bytes.
+# Rimuovi redis_client a livello di modulo e usa una funzione
+def _get_redis_client():
+    from django.conf import settings
+    url = getattr(settings, "REDIS_TEST_URL", None)
+    if url and getattr(settings, "TESTING", False):
+        return redis.Redis.from_url(url, decode_responses=True)
+    return redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=inline_serializer(
+            name="LogoutRequest",
+            fields={"refresh": serializers.CharField()},
+        ),
+        responses={
+            204: None,
+            400: inline_serializer(
+                name="LogoutErrorResponse",
+                fields={"detail": serializers.CharField()},
+            ),
+        },
+    )
+    def post(self, request):
+        refresh_token = request.data.get("refresh")
+        if not refresh_token:
+            return Response({"detail": "Refresh token is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            RefreshToken(refresh_token).blacklist()
+        except TokenError:
+            return Response({"detail": "Token is invalid or already blacklisted."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: UserProfileSerializer})
+    def get(self, request):
+        serializer = UserProfileSerializer(request.user)
+        return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ws_ticket(request):
+    ticket = str(uuid.uuid4())
+    redis_key = f"ws_ticket:{ticket}"
+    _get_redis_client().setex(redis_key, 15, str(request.user.id))
+    return Response({"ticket": ticket})

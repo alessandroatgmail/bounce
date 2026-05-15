@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -9,11 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents, type EventItem } from '../hooks/useEvents';
+import { useMemberships, type Membership } from '../hooks/useMemberships';
 
 export function Events() {
   const { t, language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
   const { events, loading } = useEvents(accessToken);
+  const { memberships, loading: membershipsLoading } = useMemberships(isAuthenticated ? accessToken : null);
 
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [filterType, setFilterType] = useState<string>('all');
@@ -118,7 +120,7 @@ export function Events() {
               ) : (
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filtered.map(event => (
-                    <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} />
+                    <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} />
                   ))}
                 </div>
               )}
@@ -159,7 +161,7 @@ export function Events() {
                   <div className="space-y-4">
                     {eventsOnSelectedDate.length > 0 ? (
                       eventsOnSelectedDate.map(event => (
-                        <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} />
+                        <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} />
                       ))
                     ) : (
                       <Card>
@@ -185,11 +187,41 @@ function EventCard({
   event,
   isAuthenticated,
   language,
+  memberships,
+  membershipsLoading,
 }: {
   event: EventItem;
   isAuthenticated: boolean;
   language: string;
+  memberships: Membership[];
+  membershipsLoading: boolean;
 }) {
+  const { accessToken } = useAuth();
+  const [showMemberships, setShowMemberships] = useState(false);
+  const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [joined, setJoined] = useState(false);
+
+  async function handleSelect(membershipId: number) {
+    if (!accessToken) return;
+    setJoinStatus('loading');
+    try {
+      const res = await fetch('/api/booking/my-memberships/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ membership_id: membershipId, event_id: event.id }),
+      });
+      if (!res.ok) throw new Error();
+      setJoined(true);
+      setShowMemberships(false);
+      setJoinStatus('idle');
+    } catch {
+      setJoinStatus('error');
+    }
+  }
+
   const spotsLeft = event.capacity;
   const isAlmostFull = spotsLeft <= 5;
 
@@ -247,13 +279,94 @@ function EventCard({
         {event.info && (
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">{event.info}</p>
         )}
-        <div className="pt-4 border-t border-[#d4b896]/20 flex justify-end items-center">
-          <Button size="sm" className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white">
-            {isAuthenticated
-              ? (language === 'it' ? 'Iscriviti' : 'Join')
-              : (language === 'it' ? 'Diventa Membro' : 'Become a Member')}
-          </Button>
+        <div className="pt-4 border-t border-[#d4b896]/20 space-y-2">
+          {joined && (
+            <div className="flex items-start gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">
+              <CheckCircle className="size-4 mt-0.5 flex-shrink-0 text-green-600" />
+              {language === 'it'
+                ? "L'abbonamento è stato aggiunto al tuo account, puoi vederlo nella sezione abbonamenti."
+                : 'Membership has been added to your account, you can see it in the membership section.'}
+            </div>
+          )}
+          {joinStatus === 'error' && (
+            <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
+              <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-500" />
+              {language === 'it' ? 'Si è verificato un errore. Riprova.' : 'Something went wrong. Please try again.'}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              disabled={joined}
+              className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white flex items-center gap-1 disabled:opacity-50"
+              onClick={() => isAuthenticated && setShowMemberships(v => !v)}
+            >
+              {isAuthenticated
+                ? (language === 'it' ? 'Iscriviti' : 'Join')
+                : (language === 'it' ? 'Diventa Membro' : 'Become a Member')}
+              {isAuthenticated && !joined && (
+                showMemberships
+                  ? <ChevronUp className="size-3" />
+                  : <ChevronDown className="size-3" />
+              )}
+            </Button>
+          </div>
         </div>
+
+        {isAuthenticated && showMemberships && (
+          <div className="mt-3 border-t border-[#d4b896]/20 pt-3 space-y-2">
+            <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide mb-2">
+              {language === 'it' ? 'Scegli un abbonamento' : 'Choose a membership'}
+            </p>
+            {membershipsLoading ? (
+              <div className="flex justify-center py-2">
+                <Loader2 className="size-4 animate-spin text-[#e67e22]" />
+              </div>
+            ) : (() => {
+              const eligible = memberships.filter(m =>
+                m.rules.some(r => r.event_type.id === event.event_type.id)
+              );
+              return eligible.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  {language === 'it' ? 'Nessun abbonamento disponibile per questo tipo di evento.' : 'No memberships available for this event type.'}
+                </p>
+              ) : (
+              eligible.map(m => (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between rounded-md border border-[#d4b896]/40 px-3 py-2 hover:bg-[#d4b896]/10 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    {m.color && (
+                      <span className="size-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
+                    )}
+                    <div>
+                      <p className="text-sm font-medium text-[#2b2b2b]">{m.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {m.duration} {language === 'it' ? 'gg' : 'days'} · {m.max_events} {language === 'it' ? 'eventi' : 'events'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-[#e67e22]">€{m.contribution}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={joinStatus === 'loading'}
+                      className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white"
+                      onClick={() => handleSelect(m.id)}
+                    >
+                      {joinStatus === 'loading'
+                        ? <Loader2 className="size-3 animate-spin" />
+                        : (language === 'it' ? 'Seleziona' : 'Select')}
+                    </Button>
+                  </div>
+                </div>
+              ))
+            );
+          })()}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -8,10 +8,13 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 
 from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
-from channels.auth import AuthMiddlewareStack
 from .routing import websocket_urlpatterns
 
 django_asgi_app = get_asgi_application()
+
+# Import our middleware AFTER get_asgi_application() — Django must be
+# fully initialized before we import anything that touches models or settings.
+from notification.middleware import WsTicketAuthMiddleware
 from notification.kafka_consumer import consume_user_events
 
 
@@ -37,6 +40,11 @@ async def lifespan(scope, receive, send):
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
-    "websocket": AuthMiddlewareStack(URLRouter(websocket_urlpatterns)),
+    # WsTicketAuthMiddleware replaces AuthMiddlewareStack:
+    # instead of reading the Django session cookie, it validates
+    # the one-time ticket from the query string and populates scope["user"].
+    "websocket": WsTicketAuthMiddleware(
+        URLRouter(websocket_urlpatterns)
+    ),
     "lifespan": lifespan,
 })

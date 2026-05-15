@@ -8,6 +8,12 @@ class EventNotificationConsumer(AsyncJsonWebsocketConsumer):
     """
 
     async def connect(self):
+        print ("-------- check user -------")
+        print(self.scope["user"])
+        if not self.scope["user"].is_authenticated:
+            await self.close()
+            return
+
         self.group_name = f"admin_dashboard"
 
         # Join the group for this specific event

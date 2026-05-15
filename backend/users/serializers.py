@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Country, User, City
+from .models import Country, Region, User, City
 
 
 class BounceTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -93,6 +93,49 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.is_active = False
         user.save()
         return user
+
+
+class CityNestedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = City
+        fields = ["id", "name"]
+
+
+class CountryNestedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Country
+        fields = ["id", "name"]
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    place_of_birth = CityNestedSerializer(read_only=True)
+    city = CityNestedSerializer(read_only=True)
+    country = CountryNestedSerializer(read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "phone",
+            "role",
+            "date_of_birth",
+            "place_of_birth",
+            "ci",
+            "address",
+            "city",
+            "postal_code",
+            "country",
+            "acsi",
+            "acsi_number",
+            "acsi_expiration_date",
+            "privacy_consent",
+            "marketing_consent",
+            "is_active",
+            "date_joined",
+        ]
 
 
 class UserListSerializer(serializers.ModelSerializer):

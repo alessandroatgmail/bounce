@@ -12,7 +12,6 @@ class ContributionStatus(models.TextChoices):
     CONFIRMED = "confirmed", "Confirmed"
 
 
-
 class Contribution(models.Model):
 
     status = models.CharField(max_length=20, choices=ContributionStatus.choices, default=ContributionStatus.RECEIVED)
@@ -39,7 +38,6 @@ class Contribution(models.Model):
             from booking.utils import sync_bookings
             sync_bookings(self.user, added_events=list(self.events.all()), removed_events=[])
         self._previous_status = self.status
-
 
 
 class Booking(models.Model):
