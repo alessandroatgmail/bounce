@@ -1,0 +1,17 @@
+name: "bounce_2_0"
+
+services:
+
+  # ── Frontend + Nginx reverse proxy ───────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./backend/staticfiles:/django_static:ro
+      - ./backend/media:/django_media:ro
+    depends_on:
+      - web
