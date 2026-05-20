@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, Loader2, AlertTriangle, Upload, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { type EventItem, type EventPayload } from '../hooks/useEvents';
 import { useEventTypes } from '../hooks/useEventTypes';
@@ -7,6 +7,7 @@ import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
 import { useRooms } from '../hooks/useRooms';
+import { useLevels } from '../hooks/useLevels';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -14,7 +15,7 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
-import { authFetch } from '../../lib/api';
+import { authFetch, authFetchFile } from '../../lib/api';
 
 // ── Grid constants ─────────────────────────────────────────────────────────────
 
@@ -123,6 +124,7 @@ function WeeklyEventDialog({
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
   const { rooms, loading: loadingRooms } = useRooms(accessToken);
+  const { levels, loading: loadingLevels } = useLevels(accessToken);
 
   const isEdit = !!editEvent;
   const slotDayIndex = slot?.dayIndex ?? getDayIndex(editEvent!.start_date);
@@ -140,14 +142,30 @@ function WeeklyEventDialog({
   const [endTime, setEndTime] = useState(editEvent ? formatTime(editEvent.end_date) : '');
   const [endDate, setEndDate] = useState(editEvent ? editEvent.end_date.slice(0, 10) : '');
   const [capacity, setCapacity] = useState(editEvent?.capacity.toString() ?? '');
+  const [levelId, setLevelId] = useState(editEvent?.level?.id.toString() ?? '');
   const [color, setColor] = useState(editEvent?.color ?? '#e67e22');
   const [selectedArtists, setSelectedArtists] = useState<{ id: number; name: string }[]>(
     editEvent?.artists.map(a => ({ id: a.id, name: a.full_name })) ?? []
   );
   const [selectedGenres, setSelectedGenres] = useState<{ id: number; name: string }[]>(editEvent?.genres ?? []);
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(editEvent?.styles ?? []);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(editEvent?.effective_image ?? null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setImageFile(file);
+    if (file) setImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(editEvent?.effective_image ?? null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   // Day mismatch warning
   const startDateDayIndex = startDate ? getDayIndex(startDate) : null;
@@ -183,6 +201,7 @@ function WeeklyEventDialog({
         genre_ids: selectedGenres.map(g => g.id),
         style_ids: selectedStyles.map(s => s.id),
         color: color || null,
+        level_id: levelId ? Number(levelId) : null,
       };
 
       const url = isEdit ? `/api/events/events/${editEvent!.id}/` : '/api/events/events/';
@@ -193,6 +212,13 @@ function WeeklyEventDialog({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(JSON.stringify(body));
+      }
+      const saved = await res.json();
+      const savedId: number = isEdit ? editEvent!.id : saved.id;
+      if (imageFile) {
+        const form = new FormData();
+        form.append('image', imageFile);
+        await authFetchFile(`/api/events/events/${savedId}/`, accessToken, form);
       }
       onSaved();
     } catch (err) {
@@ -273,6 +299,18 @@ function WeeklyEventDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
+              <Label>Level</Label>
+              <Select value={levelId || 'none'} onValueChange={v => setLevelId(v === 'none' ? '' : v)} disabled={loadingLevels}>
+                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
               <Label>Capacity</Label>
               <Input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="20" />
             </div>
@@ -286,6 +324,46 @@ function WeeklyEventDialog({
               <input type="color" value={color ?? '#e67e22'} onChange={e => setColor(e.target.value)} className="h-8 w-12 rounded border cursor-pointer p-0.5" />
               <Input value={color ?? ''} onChange={e => setColor(e.target.value || null as any)} placeholder="#rrggbb" className="flex-1 h-8 text-sm" />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Image</Label>
+            {imagePreview ? (
+              <div className="relative w-full h-32 rounded-md overflow-hidden border border-gray-200 group">
+                <img src={imagePreview} alt="Event" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full h-24 rounded-md border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <Upload className="size-4" />
+                <span className="text-xs">Click to upload an image</span>
+              </button>
+            )}
+            {imagePreview && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs text-gray-500 hover:text-gray-800 underline"
+              >
+                Change image
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageChange}
+            />
           </div>
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">

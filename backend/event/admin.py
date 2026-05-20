@@ -72,7 +72,7 @@ class EventAdmin(admin.ModelAdmin):
     filter_horizontal = ("events", "styles", "genres", "artists")
     fieldsets = (
         (None,
-        {"fields": ("name", "status", "event_type", "type", "level", "color")}),
+        {"fields": ("name", "status", "event_type", "type", "level", "color", "image")}),
         ("Schedule", {"fields": ("start_date", "end_date", "duration")}),
         ("Venue", {"fields": ("room", "capacity")}),
         ("Details", {"fields": ("styles", "genres", "artists", "events")}),

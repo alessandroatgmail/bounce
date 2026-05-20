@@ -18,10 +18,10 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, Bell } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, Bell, Upload, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
 import { FestivalPanel } from '../components/FestivalPanel';
 import { WeeklyGrid } from '../components/WeeklyGrid';
@@ -840,6 +840,9 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
                 <TableRow key={event.id}>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
+                      {event.effective_image && (
+                        <img src={event.effective_image} alt="" className="size-8 rounded object-cover shrink-0" />
+                      )}
                       {event.name}
                       {event.events.length > 0 && (
                         <Badge variant="outline" className="text-xs">{event.events.length} children</Badge>
@@ -913,7 +916,7 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
-  const { create, update } = useEvents(accessToken);
+  const { create, update, uploadImage } = useEvents(accessToken);
 
   const parseDate = (iso: string) => iso ? iso.slice(0, 10) : '';
   const parseTime = (iso: string) => iso ? iso.slice(11, 16) : '';
@@ -939,11 +942,28 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(
     initialData?.styles ?? []
   );
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(initialData?.effective_image ?? null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const artistItems = artists.map(a => ({ id: a.id, name: a.full_name }));
   const isEdit = !!initialData;
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setImageFile(file);
+    if (file) {
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(initialData?.effective_image ?? null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -967,8 +987,10 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
     try {
       if (isEdit) {
         await update(initialData.id, payload);
+        if (imageFile) await uploadImage(initialData.id, imageFile);
       } else {
-        await create(payload);
+        const newId = await create(payload);
+        if (imageFile) await uploadImage(newId, imageFile);
       }
       onSuccess();
     } catch (err) {
@@ -1081,6 +1103,47 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
 
         <div className="col-span-2">
           <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style..." onChange={setSelectedStyles} />
+        </div>
+
+        <div className="col-span-2 space-y-2">
+          <Label>Event Image</Label>
+          {imagePreview ? (
+            <div className="relative w-full h-40 rounded-md overflow-hidden border border-gray-200 group">
+              <img src={imagePreview} alt="Event" className="w-full h-full object-cover" />
+              <button
+                type="button"
+                onClick={handleRemoveImage}
+                className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full h-32 rounded-md border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <Upload className="size-5" />
+              <span className="text-sm">Click to upload an image</span>
+            </button>
+          )}
+          {imagePreview && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-xs text-gray-500 hover:text-gray-800 underline"
+            >
+              Change image
+            </button>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageChange}
+          />
         </div>
       </div>
 

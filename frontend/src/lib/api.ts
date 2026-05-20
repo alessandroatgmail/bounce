@@ -29,3 +29,17 @@ export function authFetch(
     },
   });
 }
+
+/** Authenticated fetch for multipart/form-data (file uploads). No Content-Type header — browser sets it with the boundary. */
+export function authFetchFile(
+  path: string,
+  token: string,
+  body: FormData,
+  method: 'POST' | 'PATCH' = 'PATCH',
+): Promise<Response> {
+  return fetch(apiUrl(path), {
+    method,
+    headers: { Authorization: `Bearer ${token}` },
+    body,
+  });
+}

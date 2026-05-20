@@ -167,6 +167,7 @@ class EventSerializer(serializers.ModelSerializer):
     event_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Event.objects.all(), source="events", write_only=True, required=False
     )
+    effective_image = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -183,7 +184,17 @@ class EventSerializer(serializers.ModelSerializer):
             "artists", "artist_ids",
             "events", "event_ids",
             "info", "color",
+            "image", "effective_image",
         ]
+
+    def get_effective_image(self, obj):
+        img = obj.effective_image
+        if not img:
+            return None
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(img.url)
+        return img.url
 
     def validate(self, data):
         start = data.get("start_date", getattr(self.instance, "start_date", None))

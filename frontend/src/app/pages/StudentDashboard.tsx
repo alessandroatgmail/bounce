@@ -724,22 +724,24 @@ export function StudentDashboard() {
                     ) : (
                       <div className="space-y-2">
                         {dayBookings.map(b => (
-                          <div key={b.id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-gray-50 transition-colors">
-                            <div
-                              className="size-2.5 rounded-full mt-1.5 shrink-0"
-                              style={{ backgroundColor: b.event.color ?? '#e67e22' }}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-sm text-[#2b2b2b]">{b.event.name}</p>
-                              <p className="text-xs text-gray-500 mt-0.5">
-                                {format(new Date(b.event.start_date), 'HH:mm')} – {format(new Date(b.event.end_date), 'HH:mm')}
-                                {!selectedDay && (
-                                  <> · {format(new Date(b.event.start_date), language === 'it' ? 'd MMM' : 'MMM d', { locale: language === 'it' ? it : enUS })}</>
-                                )}
-                              </p>
-                              <p className="text-xs text-gray-400">{b.event.room.name} · {b.event.room.location.name}</p>
+                          <div key={b.id} className="rounded-lg border overflow-hidden hover:shadow-sm transition-all">
+                            <div className="h-1.5 shrink-0" style={{ backgroundColor: b.event.color ?? '#e67e22' }} />
+                            {b.event.effective_image && (
+                              <img src={b.event.effective_image} alt="" className="w-full h-auto" />
+                            )}
+                            <div className="flex items-start gap-3 p-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm text-[#2b2b2b]">{b.event.name}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {format(new Date(b.event.start_date), 'HH:mm')} – {format(new Date(b.event.end_date), 'HH:mm')}
+                                  {!selectedDay && (
+                                    <> · {format(new Date(b.event.start_date), language === 'it' ? 'd MMM' : 'MMM d', { locale: language === 'it' ? it : enUS })}</>
+                                  )}
+                                </p>
+                                <p className="text-xs text-gray-400">{b.event.room.name} · {b.event.room.location.name}</p>
+                              </div>
+                              <Badge variant="outline" className="text-xs shrink-0">{b.event.event_type.name}</Badge>
                             </div>
-                            <Badge variant="outline" className="text-xs shrink-0">{b.event.event_type.name}</Badge>
                           </div>
                         ))}
                       </div>

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { Upload, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -8,7 +9,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { RegularClass } from '../data/mockData';
 
 interface RegularClassFormProps {
-  onSubmit?: (regularClass: Omit<RegularClass, 'id' | 'isActive'>) => void;
+  onSubmit?: (regularClass: Omit<RegularClass, 'id' | 'isActive'>, image: File | null) => void;
   onCancel?: () => void;
 }
 
@@ -24,6 +25,22 @@ const DAYS_OF_WEEK = [
 
 export function RegularClassForm({ onSubmit, onCancel }: RegularClassFormProps) {
   const { language } = useLanguage();
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setImageFile(file);
+    if (file) setImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const [formData, setFormData] = useState({
     title: '',
     instructor: '',
@@ -43,10 +60,7 @@ export function RegularClassForm({ onSubmit, onCancel }: RegularClassFormProps) 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (onSubmit) {
-      onSubmit({
-        ...formData,
-        type: 'class',
-      });
+      onSubmit({ ...formData, type: 'class' }, imageFile);
     }
   };
 
@@ -257,6 +271,49 @@ export function RegularClassForm({ onSubmit, onCancel }: RegularClassFormProps) 
             onChange={(e) => handleChange('description', e.target.value)}
             rows={3}
             required
+          />
+        </div>
+
+        <div className="col-span-2 space-y-2">
+          <Label>{language === 'it' ? 'Immagine' : 'Image'}</Label>
+          {imagePreview ? (
+            <div className="relative w-full h-40 rounded-md overflow-hidden border border-gray-200 group">
+              <img src={imagePreview} alt="Class" className="w-full h-full object-cover" />
+              <button
+                type="button"
+                onClick={handleRemoveImage}
+                className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full h-32 rounded-md border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <Upload className="size-5" />
+              <span className="text-sm">
+                {language === 'it' ? 'Clicca per caricare un\'immagine' : 'Click to upload an image'}
+              </span>
+            </button>
+          )}
+          {imagePreview && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-xs text-gray-500 hover:text-gray-800 underline"
+            >
+              {language === 'it' ? 'Cambia immagine' : 'Change image'}
+            </button>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageChange}
           />
         </div>
       </div>

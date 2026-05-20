@@ -231,7 +231,10 @@ function EventCard({
 
   return (
     <Card className="hover:shadow-2xl transition-all duration-300 border-[#d4b896]/20 overflow-hidden group">
-      <div className="h-2" style={{ background: event.color ?? 'linear-gradient(to right, #d4b896, #e67e22)' }} />
+      <div className="h-2 shrink-0" style={{ background: event.color ?? 'linear-gradient(to right, #d4b896, #e67e22)' }} />
+      {event.effective_image && (
+        <img src={event.effective_image} alt={event.name} className="w-full h-auto" />
+      )}
       <CardHeader>
         <div className="flex justify-between items-start mb-2">
           <Badge className="bg-[#d4b896] text-[#2b2b2b]">{event.event_type.name.toUpperCase()}</Badge>

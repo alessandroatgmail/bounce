@@ -96,9 +96,19 @@ class Event(models.Model):
     level = models.ForeignKey(Level, on_delete=models.PROTECT, null=True)
     info = models.TextField(blank=True, null=True)
     color = ColorField(format="hex", null=True, blank=True)
+    image = models.ImageField(upload_to="events/", blank=True, null=True)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"
+
+    @property
+    def effective_image(self):
+        if self.image:
+            return self.image
+        parent = self.event_set.first()
+        if parent and parent.image:
+            return parent.image
+        return None
 
 
 

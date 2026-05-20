@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authFetch, apiUrl } from '../../lib/api';
+import { authFetch, authFetchFile, apiUrl } from '../../lib/api';
 
 const BASE = '/api/events/events/';
 
@@ -21,6 +21,8 @@ export interface EventItem {
   events: number[];
   info: string | null;
   color: string | null;
+  image: string | null;
+  effective_image: string | null;
 }
 
 export interface EventPayload {
@@ -64,9 +66,21 @@ export function useEvents(token: string | null) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const create = useCallback(async (data: EventPayload): Promise<void> => {
-    if (!token) return;
+  const create = useCallback(async (data: EventPayload): Promise<number> => {
+    if (!token) throw new Error('Not authenticated');
     const res = await authFetch(BASE, token, { method: 'POST', body: JSON.stringify(data) });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(JSON.stringify(body));
+    }
+    const created: EventItem = await res.json();
+    await fetchAll();
+    return created.id;
+  }, [token, fetchAll]);
+
+  const update = useCallback(async (id: number, data: EventPayload): Promise<void> => {
+    if (!token) return;
+    const res = await authFetch(`${BASE}${id}/`, token, { method: 'PUT', body: JSON.stringify(data) });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(JSON.stringify(body));
@@ -74,9 +88,11 @@ export function useEvents(token: string | null) {
     await fetchAll();
   }, [token, fetchAll]);
 
-  const update = useCallback(async (id: number, data: EventPayload): Promise<void> => {
+  const uploadImage = useCallback(async (id: number, file: File): Promise<void> => {
     if (!token) return;
-    const res = await authFetch(`${BASE}${id}/`, token, { method: 'PUT', body: JSON.stringify(data) });
+    const form = new FormData();
+    form.append('image', file);
+    const res = await authFetchFile(`${BASE}${id}/`, token, form);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(JSON.stringify(body));
@@ -91,5 +107,5 @@ export function useEvents(token: string | null) {
     await fetchAll();
   }, [token, fetchAll]);
 
-  return { events, loading, error, refetch: fetchAll, create, update, remove };
+  return { events, loading, error, refetch: fetchAll, create, update, uploadImage, remove };
 }
