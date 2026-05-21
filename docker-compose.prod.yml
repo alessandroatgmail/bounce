@@ -10,8 +10,34 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./backend/staticfiles:/django_static:ro
       - ./backend/media:/django_media:ro
+      # Certbot writes certificates here, Nginx reads them
+      - certbot_certs:/etc/letsencrypt:ro
+      # Certbot writes challenge files here for domain verification
+      - certbot_challenge:/var/www/certbot:ro
     depends_on:
       - web
+
+  # ── Certbot ───────────────────────────────────────────────────────
+  # Requests and renews Let's Encrypt certificates.
+  # Runs once on startup, then checks renewal every 12 hours.
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_challenge:/var/www/certbot
+    # Renew certificates every 12 hours if they are close to expiry.
+    # Let's Encrypt certs expire after 90 days; renewal happens at 60 days.
+    entrypoint: >
+      sh -c "trap exit TERM;
+             while :; do
+               certbot renew --webroot --webroot-path=/var/www/certbot --quiet;
+               sleep 12h & wait $${!};
+             done"
+
+volumes:
+  certbot_certs:
+  certbot_challenge:
