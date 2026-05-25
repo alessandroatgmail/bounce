@@ -3,9 +3,12 @@ import redis
 from django.core import mail
 from rest_framework.test import APIClient
 from unittest.mock import patch, MagicMock
+from django.contrib.auth import get_user_model
 
 from core.celery import app as celery_app
 from utils.load_worldcities import load_worldcities
+
+User = get_user_model()
 
 TEST_REDIS_URL = "redis://redis:6379/2"  # db=2 — test only, never used by the app
 
@@ -18,6 +21,7 @@ def override_test_settings(settings):
     fixtures modify the same pytest-django 'settings' object.
     """
     settings.TESTING = True
+    settings.REDIS_TEST_URL = "redis://redis:6379/2"
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
@@ -64,3 +68,23 @@ def client():
 def world_data(db):
     """Seed countries, regions and cities from the first 10 rows of worldcities.csv."""
     load_worldcities(debug=True)
+
+# This fixture is shared across tests in this file.
+# It creates a real user in the test DB and returns it.
+@pytest.fixture
+def user(db):
+    return User.objects.create_user(
+        email="test@example.com",
+        password="testpassword123",
+    )
+
+@pytest.fixture
+def authenticated_client(user):
+    """
+    Returns an APIClient already authenticated as 'user'.
+    force_authenticate bypasses JWT so we don't need to call /token/ here —
+    we're testing the ws-ticket endpoint, not the login flow.
+    """
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client

@@ -16,6 +16,7 @@ Usage:
 
 import random
 from datetime import datetime, timedelta
+from django.utils import timezone
 
 from faker import Faker
 
@@ -47,7 +48,7 @@ def make_event_payload(**overrides) -> dict:
     """Return a dict with all required Event fields. Creates all dependencies in the DB."""
     event_type, level, room, styles, genres, artist = _create_dependencies()
 
-    start = datetime.now() + timedelta(days=random.randint(1, 30))
+    start = timezone.now() + timedelta(days=random.randint(1, 30))
     duration_minutes = random.randint(30, 240)
     end = start + timedelta(minutes=duration_minutes)
 

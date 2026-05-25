@@ -26,6 +26,7 @@ def user(db):
 @pytest.mark.asyncio
 class TestWsTicketMiddleware:
 
+    @pytest.mark.django_db(transaction=True)
     async def test_valid_ticket_connects(self, user):
         """A valid ticket must allow the WebSocket handshake to complete."""
         # Step 1: get a real ticket via the REST endpoint

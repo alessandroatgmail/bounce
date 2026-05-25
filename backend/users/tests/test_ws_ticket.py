@@ -11,38 +11,6 @@ from django.test.utils import override_settings
 
 User = get_user_model()
 
-
-# This fixture is shared across tests in this file.
-# It creates a real user in the test DB and returns it.
-@pytest.fixture
-def user(db):
-    return User.objects.create_user(
-        email="test@example.com",
-        password="testpassword123",
-    )
-
-@pytest.fixture
-def authenticated_client(user):
-    """
-    Returns an APIClient already authenticated as 'user'.
-    force_authenticate bypasses JWT so we don't need to call /token/ here —
-    we're testing the ws-ticket endpoint, not the login flow.
-    """
-    client = APIClient()
-    client.force_authenticate(user=user)
-    return client
-
-@pytest.fixture
-def redis_client():
-    """
-    Returns a redis client pointed at db=1 (same db used by the view).
-    After each test, flushes db=1 so tickets don't leak between tests.
-    """
-    client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    yield client
-    client.flushdb()  # cleanup after the test
-
-
 class TestWsTicketEndpoint:
 
     def test_returns_ticket(self, authenticated_client):
