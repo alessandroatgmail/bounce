@@ -26,7 +26,11 @@ export function Header() {
   };
 
   return (
+
     <header className="bg-[#2b2b2b] sticky top-0 z-50 shadow-md">
+    <div className="bg-yellow-400 text-yellow-900 text-center text-sm font-semibold py-2 px-4">
+        ⚠️ This website is a work in progress — for testing purposes only.
+      </div>
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3">
