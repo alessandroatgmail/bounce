@@ -1,0 +1,144 @@
+# =============================================================================
+# Django Application Deployment (Daphne ASGI server)
+# =============================================================================
+# This runs the main web application. Daphne handles both:
+#   - Standard HTTP requests (via ASGI)
+#   - WebSocket connections (Django Channels)
+#
+# KEY DIFFERENCE from Docker Compose:
+#   In Compose, "depends_on: condition: service_healthy" blocks startup.
+#   In Kubernetes there is no native depends_on. Instead we use an initContainer
+#   that polls each dependency until it is ready before the main container starts.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: django
+  template:
+    metadata:
+      labels:
+        app: django
+    spec:
+      # ── Init containers ────────────────────────────────────────────
+      # Init containers run sequentially before the main container starts.
+      # Each must exit 0 before the next one begins.
+      # This replaces Docker Compose's "depends_on: condition: service_healthy".
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          # Loop until pg_isready equivalent: try to open a TCP connection
+          # to postgres:5432. Exit when successful.
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do
+                echo "postgres not ready, sleeping 2s"
+                sleep 2
+              done
+              echo "postgres is ready"
+
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for redis..."
+              until nc -z redis 6379; do
+                echo "redis not ready, sleeping 2s"
+                sleep 2
+              done
+              echo "redis is ready"
+
+        - name: wait-for-kafka
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for kafka..."
+              until nc -z kafka-broker 29092; do
+                echo "kafka not ready, sleeping 2s"
+                sleep 2
+              done
+              echo "kafka is ready"
+
+        - name: run-migrations
+          image: bounce_2_0_backend:local
+          imagePullPolicy: Never
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+            - secretRef:
+                name: django-secret
+
+        - name: run-collectstatic
+          # Collects all static files into the shared PVC.
+          # Nginx will serve them directly from there.
+          image: bounce_2_0_backend:local
+          imagePullPolicy: Never
+          command: ["python", "manage.py", "collectstatic", "--noinput"]
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+            - secretRef:
+                name: django-secret
+          volumeMounts:
+            - name: static-files
+              mountPath: /app/staticfiles
+
+      # ── Volumes ───────────────────────────────────────────────────
+      volumes:
+        - name: static-files
+          persistentVolumeClaim:
+            claimName: static-files
+        - name: media-files
+          persistentVolumeClaim:
+            claimName: media-files
+
+      # ── Main container ─────────────────────────────────────────────
+      containers:
+        - name: django
+          image: bounce_2_0_backend:local
+          imagePullPolicy: Never
+          command: ["daphne", "-b", "0.0.0.0", "-p", "8000", "core.asgi:application"]
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+            - secretRef:
+                name: django-secret
+          volumeMounts:
+            - name: static-files
+              mountPath: /app/staticfiles
+            - name: media-files
+              mountPath: /app/media
+          readinessProbe:
+            httpGet:
+              path: /health/    # Add a simple health-check view to Django.
+              port: 8000        # See note below about creating this endpoint.
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+
+# NOTE: /health/ endpoint
+# Add this to your Django urls.py (no auth required):
+#
+#   from django.http import HttpResponse
+#   urlpatterns += [path("health/", lambda r: HttpResponse("ok"))]
+#
+# Kubernetes will call this every 10s to decide if the pod is healthy.

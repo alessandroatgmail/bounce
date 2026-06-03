@@ -1,4 +1,5 @@
 # notification/kafka_consumer.py
+from django.conf import settings
 
 import json
 from aiokafka import AIOKafkaConsumer
@@ -17,7 +18,7 @@ async def consume_user_events():
     # Initialize the Kafka consumer, connecting to the user.registered topic
     consumer = AIOKafkaConsumer(
         "user.registered",
-        bootstrap_servers="kafka:29092",
+        bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
         group_id="notification_group",
         value_deserializer=lambda m: json.loads(m.decode("utf-8"))
     )

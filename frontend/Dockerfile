@@ -22,7 +22,7 @@ FROM nginx:1.25-alpine
 # Copy the built React app into Nginx's default web root
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy our custom Nginx config (we'll create this next)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+ARG NGINX_CONF=nginx.conf
+COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

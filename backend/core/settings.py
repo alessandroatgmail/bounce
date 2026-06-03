@@ -124,6 +124,11 @@ CHANNEL_LAYERS = {
 REDIS_URL = "redis://redis:6379/1" # per ticket in app
 REDIS_TEST_URL = "redis://redis:6379/2" # for testing
 
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://redis:6379/0")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://redis:6379/0")
+
+KAFKA_BOOTSTRAP_SERVERS = env("KAFKA_BOOTSTRAP_SERVERS", default="kafka-broker:29092")
+
 TESTING = False
 
 # ── Simple JWT ─────────────────────────────────────────────────────────────────

@@ -1,0 +1,49 @@
+# =============================================================================
+# Frontend Deployment (Nginx)
+# =============================================================================
+# Nginx serves:
+#   /          → React app (built into the image at /usr/share/nginx/html)
+#   /static/   → Django static files (from PVC static-files)
+#   /media/    → Django media files (from PVC media-files)
+#   /api/      → proxied to Django service
+#   /admin/    → proxied to Django service
+#   /ws/       → proxied to Django service (WebSocket)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: nginx
+          image: bounce_2_0_frontend:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: static-files
+              mountPath: /django_static
+            - name: media-files
+              mountPath: /django_media
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: static-files
+          persistentVolumeClaim:
+            claimName: static-files
+        - name: media-files
+          persistentVolumeClaim:
+            claimName: media-files

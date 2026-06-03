@@ -1,0 +1,72 @@
+# =============================================================================
+# Redis StatefulSet with AOF persistence
+# =============================================================================
+# Redis is used as Celery broker and Django Channels layer.
+# We use a StatefulSet (not Deployment) because:
+#   - AOF persistence writes to disk → needs a stable PVC
+#   - If the pod restarts, Redis reloads the AOF file and reconstructs
+#     the exact queue state — no tasks are lost.
+#
+# AOF (Append Only File) works like a transaction log:
+#   every write operation (LPUSH, RPUSH, SET...) is appended to a file.
+#   On restart, Redis replays the file from top to bottom to restore state.
+#
+# appendfsync everysec = flush to disk every second.
+#   This is the recommended balance between performance and durability:
+#   in the worst case you lose 1 second of writes, not the entire queue.
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          # Enable AOF persistence via command line arguments.
+          # --appendonly yes       → enable AOF
+          # --appendfsync everysec → flush to disk every second
+          # --dir /data            → write AOF file inside the PVC
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - "everysec"
+            - --dir
+            - "/data"
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data   # Redis writes appendonly.aof here.
+
+  # PVC template — one volume per replica, survives pod restarts.
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi   # AOF files are small; 1Gi is more than enough.

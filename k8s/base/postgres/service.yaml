@@ -1,0 +1,22 @@
+# =============================================================================
+# PostgreSQL Service
+# =============================================================================
+# A Service gives the StatefulSet a stable DNS name inside the cluster.
+# Other pods will connect to Postgres using:
+#   host: postgres
+#   port: 5432
+#
+# Type ClusterIP means it is only reachable inside the cluster — never
+# exposed to the internet. This is the correct default for databases.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres        # Matches the label on the StatefulSet pods.
+  ports:
+    - port: 5432
+      targetPort: 5432

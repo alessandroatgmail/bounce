@@ -1,0 +1,162 @@
+# =============================================================================
+# Kafka StatefulSet
+# =============================================================================
+# Kafka brokers maintain state (topic partitions, offsets) → StatefulSet.
+# Pod name will always be: kafka-0
+#
+# LISTENER EXPLANATION (the most confusing part of Kafka on Kubernetes):
+#
+#   PLAINTEXT://kafka:29092       ← used for inter-broker and intra-cluster
+#                                    communication (pod-to-pod inside K8s)
+#   PLAINTEXT_HOST://localhost:9092 ← used only if you expose Kafka outside
+#                                    the cluster (NodePort/LoadBalancer).
+#                                    Not needed for our setup but kept for
+#                                    consistency with the Docker Compose config.
+#
+# Other pods connect to Kafka using: kafka:29092
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+  serviceName: kafka-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      # ---------------------------------------------------------------------------
+      # securityContext at pod level:
+      # runAsUser: 1000 → run as "appuser", the default user of the cp-kafka image.
+      # fsGroup: 1000   → ensures that mounted volumes are owned by this group,
+      #                   so Kafka can read/write its data directory without errors.
+      #
+      # Previously set to runAsUser: 0 (root), but the image overrides this
+      # internally and runs as uid 1000 anyway — causing a permission mismatch
+      # on the mounted PersistentVolume.
+      # ---------------------------------------------------------------------------
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.6.1
+          ports:
+            - containerPort: 29092   # Internal cluster communication
+            - containerPort: 9092    # External (unused in this setup)
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "zookeeper:2181"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+            - name: KAFKA_LISTENERS
+              # Tells Kafka which interfaces to bind to.
+              # Must match the protocol names in KAFKA_ADVERTISED_LISTENERS.
+              value: "PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092"
+            # ---------------------------------------------------------------------------
+            # KAFKA_ADVERTISED_LISTENERS uses the pod's own IP (injected via
+            # Kubernetes Downward API) for the internal PLAINTEXT listener.
+            # This avoids the DNS hairpin problem: the Controller connects to
+            # the broker directly via IP, without waiting for the headless
+            # service DNS entry to be registered (which only happens after
+            # the pod is Ready — too late for the bootstrap sequence).
+            # ---------------------------------------------------------------------------
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://$(POD_IP):29092,PLAINTEXT_HOST://localhost:9092"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"            # Single broker → replication factor must be 1.
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: KAFKA_CONTROLLED_SHUTDOWN_ENABLE
+              value: "true"
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - "kafka-topics --bootstrap-server localhost:29092 --list"
+            initialDelaySeconds: 30  # Kafka takes longer to start than most services.
+            periodSeconds: 15
+            failureThreshold: 10
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /var/lib/kafka/data
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+
+---
+# =============================================================================
+# Kafka Service
+# =============================================================================
+# We use a regular ClusterIP (not headless) for Kafka.
+# With a headless service, the DNS entry for the pod is only registered
+# when the pod is Ready — but Kafka needs to resolve its own name to start,
+# creating a chicken-and-egg deadlock.
+# A ClusterIP service resolves immediately regardless of pod readiness,
+# breaking the cycle. Other pods connect via: kafka:29092
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  # ---------------------------------------------------------------------------
+  # Headless service for intra-broker communication.
+  # clusterIP: None → no virtual IP, DNS resolves directly to pod IP.
+  # StatefulSet pods get stable DNS entries in the form:
+  #   <pod-name>.<service-name>.<namespace>.svc.cluster.local
+  # So kafka-0 is reachable at: kafka-0.kafka-headless
+  # This avoids the hairpin problem where a broker cannot reach itself
+  # through a ClusterIP service.
+  # ---------------------------------------------------------------------------
+  name: kafka-headless
+spec:
+  clusterIP: None   # headless
+  selector:
+    app: kafka
+  ports:
+    - name: internal
+      port: 29092
+      targetPort: 29092
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # ---------------------------------------------------------------------------
+  # IMPORTANT: do NOT name this service "kafka".
+  # Kubernetes automatically injects environment variables for every Service
+  # in the namespace, using the pattern <SERVICENAME>_PORT=...
+  # If the service is named "kafka", K8s injects KAFKA_PORT which Confluent's
+  # Kafka image interprets as its own config variable, causing an immediate crash.
+  # ---------------------------------------------------------------------------
+  name: kafka-broker
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka
+  ports:
+    - name: internal
+      port: 29092
+      targetPort: 29092
+    - name: external
+      port: 9092
+      targetPort: 9092

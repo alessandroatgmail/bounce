@@ -1,0 +1,19 @@
+# =============================================================================
+# Frontend Service
+# =============================================================================
+# NodePort exposes Nginx on a port of the Minikube node, so you can reach
+# it from your browser without port-forward.
+# Minikube will assign a port in the range 30000-32767.
+# Access via: minikube service frontend --url
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80

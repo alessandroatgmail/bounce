@@ -1,0 +1,84 @@
+# =============================================================================
+# PostgreSQL StatefulSet
+# =============================================================================
+# A StatefulSet is used instead of a Deployment because databases require:
+#   - A stable, persistent network identity (pod is always named "postgres-0")
+#   - A dedicated PersistentVolumeClaim that survives pod restarts
+#   - Ordered, graceful startup and shutdown
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  # No namespace here — Kustomize overlays will inject the correct one.
+spec:
+  serviceName: postgres          # Must match the Service name below.
+  replicas: 1                    # Single-node Postgres; scale-out needs a
+                                 # dedicated operator (e.g. CloudNativePG).
+  selector:
+    matchLabels:
+      app: postgres
+
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+
+          # ── Environment ──────────────────────────────────────────
+          # Values come from a Secret named "postgres-secret".
+          # That Secret is created separately (see secrets/README.md)
+          # and never committed to Git.
+          envFrom:
+            - secretRef:
+                name: postgres-secret   # Must contain: POSTGRES_DB,
+                                        # POSTGRES_USER, POSTGRES_PASSWORD
+
+          # ── Health checks ────────────────────────────────────────
+          # readinessProbe: Kubernetes will not send traffic to this pod
+          #   until pg_isready succeeds. Other services that depend_on
+          #   Postgres will wait for this.
+          # livenessProbe: If Postgres stops responding, Kubernetes will
+          #   restart the container automatically.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+
+          # ── Volume mount ─────────────────────────────────────────
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+              # Postgres requires the mount point to not be the root of the
+              # volume — subPath creates a subdirectory inside the PVC.
+              subPath: pgdata
+
+  # ── PersistentVolumeClaim template ───────────────────────────────
+  # StatefulSets create one PVC per replica automatically.
+  # The PVC is named: postgres-data-postgres-0
+  # K3s provides a default StorageClass (local-path) that provisions
+  # volumes automatically on the node's local disk.
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]   # Only one pod can write at a time.
+        resources:
+          requests:
+            storage: 5Gi                 # Adjust based on your data size.
+        # storageClassName: local-path   # K3s default; explicit is clearer.
+        #   Uncomment the line above if you have multiple StorageClasses.
