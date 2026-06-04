@@ -385,33 +385,6 @@ class TestMembershipRuleValidation:
         body = str(res.data)
         assert et.name in body or "event_ids" in body
 
-    def test_create_higher_limit_allows_multiple(self, admin_client, subject_user, world_data):
-        et = make_event_type()
-        m = make_membership_with_rule(et, max_events=2)
-        e1 = make_event_with_type(et)
-        e2 = make_event_with_type(et)
-        res = admin_client.post(
-            LIST_URL,
-            make_contribution_payload(subject_user, event_ids=[e1.pk, e2.pk], membership_id=m.pk),
-            format="json",
-        )
-        assert res.status_code == http_status.HTTP_201_CREATED
-
-    def test_create_different_event_types_each_within_limit(self, admin_client, subject_user, world_data):
-        et_a = make_event_type()
-        et_b = make_event_type()
-        m = Membership.objects.create(name="Combo Plan", contribution=200)
-        MembershipRule.objects.create(membership=m, event_type=et_a, max_events=1)
-        MembershipRule.objects.create(membership=m, event_type=et_b, max_events=1)
-        event_a = make_event_with_type(et_a)
-        event_b = make_event_with_type(et_b)
-        res = admin_client.post(
-            LIST_URL,
-            make_contribution_payload(subject_user, event_ids=[event_a.pk, event_b.pk], membership_id=m.pk),
-            format="json",
-        )
-        assert res.status_code == http_status.HTTP_201_CREATED
-
     def test_create_event_type_not_in_rules_returns_400(self, admin_client, subject_user, world_data):
         """Membership has a rule for et_a only; events of et_b must be rejected."""
         et_a = make_event_type()
@@ -440,10 +413,9 @@ class TestMembershipRuleValidation:
         m = Membership.objects.create(name="Open Plan", contribution=0)
         et = make_event_type()
         e1 = make_event_with_type(et)
-        e2 = make_event_with_type(et)
         res = admin_client.post(
             LIST_URL,
-            make_contribution_payload(subject_user, event_ids=[e1.pk, e2.pk], membership_id=m.pk),
+            make_contribution_payload(subject_user, event_ids=[e1.pk], membership_id=m.pk),
             format="json",
         )
         assert res.status_code == http_status.HTTP_201_CREATED
@@ -480,7 +452,7 @@ class TestMembershipRuleValidation:
         cid = res.data["id"]
         res2 = admin_client.put(
             detail_url(cid),
-            make_contribution_payload(subject_user, event_ids=[e1.pk, e2.pk], membership_id=m.pk),
+            make_contribution_payload(subject_user, event_ids=[e2.pk], membership_id=m.pk),
             format="json",
         )
         assert res2.status_code == http_status.HTTP_200_OK

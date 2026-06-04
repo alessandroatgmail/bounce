@@ -201,9 +201,15 @@ class EventSerializer(serializers.ModelSerializer):
         return img.url
 
     def get_already_booked(self, obj):
-        user = self.context.get("request").user
-        return obj.contributions.filter(events=obj, user=user).annotate(events_count=Count('events')
-        ).filter(events_count=0).count() > 0
+        request = self.context.get("request")
+        if request:
+            user = request.user
+        else:
+            return False
+        if user.is_authenticated:
+            return obj.contributions.filter(events=obj, user=user).annotate(events_count=Count('events')
+            ).filter(events_count=0).count() > 0
+        return False
 
     def validate(self, data):
         start = data.get("start_date", getattr(self.instance, "start_date", None))

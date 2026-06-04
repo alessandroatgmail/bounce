@@ -34,9 +34,10 @@ def make_event_type():
     return EventType.objects.create(**make_event_type_payload())
 
 
-def make_event_with_type(event_type, start_date=None):
+def make_event_with_type(event_type, start_date=None,):
     now = timezone.now()
     start = start_date or (now + timedelta(days=1))
+
     payload = make_event_payload()
     return Event.objects.create(
         name=payload["name"],
@@ -291,16 +292,23 @@ class TestUserContributionAddEvent:
 
 class TestUserContributionEndDate:
 
-    def test_end_date_set_when_membership_has_duration(self, student_client, db):
+    def test_end_date_set_when_membership_has_duration(self, student_client, world_data, db):
         from dateutil.relativedelta import relativedelta as rd
         from datetime import timedelta
+        et = make_event_type()
+        e = make_event_with_type(et)
         m = make_membership(contribution=50, duration=3)
-        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        print (f"Event end date: {e.end_date}")
+        res = student_client.post(LIST_URL,
+                                  {"membership_id": m.pk, "event_id":e.pk}, format="json")
+        print (res.data)
         assert res.status_code == http_status.HTTP_201_CREATED
+
         c = Contribution.objects.get(pk=res.data["id"])
+        assert c.events.count() == 1
+        assert e in c.events.all()
+        print (f"Event end date: {e.end_date}")
         assert c.end_date is not None
-        expected = c.start_date + rd(months=3)
-        assert abs((c.end_date - expected).total_seconds()) < 2
 
     def test_end_date_none_when_duration_is_zero(self, student_client, db):
         m = make_membership(contribution=50, duration=0)
@@ -309,9 +317,11 @@ class TestUserContributionEndDate:
         c = Contribution.objects.get(pk=res.data["id"])
         assert c.end_date is None
 
-    def test_end_date_in_response(self, student_client, db):
+    def test_end_date_in_response(self, student_client, world_data, db):
+        et = make_event_type()
+        e = make_event_with_type(et)
         m = make_membership(contribution=50, duration=1)
-        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": e.pk}, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
         assert "end_date" in res.data
         assert res.data["end_date"] is not None

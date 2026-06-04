@@ -165,7 +165,7 @@ class UserContributionSerializer(serializers.ModelSerializer):
             contribution.events.add(event)
             if membership.duration:
                 start_date = max(contribution.events.first().start_date, timezone.now())
-                contribution.end_date = start_date + min(relativedelta(months=membership.duration), contribution.events.first().end_date)
+                contribution.end_date = min(start_date + relativedelta(months=membership.duration), contribution.events.first().end_date)
                 contribution.start_date = start_date
                 contribution.save(update_fields=['start_date', 'end_date'])
             else:

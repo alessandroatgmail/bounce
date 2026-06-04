@@ -137,6 +137,7 @@ class TestEventStaffList:
         create_event()
         response = staff_client.get(LIST_URL)
         expected = {
+            "already_booked",
             "id", "name", "status",
             "event_type", "type", "level",
             "start_date", "end_date", "duration",
