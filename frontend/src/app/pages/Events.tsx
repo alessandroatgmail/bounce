@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -298,25 +298,32 @@ function EventCard({
             </div>
           )}
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              disabled={joined}
-              className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white flex items-center gap-1 disabled:opacity-50"
-              onClick={() => isAuthenticated && setShowMemberships(v => !v)}
-            >
-              {isAuthenticated
-                ? (language === 'it' ? 'Iscriviti' : 'Join')
-                : (language === 'it' ? 'Diventa Membro' : 'Become a Member')}
-              {isAuthenticated && !joined && (
-                showMemberships
-                  ? <ChevronUp className="size-3" />
-                  : <ChevronDown className="size-3" />
-              )}
-            </Button>
+            {event.already_booked && !joined ? (
+              <div className="flex items-center gap-1.5 text-sm text-green-700 font-medium">
+                <BookCheck className="size-4" />
+                {language === 'it' ? 'Già prenotato' : 'Already booked'}
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                disabled={joined}
+                className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white flex items-center gap-1 disabled:opacity-50"
+                onClick={() => isAuthenticated && setShowMemberships(v => !v)}
+              >
+                {isAuthenticated
+                  ? (language === 'it' ? 'Iscriviti' : 'Join')
+                  : (language === 'it' ? 'Diventa Membro' : 'Become a Member')}
+                {isAuthenticated && !joined && (
+                  showMemberships
+                    ? <ChevronUp className="size-3" />
+                    : <ChevronDown className="size-3" />
+                )}
+              </Button>
+            )}
           </div>
         </div>
 
-        {isAuthenticated && showMemberships && (
+        {isAuthenticated && (event.already_booked || showMemberships) && !joined && (
           <div className="mt-3 border-t border-[#d4b896]/20 pt-3 space-y-2">
             <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide mb-2">
               {language === 'it' ? 'Scegli un abbonamento' : 'Choose a membership'}
@@ -352,17 +359,24 @@ function EventCard({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-[#e67e22]">€{m.contribution}</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={joinStatus === 'loading'}
-                      className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white"
-                      onClick={() => handleSelect(m.id)}
-                    >
-                      {joinStatus === 'loading'
-                        ? <Loader2 className="size-3 animate-spin" />
-                        : (language === 'it' ? 'Seleziona' : 'Select')}
-                    </Button>
+                    {event.already_booked ? (
+                      <Badge className="h-7 text-xs bg-green-100 text-green-800 border border-green-200">
+                        <BookCheck className="size-3 mr-1" />
+                        {language === 'it' ? 'Prenotato' : 'Booked'}
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={joinStatus === 'loading'}
+                        className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white"
+                        onClick={() => handleSelect(m.id)}
+                      >
+                        {joinStatus === 'loading'
+                          ? <Loader2 className="size-3 animate-spin" />
+                          : (language === 'it' ? 'Seleziona' : 'Select')}
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))

@@ -10,6 +10,7 @@ class ContributionStatus(models.TextChoices):
     RECEIVED = "received", "Received"
     ACCEPTED = "accepted", "Accepted"
     CONFIRMED = "confirmed", "Confirmed"
+    PAYED = "payed", "Payed"
 
 
 class Contribution(models.Model):
@@ -29,15 +30,18 @@ class Contribution(models.Model):
         self._previous_status = self.status
 
     def save(self, *args, **kwargs):
+
         is_confirmation = (
             self.status == ContributionStatus.CONFIRMED
             and self._previous_status != ContributionStatus.CONFIRMED
         )
         super().save(*args, **kwargs)
+
         if is_confirmation:
             from booking.utils import sync_bookings
             sync_bookings(self.user, added_events=list(self.events.all()), removed_events=[])
         self._previous_status = self.status
+
 
 
 class Booking(models.Model):

@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from users.models import City
 from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status
+from django.db.models import Count
 
 
 class EventTypeSerializer(serializers.ModelSerializer):
@@ -168,6 +169,8 @@ class EventSerializer(serializers.ModelSerializer):
         many=True, queryset=Event.objects.all(), source="events", write_only=True, required=False
     )
     effective_image = serializers.SerializerMethodField()
+    already_booked = serializers.SerializerMethodField()
+
 
     class Meta:
         model = Event
@@ -185,6 +188,7 @@ class EventSerializer(serializers.ModelSerializer):
             "events", "event_ids",
             "info", "color",
             "image", "effective_image",
+            "already_booked"
         ]
 
     def get_effective_image(self, obj):
@@ -195,6 +199,11 @@ class EventSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(img.url)
         return img.url
+
+    def get_already_booked(self, obj):
+        user = self.context.get("request").user
+        return obj.contributions.filter(events=obj, user=user).annotate(events_count=Count('events')
+        ).filter(events_count=0).count() > 0
 
     def validate(self, data):
         start = data.get("start_date", getattr(self.instance, "start_date", None))

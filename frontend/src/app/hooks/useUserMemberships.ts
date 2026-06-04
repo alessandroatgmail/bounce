@@ -4,7 +4,7 @@ import type { Membership } from './useMemberships';
 
 const BASE = '/api/booking/my-memberships/';
 
-export type ContributionStatus = 'received' | 'accepted' | 'confirmed';
+export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed';
 
 export interface UserMembership {
   id: number;

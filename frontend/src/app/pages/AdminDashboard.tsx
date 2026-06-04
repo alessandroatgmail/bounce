@@ -76,7 +76,7 @@ export function AdminDashboard() {
     { value: 'events',          label: language === 'it' ? 'Eventi' : 'Events',                  icon: <Calendar className="size-4" /> },
     { value: 'regular-classes', label: language === 'it' ? 'Corsi Regolari' : 'Regular Classes', icon: <Repeat className="size-4" /> },
     { value: 'students',        label: language === 'it' ? 'Studenti' : 'Students',               icon: <Users className="size-4" /> },
-    { value: 'memberships',     label: language === 'it' ? 'Membresie' : 'Memberships',           icon: <Crown className="size-4" /> },
+    { value: 'packs',     label: language === 'it' ? 'Pacchetti' : 'Packs',           icon: <Crown className="size-4" /> },
     { value: 'festivals',       label: language === 'it' ? 'Festival' : 'Festivals',              icon: <PartyPopper className="size-4" /> },
     { value: 'notifications',   label: language === 'it' ? 'Notifiche' : 'Notifications',         icon: <Bell className="size-4" /> },
   ];
@@ -593,7 +593,7 @@ export function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="memberships" className="mt-6 space-y-4">
+          <TabsContent value="packs" className="mt-6 space-y-4">
             {/* Sub-toggle */}
             <div className="inline-flex rounded-lg border bg-muted p-1 gap-1">
               <Button

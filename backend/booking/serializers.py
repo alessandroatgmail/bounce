@@ -160,9 +160,17 @@ class UserContributionSerializer(serializers.ModelSerializer):
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
         contribution = Contribution.objects.create(**validated_data)
-        if membership.duration:
-            contribution.end_date = timezone.now() + relativedelta(months=membership.duration)
-            contribution.save(update_fields=['end_date'])
+
         if event:
             contribution.events.add(event)
+            if membership.duration:
+                start_date = max(contribution.events.first().start_date, timezone.now())
+                contribution.end_date = start_date + min(relativedelta(months=membership.duration), contribution.events.first().end_date)
+                contribution.start_date = start_date
+                contribution.save(update_fields=['start_date', 'end_date'])
+            else:
+                start_date = max(contribution.events.first().start_date, timezone.now())
+                contribution.end_date = contribution.events.first().end_date
+                contribution.start_date = start_date
+                contribution.save(update_fields=['start_date', 'end_date'])
         return contribution

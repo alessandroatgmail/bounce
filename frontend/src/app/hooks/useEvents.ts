@@ -23,6 +23,7 @@ export interface EventItem {
   color: string | null;
   image: string | null;
   effective_image: string | null;
+  already_booked: boolean;
 }
 
 export interface EventPayload {

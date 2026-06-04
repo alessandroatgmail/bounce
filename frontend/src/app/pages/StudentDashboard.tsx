@@ -27,10 +27,8 @@ import {
 } from '../data/mockData';
 import { useUserMemberships, type ContributionStatus } from '../hooks/useUserMemberships';
 import { useUserBookings } from '../hooks/useUserBookings';
-import { useMemberships } from '../hooks/useMemberships';
 import { useEvents } from '../hooks/useEvents';
 import { Card, CardContent } from '../components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
@@ -50,8 +48,7 @@ import {
   Share2,
   ShieldCheck,
   Loader2,
-  CalendarPlus,
-  ArrowUpCircle,
+  XCircle,
 } from 'lucide-react';
 import { SocialFeed } from '../components/SocialFeed';
 import { DirectMessages } from '../components/DirectMessages';
@@ -85,17 +82,9 @@ export function StudentDashboard() {
   const [trips, setTrips] = useState(mockTrips);
   const [documents, setDocuments] = useState(mockDocuments);
 
-  const { userMemberships, loading: contribLoading, create: purchaseMembership, upgrade: upgradeMembership, addEvent: addEventToMembership } = useUserMemberships(accessToken);
+  const { userMemberships, loading: contribLoading } = useUserMemberships(accessToken);
   const { userBookings: calendarBookings, loading: bookingsLoading } = useUserBookings(accessToken);
   const [selectedDay, setSelectedDay] = useState<Date | undefined>(undefined);
-  const [purchasingId, setPurchasingId] = useState<number | null>(null);
-  const [purchaseError, setPurchaseError] = useState<string | null>(null);
-  const [activeCardAction, setActiveCardAction] = useState<{ id: number; mode: 'add-event' | 'upgrade' } | null>(null);
-  const [pendingEventId, setPendingEventId] = useState<string>('');
-  const [pendingPlanId, setPendingPlanId] = useState<string>('');
-  const [cardActionLoading, setCardActionLoading] = useState(false);
-  const [cardActionError, setCardActionError] = useState<string | null>(null);
-  const { memberships: membershipPlans } = useMemberships(accessToken);
   const { events: allEvents } = useEvents(accessToken);
 
   if (!user) {
@@ -132,11 +121,13 @@ export function StudentDashboard() {
     received:  { it: 'Ricevuto',   en: 'Received'  },
     accepted:  { it: 'Accettato',  en: 'Accepted'  },
     confirmed: { it: 'Confermato', en: 'Confirmed' },
+    payed:     { it: 'Pagato',     en: 'Paid'      },
   };
   const STATUS_CLASS: Record<ContributionStatus, string> = {
     received:  'bg-yellow-100 text-yellow-800',
     accepted:  'bg-blue-100 text-blue-800',
     confirmed: 'bg-green-600 text-white',
+    payed:     'bg-purple-600 text-white',
   };
   const statusBadge = (status: ContributionStatus) => (
     <Badge className={`ml-auto ${STATUS_CLASS[status]}`}>
@@ -457,7 +448,7 @@ export function StudentDashboard() {
     { id: 'messages' as View, label: language === 'it' ? 'Messaggi' : 'Messages', icon: MessageSquare, badge: unreadMessagesCount },
     { id: 'trips' as View, label: language === 'it' ? 'Viaggi' : 'Trips', icon: Plane },
     { id: 'documents' as View, label: language === 'it' ? 'Documenti' : 'Documents', icon: FileText },
-    { id: 'memberships' as View, label: language === 'it' ? 'Membresie' : 'Memberships', icon: Crown },
+    { id: 'memberships' as View, label: language === 'it' ? 'Pacchetti' : 'Packs', icon: Crown },
   ];
 
   return (
@@ -898,85 +889,6 @@ export function StudentDashboard() {
 
           {currentView === 'memberships' && (
             <div className="max-w-4xl mx-auto space-y-8">
-              {/* Available membership plans */}
-              <section>
-                <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                  {language === 'it' ? 'Piani Disponibili' : 'Available Plans'}
-                </h2>
-                {purchaseError && (
-                  <p className="text-sm text-red-500 mb-3">{purchaseError}</p>
-                )}
-                {membershipPlans.length === 0 ? (
-                  <p className="text-sm text-gray-400">
-                    {language === 'it' ? 'Nessun piano disponibile.' : 'No plans available.'}
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {membershipPlans.map(plan => {
-                      const isOwned = activeUserMemberships.some(c => c.membership?.id === plan.id);
-                      const isPurchasing = purchasingId === plan.id;
-                      return (
-                        <Card key={plan.id} className={`overflow-hidden border-2 flex flex-col ${isOwned ? 'border-[#e67e22]' : 'border-gray-200'}`}>
-                          <div className="h-1.5 shrink-0" style={{ backgroundColor: plan.color ?? '#e67e22' }} />
-                          <CardContent className="p-4 flex flex-col gap-3 flex-1">
-                            <div className="flex items-start justify-between">
-                              <div>
-                                <h3 className="font-bold text-lg" style={{ color: plan.color ?? '#2b2b2b' }}>
-                                  {plan.name}
-                                </h3>
-                                <Badge variant="outline" className="mt-1 capitalize text-xs">{plan.type}</Badge>
-                              </div>
-                              {isOwned && (
-                                <Badge className="bg-green-600 text-white text-xs">
-                                  {language === 'it' ? 'Attivo' : 'Active'}
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-2xl font-bold text-[#2b2b2b]">€{plan.contribution}</div>
-                            {plan.max_events > 0 && (
-                              <div className="text-xs text-gray-500">
-                                {language === 'it' ? `Max ${plan.max_events} eventi` : `Max ${plan.max_events} events`}
-                              </div>
-                            )}
-                            {plan.rules.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {plan.rules.map(r => (
-                                  <Badge key={r.id} variant="secondary" className="text-xs">
-                                    {r.event_type.name} ×{r.max_events}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            <Button
-                              className="w-full mt-auto"
-                              style={!isOwned ? { backgroundColor: plan.color ?? '#e67e22' } : undefined}
-                              variant={isOwned ? 'outline' : 'default'}
-                              disabled={isPurchasing}
-                              onClick={async () => {
-                                setPurchasingId(plan.id);
-                                setPurchaseError(null);
-                                try {
-                                  await purchaseMembership(plan.id);
-                                } catch (err) {
-                                  setPurchaseError(err instanceof Error ? err.message : (language === 'it' ? 'Acquisto fallito.' : 'Purchase failed.'));
-                                } finally {
-                                  setPurchasingId(null);
-                                }
-                              }}
-                            >
-                              {isPurchasing && <Loader2 className="size-4 mr-2 animate-spin" />}
-                              {isOwned
-                                ? (language === 'it' ? 'Rinnova' : 'Renew')
-                                : (language === 'it' ? 'Aggiungi' : 'Add')}
-                            </Button>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-
               {contribLoading ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="size-6 animate-spin text-gray-400" />
@@ -986,52 +898,28 @@ export function StudentDashboard() {
                   {/* Active memberships */}
                   <section>
                     <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                      {language === 'it' ? 'Iscrizioni Attive' : 'Active Memberships'}
+                      {language === 'it' ? 'Pacchetti Attivi' : 'Active Packs'}
                     </h2>
                     {activeUserMemberships.length === 0 ? (
                       <p className="text-sm text-gray-400">
-                        {language === 'it' ? 'Nessuna iscrizione attiva.' : 'No active memberships.'}
+                        {language === 'it' ? 'Nessun pacchetto attivo.' : 'No active packs.'}
                       </p>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {activeUserMemberships.map(c => {
-                          const isExpanded = activeCardAction?.id === c.id;
-                          const mode = isExpanded ? activeCardAction!.mode : null;
-                          const parentEvents = allEvents.filter(e => e.events.length > 0);
-                          const otherPlans = membershipPlans.filter(p => p.id !== c.membership?.id);
-
-                          const closeAction = () => {
-                            setActiveCardAction(null);
-                            setPendingEventId('');
-                            setPendingPlanId('');
-                            setCardActionError(null);
-                          };
-
-                          const handleConfirm = async () => {
-                            setCardActionLoading(true);
-                            setCardActionError(null);
-                            try {
-                              if (mode === 'add-event' && pendingEventId) {
-                                await addEventToMembership(c.id, Number(pendingEventId));
-                              } else if (mode === 'upgrade' && pendingPlanId) {
-                                await upgradeMembership(c.id, Number(pendingPlanId));
-                              }
-                              closeAction();
-                            } catch (err) {
-                              setCardActionError(err instanceof Error ? err.message : (language === 'it' ? 'Operazione fallita.' : 'Action failed.'));
-                            } finally {
-                              setCardActionLoading(false);
-                            }
-                          };
+                          const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
 
                           return (
                           <Card key={c.id} className="border-2 border-[#e67e22] overflow-hidden flex flex-col">
                             {c.membership?.color && <div className="h-1.5 shrink-0" style={{ backgroundColor: c.membership.color }} />}
                             <CardContent className="p-4 flex flex-col gap-3 flex-1">
-                              <div className="flex items-center gap-2">
-                                <Crown className="size-4 text-[#e67e22]" />
-                                <span className="font-semibold">{c.membership?.name ?? '—'}</span>
-                                {statusBadge(c.status)}
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                  <Crown className="size-4 text-[#e67e22]" />
+                                  <span className="font-bold">{firstEvent?.name ?? '—'}</span>
+                                  {statusBadge(c.status)}
+                                </div>
+                                <span className="text-sm text-gray-500 pl-6">{c.membership?.name ?? '—'}</span>
                               </div>
                               <div className="text-sm text-gray-600">€{c.amount}</div>
                               <div className="text-xs text-gray-500 space-y-0.5">
@@ -1048,9 +936,9 @@ export function StudentDashboard() {
                                   </div>
                                 )}
                               </div>
-                              {c.events.length > 0 && (
+                              {c.events.length > 1 && (
                                 <div className="flex flex-col gap-1">
-                                  {c.events.map(eid => {
+                                  {c.events.slice(1).map(eid => {
                                     const ev = eventMap.get(eid);
                                     return ev ? (
                                       <span key={eid} className="text-xs text-gray-500 bg-gray-100 rounded px-2 py-0.5">
@@ -1061,78 +949,25 @@ export function StudentDashboard() {
                                 </div>
                               )}
 
-                              {/* Inline action panel */}
-                              {isExpanded && (
-                                <div className="border-t pt-3 space-y-2">
-                                  {mode === 'add-event' && (
-                                    <Select value={pendingEventId} onValueChange={setPendingEventId}>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder={language === 'it' ? 'Seleziona evento...' : 'Select event...'} />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {parentEvents.map(e => (
-                                          <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  )}
-                                  {mode === 'upgrade' && (
-                                    <Select value={pendingPlanId} onValueChange={setPendingPlanId}>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder={language === 'it' ? 'Seleziona piano...' : 'Select plan...'} />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {otherPlans.map(p => (
-                                          <SelectItem key={p.id} value={String(p.id)}>
-                                            {p.name} — €{p.contribution}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  )}
-                                  {cardActionError && (
-                                    <p className="text-xs text-red-500">{cardActionError}</p>
-                                  )}
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      className="flex-1 bg-[#e67e22] hover:bg-[#d47420]"
-                                      disabled={cardActionLoading || (mode === 'add-event' ? !pendingEventId : !pendingPlanId)}
-                                      onClick={handleConfirm}
-                                    >
-                                      {cardActionLoading && <Loader2 className="size-3.5 mr-1 animate-spin" />}
-                                      {language === 'it' ? 'Conferma' : 'Confirm'}
-                                    </Button>
-                                    <Button size="sm" variant="outline" onClick={closeAction} disabled={cardActionLoading}>
-                                      {language === 'it' ? 'Annulla' : 'Cancel'}
-                                    </Button>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Action buttons */}
-                              {!isExpanded && (
-                                <div className="flex gap-2 mt-auto">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="flex-1"
-                                    onClick={() => { closeAction(); setActiveCardAction({ id: c.id, mode: 'add-event' }); }}
-                                  >
-                                    <CalendarPlus className="size-3.5 mr-1" />
-                                    {language === 'it' ? 'Aggiungi evento' : 'Add event'}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="flex-1"
-                                    onClick={() => { closeAction(); setActiveCardAction({ id: c.id, mode: 'upgrade' }); }}
-                                  >
-                                    <ArrowUpCircle className="size-3.5 mr-1" />
-                                    {language === 'it' ? 'Cambia piano' : 'Upgrade'}
-                                  </Button>
-                                </div>
-                              )}
+                              <div className="flex gap-2 mt-auto">
+                                <Button
+                                  size="sm"
+                                  className="flex-1 bg-[#e67e22] hover:bg-[#d47420]"
+                                  disabled={c.status !== 'accepted'}
+                                >
+                                  <CreditCard className="size-3.5 mr-1" />
+                                  {language === 'it' ? 'Paga' : 'Pay'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
+                                  disabled={c.status === 'payed'}
+                                >
+                                  <XCircle className="size-3.5 mr-1" />
+                                  {language === 'it' ? 'Annulla' : 'Cancel'}
+                                </Button>
+                              </div>
                             </CardContent>
                           </Card>
                           );
@@ -1145,30 +980,38 @@ export function StudentDashboard() {
                   {pastUserMemberships.length > 0 && (
                     <section>
                       <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                        {language === 'it' ? 'Iscrizioni Passate' : 'Past Memberships'}
+                        {language === 'it' ? 'Pacchetti Passati' : 'Past Packs'}
                       </h2>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {pastUserMemberships.map(c => (
+                        {pastUserMemberships.map(c => {
+                          const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
+                          return (
                           <Card key={c.id} className="overflow-hidden opacity-60">
                             {c.membership?.color && <div className="h-1.5" style={{ backgroundColor: c.membership.color }} />}
                             <CardContent className="p-4">
-                              <div className="flex items-center gap-2 mb-2">
-                                <Crown className="size-4 text-gray-400" />
-                                <span className="font-semibold">{c.membership?.name ?? '—'}</span>
-                                <Badge variant="secondary" className="ml-auto">
-                                  {language === 'it' ? 'Passato' : 'Past'}
-                                </Badge>
-                                {statusBadge(c.status)}
+                              <div className="flex items-start justify-between mb-2">
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <Crown className="size-4 text-gray-400" />
+                                    <span className="font-bold">{firstEvent?.name ?? '—'}</span>
+                                  </div>
+                                  <span className="text-sm text-gray-500 pl-6">{c.membership?.name ?? '—'}</span>
+                                </div>
+                                <div className="flex gap-1">
+                                  <Badge variant="secondary">{language === 'it' ? 'Passato' : 'Past'}</Badge>
+                                  {statusBadge(c.status)}
+                                </div>
                               </div>
                               <div className="text-sm text-gray-600">€{c.amount}</div>
-                              {c.events.length > 0 && (
+                              {c.events.length > 1 && (
                                 <div className="text-xs text-gray-400 mt-1">
-                                  {c.events.length} {language === 'it' ? 'evento/i' : 'event(s)'}
+                                  +{c.events.length - 1} {language === 'it' ? 'evento/i' : 'event(s)'}
                                 </div>
                               )}
                             </CardContent>
                           </Card>
-                        ))}
+                          );
+                        })}
                       </div>
                     </section>
                   )}
