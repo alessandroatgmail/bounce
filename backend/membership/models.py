@@ -29,3 +29,11 @@ class MembershipRule(models.Model):
     event_type = models.ForeignKey(EventType, on_delete=models.PROTECT)
     max_events = models.IntegerField(default=1)
 
+
+class Discount(models.Model):
+    name = models.CharField(max_length=10)
+    name_ext = models.CharField(max_length=100)
+    description = models.TextField()
+    rate = models.IntegerField(null=True, blank=True)
+    amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+

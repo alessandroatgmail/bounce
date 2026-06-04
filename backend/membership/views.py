@@ -1,8 +1,8 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
-from .models import Membership, MembershipRule
-from .serializers import MembershipSerializer, MembershipRuleSerializer
+from .models import Membership, MembershipRule, Discount
+from .serializers import MembershipSerializer, MembershipRuleSerializer, DiscountSerializer
 
 
 class MembershipViewSet(viewsets.ModelViewSet):
@@ -24,6 +24,16 @@ class MembershipRuleViewSet(viewsets.ModelViewSet):
         if membership_id:
             qs = qs.filter(membership_id=membership_id)
         return qs
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        return [IsAdminUser()]
+
+
+class DiscountViewSet(viewsets.ModelViewSet):
+    serializer_class = DiscountSerializer
+    queryset = Discount.objects.all()
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):

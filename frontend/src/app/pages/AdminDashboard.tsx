@@ -35,6 +35,7 @@ import { useArtistTypes } from '../hooks/useArtistTypes';
 import { ArtistPanel } from '../components/ArtistPanel';
 import { MembershipPanel } from '../components/MembershipPanel';
 import { MembershipManagementPanel } from '../components/MembershipManagementPanel';
+import { DiscountPanel } from '../components/DiscountPanel';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useArtists } from '../hooks/useArtists';
 import { useRooms } from '../hooks/useRooms';
@@ -53,9 +54,9 @@ export function AdminDashboard() {
   const [userMemberships, setUserMemberships] = useState(mockUserMemberships);
 
   const [activeTab, setActiveTab] = useState('events');
-  const [membershipView, setMembershipView] = useState<'plans' | 'management'>('plans');
   const [showStats, setShowStats] = useState(true);
   const [selectedEventModel, setSelectedEventModel] = useState<string | null>(null);
+  const [selectedPackModel, setSelectedPackModel] = useState<string>('plans');
 
   const { styles, loading: stylesLoading, error: stylesError, create: createStyle, update: updateStyle, remove: removeStyle } = useStyles(accessToken);
   const { genres, loading: genresLoading, error: genresError, create: createGenre, update: updateGenre, remove: removeGenre } = useGenres(accessToken);
@@ -72,17 +73,25 @@ export function AdminDashboard() {
     { key: 'artist',       label: language === 'it' ? 'Artisti'          : 'Artists'      },
   ];
 
+  const packModels = [
+    { key: 'plans',      label: language === 'it' ? 'Piani'    : 'Plans'      },
+    { key: 'management', label: language === 'it' ? 'Gestione' : 'Management' },
+    { key: 'discounts',  label: language === 'it' ? 'Sconti'   : 'Discounts'  },
+  ];
+
   const tabs = [
     { value: 'events',          label: language === 'it' ? 'Eventi' : 'Events',                  icon: <Calendar className="size-4" /> },
     { value: 'regular-classes', label: language === 'it' ? 'Corsi Regolari' : 'Regular Classes', icon: <Repeat className="size-4" /> },
     { value: 'students',        label: language === 'it' ? 'Studenti' : 'Students',               icon: <Users className="size-4" /> },
-    { value: 'packs',     label: language === 'it' ? 'Pacchetti' : 'Packs',           icon: <Crown className="size-4" /> },
+    { value: 'packs',           label: language === 'it' ? 'Pacchetti' : 'Packs',                icon: <Crown className="size-4" /> },
     { value: 'festivals',       label: language === 'it' ? 'Festival' : 'Festivals',              icon: <PartyPopper className="size-4" /> },
     { value: 'notifications',   label: language === 'it' ? 'Notifiche' : 'Notifications',         icon: <Bell className="size-4" /> },
   ];
 
   const activeTabLabel = activeTab === 'events' && selectedEventModel
     ? (eventModels.find(m => m.key === selectedEventModel)?.label ?? (language === 'it' ? 'Eventi' : 'Events'))
+    : activeTab === 'packs'
+    ? (packModels.find(m => m.key === selectedPackModel)?.label ?? (language === 'it' ? 'Pacchetti' : 'Packs'))
     : (tabs.find(t => t.value === activeTab)?.label ?? '');
 
   if (!user || user.role !== 'admin') {
@@ -213,13 +222,44 @@ export function AdminDashboard() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Remaining tabs */}
-            {tabs.filter(t => t.value !== 'events').map(tab => (
-              <TabsTrigger key={tab.value} value={tab.value} className="flex items-center gap-2">
-                {tab.icon}
-                {tab.label}
-              </TabsTrigger>
-            ))}
+            {/* Remaining tabs — Packs gets a dropdown, the rest are plain triggers */}
+            {tabs.filter(t => t.value !== 'events').map(tab =>
+              tab.value === 'packs' ? (
+                <DropdownMenu key="packs" modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={[
+                        'inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow]',
+                        activeTab === 'packs'
+                          ? 'bg-card border-transparent shadow-sm'
+                          : 'border-transparent text-muted-foreground hover:text-foreground',
+                      ].join(' ')}
+                      onClick={() => setActiveTab('packs')}
+                    >
+                      <Crown className="size-4" />
+                      {language === 'it' ? 'Pacchetti' : 'Packs'}
+                      <ChevronDown className="size-3 opacity-60" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent modal={false}>
+                    {packModels.map(model => (
+                      <DropdownMenuItem
+                        key={model.key}
+                        className="cursor-pointer"
+                        onSelect={() => { setActiveTab('packs'); setSelectedPackModel(model.key); }}
+                      >
+                        {model.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <TabsTrigger key={tab.value} value={tab.value} className="flex items-center gap-2">
+                  {tab.icon}
+                  {tab.label}
+                </TabsTrigger>
+              )
+            )}
           </TabsList>
 
           {/* Mobile burger menu */}
@@ -249,7 +289,21 @@ export function AdminDashboard() {
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
-                {tabs.filter(t => t.value !== 'events').map(tab => (
+                <DropdownMenuLabel className="flex items-center gap-2">
+                  <Crown className="size-4" />
+                  {language === 'it' ? 'Pacchetti' : 'Packs'}
+                </DropdownMenuLabel>
+                {packModels.map(model => (
+                  <DropdownMenuItem
+                    key={model.key}
+                    className="pl-6 cursor-pointer"
+                    onSelect={() => { setActiveTab('packs'); setSelectedPackModel(model.key); }}
+                  >
+                    {model.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                {tabs.filter(t => t.value !== 'events' && t.value !== 'packs').map(tab => (
                   <DropdownMenuItem
                     key={tab.value}
                     className="flex items-center gap-2 cursor-pointer"
@@ -593,29 +647,10 @@ export function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="packs" className="mt-6 space-y-4">
-            {/* Sub-toggle */}
-            <div className="inline-flex rounded-lg border bg-muted p-1 gap-1">
-              <Button
-                size="sm"
-                variant={membershipView === 'plans' ? 'default' : 'ghost'}
-                onClick={() => setMembershipView('plans')}
-              >
-                {language === 'it' ? 'Piani' : 'Plans'}
-              </Button>
-              <Button
-                size="sm"
-                variant={membershipView === 'management' ? 'default' : 'ghost'}
-                onClick={() => setMembershipView('management')}
-              >
-                {language === 'it' ? 'Gestione' : 'Management'}
-              </Button>
-            </div>
-
-            {membershipView === 'plans'
-              ? <MembershipPanel />
-              : <MembershipManagementPanel />
-            }
+          <TabsContent value="packs" className="mt-6">
+            {selectedPackModel === 'plans' && <MembershipPanel />}
+            {selectedPackModel === 'management' && <MembershipManagementPanel />}
+            {selectedPackModel === 'discounts' && <DiscountPanel />}
           </TabsContent>
 
           <TabsContent value="festivals" className="mt-6">

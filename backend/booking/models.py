@@ -43,7 +43,6 @@ class Contribution(models.Model):
         self._previous_status = self.status
 
 
-
 class Booking(models.Model):
     user = models.ForeignKey(get_user_model(), on_delete=models.PROTECT)
     event = models.ForeignKey(Event, on_delete=models.PROTECT)
