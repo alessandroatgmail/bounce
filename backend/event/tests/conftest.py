@@ -2,6 +2,7 @@ import pytest
 from rest_framework.test import APIClient
 from users.models import User
 from utils.load_worldcities import load_worldcities
+from event.models import PartnerRole
 
 
 @pytest.fixture
@@ -45,3 +46,12 @@ def staff_client(client, staff_user):
 def student_client(client, student_user):
     client.force_authenticate(user=student_user)
     return client
+
+
+@pytest.fixture
+def roles() -> None:
+    roles = ["Leader", "Follower", "Both"]
+    for role in roles:
+        PartnerRole.objects.get_or_create(name=role)
+
+

@@ -1,15 +1,58 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from users.models import City
-from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status
+from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole
 from django.db.models import Count
 
 
+class PartnerRoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PartnerRole
+        fields = ["id", "name"]
+
+
 class EventTypeSerializer(serializers.ModelSerializer):
+    partner_roles = serializers.StringRelatedField(many=True, read_only=True)
+    role_ids = serializers.PrimaryKeyRelatedField(
+        many=True, write_only=True, source="partner_roles", queryset=PartnerRole.objects.all(),
+        required=False
+    )
     class Meta:
         model = EventType
-        fields = ["id", "name", "frequency", "partners"]
+        fields = ["id", "name", "frequency", "partners", "role_ids", "partner_roles"]
 
+    def validate(self, data):
+        # In partial updates (PATCH), skip validation if neither field is provided.
+        # self.partial is True when the serializer is initialized with partial=True.
+        if self.partial and "partners" not in data and "partner_roles" not in data:
+            return data
+
+        partners = data.get("partners", getattr(self.instance, "partners", None))
+        role_ids = data.get("partner_roles", None)
+
+        if partners and role_ids:
+            if partners != len(role_ids):
+                raise serializers.ValidationError("Wrong number of roles")
+        else:
+            if not (partners == 0 and not role_ids):
+                raise serializers.ValidationError("Wrong number of roles")
+
+        return data
+
+    def create(self, validated_data):
+        roles = validated_data.pop("partner_roles", [])
+        event_type = EventType.objects.create(**validated_data)
+        event_type.partner_roles.set(roles)
+        return event_type
+
+    def update(self, instance, validated_data):
+        roles = validated_data.pop("partner_roles", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        if roles:
+            instance.partner_roles.set(roles)
+        return instance
 
 
 class CitySerializer(serializers.ModelSerializer):
@@ -188,7 +231,7 @@ class EventSerializer(serializers.ModelSerializer):
             "events", "event_ids",
             "info", "color",
             "image", "effective_image",
-            "already_booked"
+            "already_booked",
         ]
 
     def get_effective_image(self, obj):
@@ -216,6 +259,10 @@ class EventSerializer(serializers.ModelSerializer):
         end = data.get("end_date", getattr(self.instance, "end_date", None))
         if start and end and start >= end:
             raise serializers.ValidationError("end_date must be after start_date.")
+        partners = data.get("partners", None)
+        if partners:
+            if len(data.get("role_ids", None)) != int(partners):
+                raise serializers.ValidationError("wrong numbers of partners.")
         return data
 
     def create(self, validated_data):
@@ -223,6 +270,7 @@ class EventSerializer(serializers.ModelSerializer):
         genres = validated_data.pop("genres", [])
         artists = validated_data.pop("artists", [])
         events = validated_data.pop("events", [])
+        roles = validated_data.pop("partner_roles", None)
         event = Event.objects.create(**validated_data)
         event.styles.set(styles)
         event.genres.set(genres)
@@ -235,6 +283,7 @@ class EventSerializer(serializers.ModelSerializer):
         genres = validated_data.pop("genres", None)
         artists = validated_data.pop("artists", None)
         events = validated_data.pop("events", None)
+        roles = validated_data.pop("partner_roles", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()

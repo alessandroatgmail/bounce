@@ -1,7 +1,7 @@
 import pytest
 from rest_framework import status as http_status
 
-from event.models import Event, Status
+from event.models import Event, Status, PartnerRole
 from utils.mock_event import make_event_payload, make_event_payloads
 
 LIST_URL = "/api/events/events/"
@@ -173,7 +173,7 @@ class TestEventCreate:
 
     def test_create_returns_nested_event_type(self, staff_client, world_data):
         response = staff_client.post(LIST_URL, make_event_payload(), format="json")
-        assert set(response.data["event_type"].keys()) == {"id", "name", "frequency", "partners"}
+        assert set(response.data["event_type"].keys()) == {"id", "name", "frequency", "partners", "partner_roles"}
 
     def test_create_returns_type_as_string(self, staff_client, world_data):
         payload = make_event_payload()
@@ -220,7 +220,6 @@ class TestEventCreate:
         payload["start_date"], payload["end_date"] = payload["end_date"], payload["start_date"]
         response = staff_client.post(LIST_URL, payload, format="json")
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
-
 
 # ── Staff retrieve ────────────────────────────────────────────────────────────
 

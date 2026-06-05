@@ -32,6 +32,7 @@ import { SimpleNamePanel } from '../components/SimpleNamePanel';
 import { useStyles } from '../hooks/useStyles';
 import { useGenres } from '../hooks/useGenres';
 import { useArtistTypes } from '../hooks/useArtistTypes';
+import { usePartnerRoles } from '../hooks/usePartnerRoles';
 import { ArtistPanel } from '../components/ArtistPanel';
 import { MembershipPanel } from '../components/MembershipPanel';
 import { MembershipManagementPanel } from '../components/MembershipManagementPanel';
@@ -61,6 +62,7 @@ export function AdminDashboard() {
   const { styles, loading: stylesLoading, error: stylesError, create: createStyle, update: updateStyle, remove: removeStyle } = useStyles(accessToken);
   const { genres, loading: genresLoading, error: genresError, create: createGenre, update: updateGenre, remove: removeGenre } = useGenres(accessToken);
   const { artistTypes, loading: artistTypesLoading, error: artistTypesError, create: createArtistType, update: updateArtistType, remove: removeArtistType } = useArtistTypes(accessToken);
+  const { partnerRoles, loading: partnerRolesLoading, error: partnerRolesError, create: createPartnerRole, update: updatePartnerRole, remove: removePartnerRole } = usePartnerRoles(accessToken);
 
   const eventModels = [
     { key: 'event',        label: language === 'it' ? 'Eventi'           : 'Events'       },
@@ -69,8 +71,9 @@ export function AdminDashboard() {
     { key: 'room',         label: language === 'it' ? 'Sale'             : 'Rooms'        },
     { key: 'style',        label: language === 'it' ? 'Stili'            : 'Styles'       },
     { key: 'genre',        label: language === 'it' ? 'Generi'           : 'Genres'       },
-    { key: 'artist-type',  label: language === 'it' ? 'Tipi di Artista'  : 'Artist Types' },
-    { key: 'artist',       label: language === 'it' ? 'Artisti'          : 'Artists'      },
+    { key: 'artist-type',   label: language === 'it' ? 'Tipi di Artista'  : 'Artist Types'   },
+    { key: 'artist',        label: language === 'it' ? 'Artisti'          : 'Artists'        },
+    { key: 'partner-role',  label: language === 'it' ? 'Ruoli Partner'    : 'Partner Roles'  },
   ];
 
   const packModels = [
@@ -352,6 +355,16 @@ export function AdminDashboard() {
               />
             )}
             {selectedEventModel === 'artist' && <ArtistPanel />}
+            {selectedEventModel === 'partner-role' && (
+              <SimpleNamePanel
+                title="Partner Roles" titleIt="Ruoli Partner"
+                description="Manage partner roles for event types" descriptionIt="Gestisci i ruoli partner per i tipi di evento"
+                items={partnerRoles} loading={partnerRolesLoading} error={partnerRolesError}
+                onCreate={name => createPartnerRole({ name })}
+                onUpdate={(id, name) => updatePartnerRole(id, { name })}
+                onRemove={removePartnerRole}
+              />
+            )}
             {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel events={events} loading={loadingEvents} onRefetch={refetchEvents} onRemove={removeEvent} />}
           </TabsContent>
 

@@ -22,7 +22,7 @@ def make_event_type_payload(**overrides) -> dict:
     payload = {
         "name": _fake.unique.word().capitalize(),
         "frequency": _fake.random_element(_FREQUENCIES),
-        "partners": _fake.random_int(min=0, max=4),
+        "partners": 0,
     }
     payload.update(overrides)
     return payload

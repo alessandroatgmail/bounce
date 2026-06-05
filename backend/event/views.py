@@ -3,8 +3,8 @@ from datetime import timedelta
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 
-from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer
+from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, PartnerRoleSerializer
 import logging
 logger = logging.getLogger('event view')
 logger.setLevel(logging.INFO)
@@ -47,6 +47,16 @@ def _create_recurring_events(original: Event) -> None:
 
     if children:
         original.events.set(children)
+
+
+class PartnerRoleViewSet(viewsets.ModelViewSet):
+    queryset = PartnerRole.objects.all()
+    serializer_class = PartnerRoleSerializer
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        return [IsAdminUser()]
 
 
 class EventTypeViewSet(viewsets.ModelViewSet):

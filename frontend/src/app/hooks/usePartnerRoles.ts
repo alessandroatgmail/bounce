@@ -1,33 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authFetch } from '../../lib/api';
 
-const BASE = '/api/events/event-types/';
+const BASE = '/api/events/partner-roles/';
 
-export type Frequency = 'single' | 'weekly' | 'monthly';
-
-export const FREQUENCIES: { value: Frequency; label: string }[] = [
-  { value: 'single',  label: 'One Shot' },
-  { value: 'weekly',  label: 'Weekly'   },
-  { value: 'monthly', label: 'Monthly'  },
-];
-
-export interface EventType {
+export interface PartnerRole {
   id: number;
   name: string;
-  frequency: Frequency;
-  partners: number;
-  partner_roles: string[];
 }
 
-export interface EventTypePayload {
-  name: string;
-  frequency: string;
-  partners: number;
-  role_ids?: number[];
-}
+export type PartnerRolePayload = Omit<PartnerRole, 'id'>;
 
-export function useEventTypes(token: string | null) {
-  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+export function usePartnerRoles(token: string | null) {
+  const [partnerRoles, setPartnerRoles] = useState<PartnerRole[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,9 +22,9 @@ export function useEventTypes(token: string | null) {
     try {
       const res = await authFetch(BASE, token);
       if (!res.ok) throw new Error(`${res.status}`);
-      setEventTypes(await res.json());
+      setPartnerRoles(await res.json());
     } catch {
-      setError('Failed to load event types.');
+      setError('Failed to load partner roles.');
     } finally {
       setLoading(false);
     }
@@ -48,14 +32,14 @@ export function useEventTypes(token: string | null) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const create = useCallback(async (data: EventTypePayload): Promise<void> => {
+  const create = useCallback(async (data: PartnerRolePayload): Promise<void> => {
     if (!token) return;
     const res = await authFetch(BASE, token, { method: 'POST', body: JSON.stringify(data) });
     if (!res.ok) throw new Error(`${res.status}`);
     await fetchAll();
   }, [token, fetchAll]);
 
-  const update = useCallback(async (id: number, data: EventTypePayload): Promise<void> => {
+  const update = useCallback(async (id: number, data: PartnerRolePayload): Promise<void> => {
     if (!token) return;
     const res = await authFetch(`${BASE}${id}/`, token, { method: 'PUT', body: JSON.stringify(data) });
     if (!res.ok) throw new Error(`${res.status}`);
@@ -69,5 +53,5 @@ export function useEventTypes(token: string | null) {
     await fetchAll();
   }, [token, fetchAll]);
 
-  return { eventTypes, loading, error, refetch: fetchAll, create, update, remove };
+  return { partnerRoles, loading, error, refetch: fetchAll, create, update, remove };
 }

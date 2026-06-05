@@ -3,8 +3,9 @@ from dateutil.relativedelta import relativedelta
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from event.models import Event
+from event.models import Event, PartnerRole
 from membership.models import Membership
+
 
 class ContributionStatus(models.TextChoices):
     RECEIVED = "received", "Received"
@@ -24,6 +25,7 @@ class Contribution(models.Model):
     start_date = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     upgraded_from = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True)
+    role = models.ForeignKey(PartnerRole, on_delete=models.PROTECT, null=True, blank=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

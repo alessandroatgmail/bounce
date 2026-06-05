@@ -19,10 +19,16 @@ class Type(models.TextChoices):
     MEMBERS = "members", "Members"
     COLLABORATION = "collaboration", "Collaboration"
 
+class PartnerRole(models.Model):
+    name = models.CharField(max_length=55)
+    def __str__(self):
+        return self.name
+
 class EventType(models.Model):
     name = models.CharField(max_length=55)
     frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.SINGLE)
     partners = models.IntegerField()
+    partner_roles = models.ManyToManyField(PartnerRole, blank=True, null=True)
 
     def __str__(self):
         return self.name
