@@ -39,6 +39,16 @@ def subject_user(db):
         is_active=True,
     )
 
+@pytest.fixture
+def partner_user(db):
+    """A regular user who is the subject of contributions."""
+    return User.objects.create_user(
+        email="subject@bounce.com",
+        password="StrongPass123!",
+        is_staff=False,
+        is_active=True,
+    )
+
 
 @pytest.fixture
 def admin_client(client, admin_user):

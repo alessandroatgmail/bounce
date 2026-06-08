@@ -16,7 +16,7 @@ export interface EventType {
   name: string;
   frequency: Frequency;
   partners: number;
-  partner_roles: string[];
+  partner_roles: { id: number; name: string }[];
 }
 
 export interface EventTypePayload {

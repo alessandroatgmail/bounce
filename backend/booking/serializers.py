@@ -1,16 +1,18 @@
 from collections import Counter
 from decimal import Decimal
-
+from django.contrib.auth import get_user_model
+from . import service
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework import serializers
 from config.models import SiteSettings
-from event.models import Event
+from event.models import Event, PartnerRole
 from event.serializers import EventSerializer
 from membership.models import Membership
 from membership.serializers import MembershipSerializer
 from .models import Booking, Contribution, ContributionStatus
 from .utils import sync_bookings
+
 
 
 def _validate_membership_events(membership, events, field='event_id'):
@@ -126,20 +128,38 @@ class UserContributionSerializer(serializers.ModelSerializer):
         queryset=Event.objects.all(), write_only=True, required=False, allow_null=True,
     )
     upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
+    partner_email = serializers.EmailField(required=False)
+    partner_id = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.filter(is_active=True), write_only=True, required=False,
+        source="partner"
+    )
+    partner = serializers.StringRelatedField(read_only=True)
+    role_id = serializers.PrimaryKeyRelatedField(write_only=True, required=False, queryset=PartnerRole.objects.all(), source='role')
+    role = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = Contribution
         fields = [
             'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
-            'amount', 'start_date', 'end_date', 'upgraded_from',
+            'amount', 'start_date', 'end_date', 'upgraded_from', 'partner_email',
+            'partner_id', 'role_id', 'role', 'partner'
         ]
-        read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from']
+        read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',]
 
     def validate(self, attrs):
         membership = attrs['membership']
         event = attrs.get('event_id')
+        role = attrs.get('role')
+        partner_email = attrs.get('partner_email')
+        partner_id = attrs.get('partner_id')
         if event:
             _validate_membership_events(membership, [event])
+            if event.event_type.partners > 1:
+                if not role:
+                    raise serializers.ValidationError("For this event, you must specify a role.")
+            else:
+                if partner_email or partner_id:
+                    raise serializers.ValidationError("This event does not need a partner.")
 
         if self.instance is None and membership.duration:
             season_end = SiteSettings.load().season_end
@@ -159,6 +179,8 @@ class UserContributionSerializer(serializers.ModelSerializer):
         event = validated_data.pop('event_id', None)
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
+        print ("---------------------")
+        print (validated_data)
         contribution = Contribution.objects.create(**validated_data)
 
         if event:
@@ -173,4 +195,6 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 contribution.end_date = contribution.events.first().end_date
                 contribution.start_date = start_date
                 contribution.save(update_fields=['start_date', 'end_date'])
+            if contribution.partner:
+                service._create_partner_contribution(contribution, contribution.partner)
         return contribution

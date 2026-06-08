@@ -147,7 +147,7 @@ export function EventTypePanel() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const resolveInitialRoles = (et: EventType): PartnerRole[] =>
-    partnerRoles.filter(r => et.partner_roles.includes(r.name));
+    partnerRoles.filter(r => et.partner_roles.some(pr => pr.id === r.id));
 
   const handleCreate = async (data: EventTypePayload) => {
     await create(data);
@@ -242,7 +242,7 @@ export function EventTypePanel() {
                       {et.partner_roles.length === 0
                         ? <span className="text-gray-400 text-xs">—</span>
                         : et.partner_roles.map(role => (
-                            <Badge key={role} variant="outline" className="text-xs">{role}</Badge>
+                            <Badge key={role.id} variant="outline" className="text-xs">{role.name}</Badge>
                           ))
                       }
                     </div>

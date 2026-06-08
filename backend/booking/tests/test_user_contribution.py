@@ -7,7 +7,7 @@ from rest_framework import status as http_status
 
 from booking.models import Booking, Contribution
 from config.models import SiteSettings
-from event.models import Event, EventType
+from event.models import Event, EventType, PartnerRole
 from membership.models import Membership, MembershipRule
 from users.models import User
 from utils.mock_event import make_event_payload
@@ -491,3 +491,90 @@ class TestUpgrade:
         new_c = Contribution.objects.get(pk=res.data["id"])
         expected = (timezone.now() + relativedelta(months=3)).date()
         assert new_c.end_date.date() == expected
+
+
+# ── booking with partner action ────────────────────────────────────────────────────────────
+
+class TestPartner:
+
+    def test_create_contribution_with_partner_201(self, world_data, student_client, student_user, partner_user, db):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        print (response.data)
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "partner" in response.data
+        assert "role" in response.data
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        assert partner_contribution is not None
+        assert first_event in partner_contribution.events.all()
+        assert partner_contribution.partner == student_user
+
+    def test_create_contribution_without_role_400(self, world_data, student_client, student_user, partner_user, db):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
+        payload = {
+            "membership_id": m.pk,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        print (response.data)
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        assert partner_contribution is None
+
+        def test_create_contribution_with_partner_201(self, world_data, student_client, student_user, partner_user, db):
+            et = make_event_type()
+            et.partners = 2
+            leader = PartnerRole.objects.get(name='Leader')
+            follower = PartnerRole.objects.get(name='Follower')
+            et.partner_roles.add(leader)
+            et.partner_roles.add(follower)
+            et.save()
+            first_event = make_event_with_type(et)
+            m = make_membership()
+            # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
+            payload = {
+                "membership_id": m.pk,
+                "role_id": leader.id,
+                "partner_email": "partner@email.com",
+                "partner_id": partner_user.id,
+                "event_id": first_event.id,
+            }
+
+            response = student_client.post(LIST_URL, payload, format="json")
+            print(response.data)
+            assert response.status_code == http_status.HTTP_201_CREATED
+            assert "partner" in response.data
+            assert "role" in response.data
+            partner_contribution = Contribution.objects.filter(user=partner_user).first()
+            assert partner_contribution is not None
+            assert first_event in partner_contribution.events.all()
+            assert partner_contribution.partner == student_user

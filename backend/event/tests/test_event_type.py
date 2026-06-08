@@ -111,7 +111,9 @@ class TestEventTypeCreate:
         print (response.data)
         assert response.status_code == status.HTTP_201_CREATED
         assert "partner_roles" in response.data
-        assert set([d for d in response.data["partner_roles"]]) == set([role.name for role in PartnerRole.objects.all()])
+        expected = {(role.id, role.name) for role in PartnerRole.objects.all()}
+        actual = {(d["id"], d["name"]) for d in response.data["partner_roles"]}
+        assert actual == expected
 
     def test_create_event_with_different_partner_400(self, staff_client, world_data, roles):
         payload = make_event_type_payload()

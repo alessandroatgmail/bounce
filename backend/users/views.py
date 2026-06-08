@@ -245,6 +245,21 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class CheckEmailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        email = request.query_params.get('email', '').strip()
+        if not email:
+            return Response({'detail': 'email query parameter is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        User = get_user_model()
+        try:
+            user = User.objects.get(email__iexact=email, is_active=True)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'id': user.pk, 'first_name': user.first_name, 'last_name': user.last_name})
+
+
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 

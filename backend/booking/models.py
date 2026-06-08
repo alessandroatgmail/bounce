@@ -26,6 +26,9 @@ class Contribution(models.Model):
     end_date = models.DateTimeField(null=True, blank=True)
     upgraded_from = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True)
     role = models.ForeignKey(PartnerRole, on_delete=models.PROTECT, null=True, blank=True)
+    partner_email = models.EmailField(null=True, blank=True,)
+    partner = models.ForeignKey(get_user_model(), on_delete=models.PROTECT,
+                                null=True, blank=True, related_name='partner_contributions')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

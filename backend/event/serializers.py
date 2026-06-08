@@ -12,7 +12,7 @@ class PartnerRoleSerializer(serializers.ModelSerializer):
 
 
 class EventTypeSerializer(serializers.ModelSerializer):
-    partner_roles = serializers.StringRelatedField(many=True, read_only=True)
+    partner_roles = PartnerRoleSerializer(many=True, read_only=True)
     role_ids = serializers.PrimaryKeyRelatedField(
         many=True, write_only=True, source="partner_roles", queryset=PartnerRole.objects.all(),
         required=False

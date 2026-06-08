@@ -7,7 +7,7 @@ export interface EventItem {
   id: number;
   name: string;
   status: string;
-  event_type: { id: number; name: string; frequency: string };
+  event_type: { id: number; name: string; frequency: string; partners: number; partner_roles: { id: number; name: string }[] };
   type: string;
   start_date: string;
   end_date: string;
