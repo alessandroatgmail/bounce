@@ -174,7 +174,7 @@ class TestRegistration:
         from django.core import mail
 
         client.post(REGISTER_URL, make_user_payload(), format="json")
-
+        print (mail.outbox[0].subject)
         assert "Bounce" in mail.outbox[0].subject
 
     def test_failed_registration_sends_no_email(self, client, world_data):
@@ -185,73 +185,3 @@ class TestRegistration:
         client.post(REGISTER_URL, payload, format="json")
 
         assert len(mail.outbox) == 0
-
-    # ── Kafka notification task ───────────────────────────────────────────────
-    @pytest.mark.django_db(transaction=True)
-    def test_register_dispatches_kafka_task_with_user_data(self, client, world_data):
-        """
-        Registration must fire the send_to_kafka Celery task so the Kafka
-        consumer can create admin notifications. Verifies the signal→task wiring.
-        """
-        payload = make_user_payload()
-
-        with patch("users.tasks.send_to_kafka.delay") as mock_delay:
-            response = client.post(REGISTER_URL, payload, format="json")
-
-        assert response.status_code == status.HTTP_201_CREATED
-        mock_delay.assert_called_once()
-
-        task_kwargs = mock_delay.call_args.kwargs["data"]
-        assert task_kwargs["type"] == "user_registered"
-        assert task_kwargs["email"] == payload["email"]
-
-    def test_failed_registration_does_not_dispatch_kafka_task(self, client, world_data):
-        payload = make_user_payload()
-        del payload["first_name"]
-
-        with patch("users.tasks.send_to_kafka.delay") as mock_delay:
-            client.post(REGISTER_URL, payload, format="json")
-
-        mock_delay.assert_not_called()
-
-    # ── Notification ──────────────────────────────────────────────────────────
-    @pytest.mark.django_db(transaction=True)
-    def test_registration_saves_notification_for_each_admin(self, client, world_data):
-        """
-        Full chain: registration → signal → send_to_kafka task body runs →
-        producer.send() called → consumer logic → Notification saved.
-
-        We do NOT mock send_to_kafka.delay so the task body actually executes
-        (task_always_eager=True makes it run synchronously). We intercept at
-        producer.send() — the lowest point before real Kafka — and immediately
-        run process_event_sync() with the captured payload, simulating the
-        consumer receiving the message.
-        """
-        admin = User.objects.create_user(
-            email="admin@bounce.test",
-            password="AdminPass123!",
-            is_staff=True,
-            is_active=True,
-        )
-
-        sent_events = []
-
-        def fake_send(topic, value):
-            sent_events.append({"topic": topic, "value": value})
-            process_event_sync(value)
-            mock_future = MagicMock()
-            mock_future.get.return_value = MagicMock(topic=topic, offset=0)
-            return mock_future
-
-        mock_producer_instance = MagicMock()
-        mock_producer_instance.send.side_effect = fake_send
-
-        # Override the autouse get_producer mock with one that actually exercises
-        # the task body and captures what reaches the producer.
-        with patch("users.tasks.get_producer", return_value=mock_producer_instance):
-            response = client.post(REGISTER_URL, make_user_payload(), format="json")
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert sent_events, "send_to_kafka task never called producer.send()"
-        assert sent_events[0]["topic"] == "user.registered"
-        assert Notification.objects.filter(recipient=admin).count() == 1

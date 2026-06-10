@@ -10,7 +10,7 @@ import pytest
 from notification.constants import EventType
 from notification.models import Notification
 from notification import kafka_consumer
-from users import tasks
+from utils import tasks
 from users.models import User
 from .conftest import process_event_sync
 

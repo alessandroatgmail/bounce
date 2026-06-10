@@ -7,6 +7,9 @@ class Role(models.TextChoices):
     TEACHER = "teacher", "Teacher"
     ADMIN = "admin", "Admin"
 
+class Language(models.TextChoices):
+    IT = 'it', 'Italiano'
+    EN = 'en', 'English'
 
 class Country(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -91,6 +94,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
 
     date_joined = models.DateTimeField(auto_now_add=True)
+
+    language = models.CharField(
+        max_length=2,
+        choices=Language.choices,
+        default=Language.IT,
+    )
 
     objects = UserManager()
 

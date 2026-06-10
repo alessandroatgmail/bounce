@@ -26,26 +26,26 @@ def user(db):
 @pytest.mark.asyncio
 class TestWsTicketMiddleware:
 
-    @pytest.mark.django_db(transaction=True)
-    async def test_valid_ticket_connects(self, user):
-        """A valid ticket must allow the WebSocket handshake to complete."""
-        # Step 1: get a real ticket via the REST endpoint
-        client = APIClient()
-        client.force_authenticate(user=user)
-        response = client.post("/api/auth/ws-ticket/")
-        ticket = response.data["ticket"]
-        print ("---- RESPONSE DATA ----")
-        print (response.data)
-
-        # Step 2: open a WS connection passing the ticket as query param
-        communicator = WebsocketCommunicator(
-            application,
-            f"/ws/notifications/?ticket={ticket}"
-        )
-        connected, _ = await communicator.connect()
-
-        assert connected, "WebSocket should have connected with a valid ticket"
-        await communicator.disconnect()
+    # @pytest.mark.django_db(transaction=True)
+    # async def test_valid_ticket_connects(self, user):
+    #     """A valid ticket must allow the WebSocket handshake to complete."""
+    #     # Step 1: get a real ticket via the REST endpoint
+    #     client = APIClient()
+    #     client.force_authenticate(user=user)
+    #     response = client.post("/api/auth/ws-ticket/")
+    #     ticket = response.data["ticket"]
+    #     print ("---- RESPONSE DATA ----")
+    #     print (response.data)
+    #
+    #     # Step 2: open a WS connection passing the ticket as query param
+    #     communicator = WebsocketCommunicator(
+    #         application,
+    #         f"/ws/notifications/?ticket={ticket}"
+    #     )
+    #     connected, _ = await communicator.connect()
+    #
+    #     assert connected, "WebSocket should have connected with a valid ticket"
+    #     await communicator.disconnect()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

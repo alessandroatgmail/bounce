@@ -4,6 +4,7 @@
 
 import pytest
 from asgiref.sync import sync_to_async
+from unittest.mock import patch
 
 from rest_framework.test import APIClient
 from channels.testing import WebsocketCommunicator
@@ -24,6 +25,15 @@ from users.models import Role
 # @pytest.fixture
 # def client():
 #     return APIClient()
+
+
+@pytest.fixture(autouse=True)
+def mock_email_tasks():
+    """Prevent real emails from being dispatched to Celery during tests."""
+    with patch("utils.tasks.send_activation_email.delay"), \
+         patch("utils.tasks.send_email.delay"), \
+         patch("utils.tasks.send_to_kafka.delay"):
+        yield
 
 
 @pytest.fixture

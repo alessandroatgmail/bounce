@@ -1,4 +1,6 @@
 from collections import Counter
+from django.db import transaction
+
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from . import service
@@ -177,12 +179,11 @@ class UserContributionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         event = validated_data.pop('event_id', None)
+
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
-        print ("---------------------")
-        print (validated_data)
         contribution = Contribution.objects.create(**validated_data)
-
+        print (f"------- EVENT {event} --------")
         if event:
             contribution.events.add(event)
             if membership.duration:
@@ -195,6 +196,11 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 contribution.end_date = contribution.events.first().end_date
                 contribution.start_date = start_date
                 contribution.save(update_fields=['start_date', 'end_date'])
+
             if contribution.partner:
-                service._create_partner_contribution(contribution, contribution.partner)
+                partner_contribution = service._create_partner_contribution(contribution, contribution.partner)
+                service._send_contribution_email(partner_contribution)
+            service._send_contribution_email(
+                contribution,
+            )
         return contribution

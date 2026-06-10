@@ -78,19 +78,6 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        # send_mail(
-        #     subject="Welcome to Bounce — confirm your registration",
-        #     message=(
-        #         f"Hi {user.first_name},\n\n"
-        #         "Thank you for registering at Bounce Dance School.\n"
-        #         "Your account is pending approval. You will receive a confirmation email once it is activated.\n\n"
-        #         "— The Bounce Team"
-        #     ),
-        #     from_email=settings.DEFAULT_FROM_EMAIL,
-        #     recipient_list=[user.email],
-        #     fail_silently=False,
-        # )
-
         return Response(
             {
                 "id": user.pk,

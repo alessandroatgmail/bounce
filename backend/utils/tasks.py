@@ -2,7 +2,7 @@ from celery import shared_task
 from kafka import KafkaProducer
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
+from post_office import mail
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 import json
@@ -20,11 +20,11 @@ def get_producer():
     return producer
 
 @shared_task(bind=True, max_retries=10)
-def send_to_kafka(self, data):
+def send_to_kafka(self, type: str, data: dict) -> None:
     try:
         p = get_producer()
 
-        future = p.send('user.registered', value=data)
+        future = p.send(type, value=data)
         metadata = future.get(timeout=10)
 
         return f"Sent to {metadata.topic} at offset {metadata.offset}"
@@ -34,21 +34,36 @@ def send_to_kafka(self, data):
         raise self.retry(exc=exc, countdown=10)
 
 @shared_task
-def send_activation_email(user_id):
+def send_activation_email(user_id: int, template: str,) -> None:
     User = get_user_model()
     user = User.objects.get(pk=user_id)
+
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     activation_link = f"http://localhost:5173/activate/{uid}/{token}/"
-    send_mail(
-        subject="Activate your Bounce account",
-        message=(
-            f"Hi {user.first_name},\n\n"
-            f"Please activate your Bounce by clicking the link below:\n"
-            f"{activation_link}"
-        ),
-        from_email="noreply@boucneswinglovers.com",
-        recipient_list=[user.email],
+    mail.send(
+        user.email,
+        template=template,
+        context={
+            'first_name': user.first_name,
+            'activation_link': activation_link,
+        },
+        language=user.language,
     )
 
-
+@shared_task
+def send_email(user_id: int, template: str, context) -> None:
+    print ("--------------- entered send_email ------------")
+    User = get_user_model()
+    user = User.objects.get(pk=user_id)
+    try:
+        mail.send(
+            user.email,
+            template=template,
+            context=context,
+            language=user.language,
+        )
+        print("email  successfully sent ")
+    except Exception as exc:
+        print ("email  failed ")
+        print (exc)

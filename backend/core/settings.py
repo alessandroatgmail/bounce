@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "channels",
     'drf_spectacular',
     'colorfield',
+    'post_office',
     # local
     'config',
     'users',
@@ -136,13 +137,18 @@ SIMPLE_JWT = {
 }
 
 # ── Email (MailHog in dev) ─────────────────────────────────────────────────────
-EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="post_office.EmailBackend")
 EMAIL_HOST = env("EMAIL_HOST", default="localhost")
 EMAIL_PORT = env.int("EMAIL_PORT", default=1025)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@bounce.com")
+
+POST_OFFICE = {
+    'DEFAULT_PRIORITY': 'now',
+    'CELERY_ENABLED': True,
+}
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 # CORS_ALLOWED_ORIGINS = [

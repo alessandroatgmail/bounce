@@ -29,6 +29,10 @@ class Contribution(models.Model):
     partner_email = models.EmailField(null=True, blank=True,)
     partner = models.ForeignKey(get_user_model(), on_delete=models.PROTECT,
                                 null=True, blank=True, related_name='partner_contributions')
+    original_contribution = models.ForeignKey(
+            "self", on_delete=models.PROTECT,
+            null=True, blank=True, related_name='twin_contributions'
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

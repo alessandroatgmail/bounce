@@ -498,6 +498,8 @@ class TestUpgrade:
 class TestPartner:
 
     def test_create_contribution_with_partner_201(self, world_data, student_client, student_user, partner_user, db):
+        from django.core import mail
+
         et = make_event_type()
         et.partners = 2
         leader = PartnerRole.objects.get(name='Leader')
@@ -507,7 +509,6 @@ class TestPartner:
         et.save()
         first_event = make_event_with_type(et)
         m = make_membership()
-        # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
         payload = {
             "membership_id": m.pk,
             "role_id": leader.id,
@@ -517,14 +518,39 @@ class TestPartner:
         }
 
         response = student_client.post(LIST_URL, payload, format="json")
-        print (response.data)
         assert response.status_code == http_status.HTTP_201_CREATED
         assert "partner" in response.data
         assert "role" in response.data
+
         partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        original_contribution = Contribution.objects.get(id=response.data['id'])
         assert partner_contribution is not None
         assert first_event in partner_contribution.events.all()
         assert partner_contribution.partner == student_user
+        assert partner_contribution.original_contribution == original_contribution
+
+        # Verify that two emails were sent — one to the registrant, one to the partner
+        assert len(mail.outbox) == 2
+        recipients = [e.to[0] for e in mail.outbox]
+        assert student_user.email in recipients
+        assert partner_user.email in recipients
+
+        # Build a mapping recipient -> email message, so the test does not
+        # depend on the order in which emails were sent
+        emails_by_recipient = {e.to[0]: e for e in mail.outbox}
+
+        student_email = emails_by_recipient[student_user.email]
+        partner_email = emails_by_recipient[partner_user.email]
+
+        # Both subjects must mention the event name
+        assert first_event.name in student_email.subject
+        assert first_event.name in partner_email.subject
+
+        # The registrant's email body must mention the partner's name
+        assert partner_user.first_name in student_email.body
+
+        # (optional, symmetric check) the partner's email body mentions the registrant
+        assert student_user.first_name in partner_email.body
 
     def test_create_contribution_without_role_400(self, world_data, student_client, student_user, partner_user, db):
         et = make_event_type()
@@ -549,32 +575,3 @@ class TestPartner:
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
         partner_contribution = Contribution.objects.filter(user=partner_user).first()
         assert partner_contribution is None
-
-        def test_create_contribution_with_partner_201(self, world_data, student_client, student_user, partner_user, db):
-            et = make_event_type()
-            et.partners = 2
-            leader = PartnerRole.objects.get(name='Leader')
-            follower = PartnerRole.objects.get(name='Follower')
-            et.partner_roles.add(leader)
-            et.partner_roles.add(follower)
-            et.save()
-            first_event = make_event_with_type(et)
-            m = make_membership()
-            # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
-            payload = {
-                "membership_id": m.pk,
-                "role_id": leader.id,
-                "partner_email": "partner@email.com",
-                "partner_id": partner_user.id,
-                "event_id": first_event.id,
-            }
-
-            response = student_client.post(LIST_URL, payload, format="json")
-            print(response.data)
-            assert response.status_code == http_status.HTTP_201_CREATED
-            assert "partner" in response.data
-            assert "role" in response.data
-            partner_contribution = Contribution.objects.filter(user=partner_user).first()
-            assert partner_contribution is not None
-            assert first_event in partner_contribution.events.all()
-            assert partner_contribution.partner == student_user

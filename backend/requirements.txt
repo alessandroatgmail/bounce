@@ -27,6 +27,9 @@ channels-redis==4.2.0
 kafka-python-ng
 aiokafka
 
+# Manage and sending Email template
+django-post_office==3.11.2
+
 # CORS headers (needed for the React frontend)
 django-cors-headers==4.4.0
 
