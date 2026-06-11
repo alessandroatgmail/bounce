@@ -12,6 +12,11 @@ def send_email_accept_email(user_id: int, contribution_id: int) -> None:
     User = get_user_model()
     user = User.objects.get(pk=user_id)
     contribution = Contribution.objects.get(pk=contribution_id)
+    if contribution.partner:
+        template = "registration_accepted_with_partner_email"
+    else:
+        template = "registration_accepted_email"
+
     context = {
         "user": user,
         "contribution": contribution,
@@ -20,7 +25,7 @@ def send_email_accept_email(user_id: int, contribution_id: int) -> None:
     try:
         mail.send(
             user.email,
-            template="registration_accepted_email",
+            template=template,
             context=context,
             language=user.language,
         )

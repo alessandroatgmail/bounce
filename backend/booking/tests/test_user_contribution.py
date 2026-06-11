@@ -600,7 +600,7 @@ class TestAutomaticAcceptaNce:
         et.partner_roles.add(follower)
         et.save()
         first_event = make_event_with_type(et)
-        first_event.contribution = 20
+        first_event.capacity = 20
         first_event.save()
         m = make_membership()
         payload = {
@@ -625,3 +625,48 @@ class TestAutomaticAcceptaNce:
 
         # Verify that 4 emails were sent — 2 for receiving the registration and 2 for being accepted
         assert len(mail.outbox) == 4
+
+        # The acceptance emails are the ones whose subject mentions "accettazione"
+        accepted_by_recipient = {
+            e.to[0]: e for e in mail.outbox if "accettazione" in e.subject
+        }
+        assert set(accepted_by_recipient) == {student_user.email, partner_user.email}
+
+        student_accepted = accepted_by_recipient[student_user.email]
+        partner_accepted = accepted_by_recipient[partner_user.email]
+
+        # Each acceptance email must show the partner's first/last name and the recipient's role
+        assert original_contribution.partner.first_name in student_accepted.body
+        assert original_contribution.partner.last_name in student_accepted.body
+        assert str(original_contribution.role) in student_accepted.body
+
+        assert partner_contribution.partner.first_name in partner_accepted.body
+        assert partner_contribution.partner.last_name in partner_accepted.body
+        assert str(partner_contribution.role) in partner_accepted.body
+
+    def test_create_contribution_single_201(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if couple under capacity status shall be accepted
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        # Verify that 2 emails were sent — 1 for receiving the registration and 1 for being accepted
+        assert len(mail.outbox) == 2
+        
