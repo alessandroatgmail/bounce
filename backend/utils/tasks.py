@@ -53,7 +53,6 @@ def send_activation_email(user_id: int, template: str,) -> None:
 
 @shared_task
 def send_email(user_id: int, template: str, context) -> None:
-    print ("--------------- entered send_email ------------")
     User = get_user_model()
     user = User.objects.get(pk=user_id)
     try:
@@ -63,7 +62,6 @@ def send_email(user_id: int, template: str, context) -> None:
             context=context,
             language=user.language,
         )
-        print("email  successfully sent ")
     except Exception as exc:
-        print ("email  failed ")
+        print (f"email  failed user {user.email} - template {template} - {context}")
         print (exc)

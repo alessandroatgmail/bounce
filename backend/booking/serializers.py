@@ -182,25 +182,54 @@ class UserContributionSerializer(serializers.ModelSerializer):
 
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
+        # update start date and end date
+        start_date, end_date = service._contribution_date_range(membership, event)
+        if start_date:
+            validated_data.update({"start_date": start_date})
+        if end_date:
+            validated_data.update({"end_date": end_date})
         contribution = Contribution.objects.create(**validated_data)
-        print (f"------- EVENT {event} --------")
+        # create partner contribution
         if event:
             contribution.events.add(event)
-            if membership.duration:
-                start_date = max(contribution.events.first().start_date, timezone.now())
-                contribution.end_date = min(start_date + relativedelta(months=membership.duration), contribution.events.first().end_date)
-                contribution.start_date = start_date
-                contribution.save(update_fields=['start_date', 'end_date'])
-            else:
-                start_date = max(contribution.events.first().start_date, timezone.now())
-                contribution.end_date = contribution.events.first().end_date
-                contribution.start_date = start_date
-                contribution.save(update_fields=['start_date', 'end_date'])
-
             if contribution.partner:
                 partner_contribution = service._create_partner_contribution(contribution, contribution.partner)
                 service._send_contribution_email(partner_contribution)
             service._send_contribution_email(
                 contribution,
             )
+            # check availability
+            print (f" available spot {event.available_spot}")
+            if event.available_spot > 1:
+                contribution.status = ContributionStatus.ACCEPTED
+                contribution.save()
+                service._dispatch_change_status_email(
+                    contribution_id=contribution.id,
+                    user_id=contribution.user.id,
+                    old_status=ContributionStatus.RECEIVED,
+                    new_status=ContributionStatus.ACCEPTED,
+                )
+                if contribution.partner:
+                    partner_contribution.status = ContributionStatus.ACCEPTED
+                    partner_contribution.save()
+                    service._dispatch_change_status_email(
+                        contribution_id=partner_contribution.id,
+                        user_id=partner_contribution.user.id,
+                        old_status=ContributionStatus.RECEIVED,
+                        new_status=ContributionStatus.ACCEPTED,
+                    )
+
         return contribution
+
+    def update(self, instance, validated_data):
+        old_status = instance.status
+        super().update(instance, validated_data)
+        if "status" in validated_data:
+            if old_status != validated_data["status"]:
+                service._dispatch_change_status_email(
+                    contribution_id=instance.id,
+                    user_id=instance.user.id,
+                    old_status=instance.status,
+                    new_status=validated_data["status"],
+                )
+        return instance

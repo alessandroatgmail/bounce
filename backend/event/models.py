@@ -3,7 +3,6 @@ from django.contrib.auth import get_user_model
 from colorfield.fields import ColorField
 from users.models import City
 
-
 class Status(models.TextChoices):
     DRAFT = "draft", "Draft"
     CONFIRMED = "confirmed", "Confirmed"
@@ -116,6 +115,23 @@ class Event(models.Model):
             return parent.image
         return None
 
+    @property
+    def available_spot(self):
+        from booking.models import ContributionStatus as CS
+
+        return self.capacity - self.contributions.filter(status=CS.PAYED).count()
+
+    @property
+    def spot_booked(self):
+        from booking.models import ContributionStatus as CS
+
+        return self.contributions.filter(status=CS.RECEIVED).count()
+
+    @property
+    def spot_accepted(self):
+        from booking.models import ContributionStatus as CS
+
+        return self.contributions.filter(status=CS.ACCEPTED).count()
 
 
 

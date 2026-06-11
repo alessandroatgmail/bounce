@@ -1,7 +1,16 @@
 from django.db import transaction
-from .models import Contribution
+from django.utils import timezone
+from datetime import date
+
+from dateutil.relativedelta import relativedelta
+
+from .models import Contribution, ContributionStatus
+from membership.models import Membership
+
 from django.contrib.auth import get_user_model
 from utils.tasks import  send_email
+from event.models import Event
+from .task import send_email_accept_email
 
 def _create_partner_contribution(original: Contribution, partner: get_user_model()) -> Contribution:
     """
@@ -45,3 +54,21 @@ def _send_contribution_email(contribution: Contribution)->None:
             template=template,
             context=context,
         )
+
+def _contribution_date_range(membership: Membership, event: Event) -> tuple[date | None, date | None]:
+    start_date = None
+    end_date = None
+    if event:
+        if membership.duration:
+            start_date = max(event.start_date, timezone.now())
+            end_date = min(start_date + relativedelta(months=membership.duration),
+                                        event.end_date)
+        else:
+            start_date = max(event.start_date, timezone.now())
+            end_date = event.end_date
+
+    return start_date, end_date
+
+def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status: str, new_status: str) -> None:
+    if new_status == ContributionStatus.ACCEPTED:
+        send_email_accept_email(user_id=user_id, contribution_id=contribution_id)

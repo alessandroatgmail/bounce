@@ -13,6 +13,8 @@ from users.models import User
 from utils.mock_event import make_event_payload
 from utils.mock_event_type import make_event_type_payload
 
+from booking.models import ContributionStatus
+
 LIST_URL = "/api/booking/my-memberships/"
 
 
@@ -508,6 +510,8 @@ class TestPartner:
         et.partner_roles.add(follower)
         et.save()
         first_event = make_event_with_type(et)
+        first_event.capacity = 0
+        first_event.save()
         m = make_membership()
         payload = {
             "membership_id": m.pk,
@@ -575,3 +579,49 @@ class TestPartner:
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
         partner_contribution = Contribution.objects.filter(user=partner_user).first()
         assert partner_contribution is None
+
+
+class TestAutomaticAcceptaNce:
+    """
+    Test is some rules are met the status goes directly to accepted check also emails are sent
+    """
+
+    def test_create_contribution_with_partner_201(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if couple under capacity status shall be accepted
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.contribution = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "partner" in response.data
+        assert "role" in response.data
+
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert partner_contribution is not None
+        assert partner_contribution.status == ContributionStatus.ACCEPTED
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        # Verify that 4 emails were sent — 2 for receiving the registration and 2 for being accepted
+        assert len(mail.outbox) == 4
