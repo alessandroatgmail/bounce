@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authFetch } from '../../lib/api';
 import type { Membership } from './useMemberships';
+import type { Discount } from './useDiscounts';
 
 const BASE = '/api/booking/my-memberships/';
 
@@ -15,6 +16,8 @@ export interface UserMembership {
   start_date: string | null;
   end_date: string | null;
   upgraded_from: number | null;
+  discounts: Discount[];
+  discounted_amount: string;
 }
 
 async function extractErrorMessage(res: Response): Promise<string> {

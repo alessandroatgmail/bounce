@@ -921,7 +921,25 @@ export function StudentDashboard() {
                                 </div>
                                 <span className="text-sm text-gray-500 pl-6">{c.membership?.name ?? '—'}</span>
                               </div>
-                              <div className="text-sm text-gray-600">€{c.amount}</div>
+                              <div className="text-sm text-gray-600">
+                                {c.discounts.length > 0 ? (
+                                  <>
+                                    <span className="line-through text-gray-400 mr-1">€{c.amount}</span>
+                                    <span className="font-medium">€{c.discounted_amount}</span>
+                                  </>
+                                ) : (
+                                  <>€{c.amount}</>
+                                )}
+                              </div>
+                              {c.discounts.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {c.discounts.map(d => (
+                                    <Badge key={d.id} variant="outline" className="text-xs">
+                                      {d.name_ext || d.name}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
                               <div className="text-xs text-gray-500 space-y-0.5">
                                 {c.start_date && (
                                   <div>
@@ -1002,7 +1020,16 @@ export function StudentDashboard() {
                                   {statusBadge(c.status)}
                                 </div>
                               </div>
-                              <div className="text-sm text-gray-600">€{c.amount}</div>
+                              <div className="text-sm text-gray-600">
+                                {c.discounts.length > 0 ? (
+                                  <>
+                                    <span className="line-through text-gray-400 mr-1">€{c.amount}</span>
+                                    <span className="font-medium">€{c.discounted_amount}</span>
+                                  </>
+                                ) : (
+                                  <>€{c.amount}</>
+                                )}
+                              </div>
                               {c.events.length > 1 && (
                                 <div className="text-xs text-gray-400 mt-1">
                                   +{c.events.length - 1} {language === 'it' ? 'evento/i' : 'event(s)'}
