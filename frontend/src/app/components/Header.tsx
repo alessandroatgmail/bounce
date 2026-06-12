@@ -50,14 +50,16 @@ export function Header() {
             >
               {t('nav.home')}
             </Link>
-            <Link
-              to="/events"
-              className={`hover:text-[#d4b896] transition-colors uppercase text-sm tracking-wide ${
-                isActive('/events') ? 'text-[#d4b896]' : 'text-white'
-              }`}
-            >
-              {t('nav.events')}
-            </Link>
+            {!isAuthenticated && (
+              <Link
+                to="/events"
+                className={`hover:text-[#d4b896] transition-colors uppercase text-sm tracking-wide ${
+                  isActive('/events') ? 'text-[#d4b896]' : 'text-white'
+                }`}
+              >
+                {t('nav.events')}
+              </Link>
+            )}
             {user?.role === 'admin' && (
               <Link
                 to="/admin"
@@ -66,16 +68,6 @@ export function Header() {
                 }`}
               >
                 {t('nav.admin')}
-              </Link>
-            )}
-            {user?.role === 'student' && (
-              <Link
-                to="/student"
-                className={`hover:text-[#d4b896] transition-colors uppercase text-sm tracking-wide ${
-                  location.pathname.startsWith('/student') ? 'text-[#d4b896]' : 'text-white'
-                }`}
-              >
-                {t('nav.dashboard')}
               </Link>
             )}
           </nav>
@@ -105,7 +97,7 @@ export function Header() {
                   {user?.role === 'student' && (
                     <>
                       <DropdownMenuItem asChild className="hover:bg-[#d4b896] hover:text-[#2b2b2b]">
-                        <Link to="/student">{t('nav.dashboard')}</Link>
+                        <Link to="/">{t('nav.dashboard')}</Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild className="hover:bg-[#d4b896] hover:text-[#2b2b2b]">
                         <Link to="/student/settings">{t('nav.settings')}</Link>

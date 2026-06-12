@@ -26,7 +26,7 @@ export function Login() {
     try {
       const loggedInUser = await login(email, password);
       if (loggedInUser) {
-        navigate(loggedInUser.role === 'admin' ? '/admin' : '/student');
+        navigate(loggedInUser.role === 'admin' ? '/admin' : '/');
       } else {
         setError('Invalid email or password');
       }

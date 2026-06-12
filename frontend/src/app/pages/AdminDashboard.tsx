@@ -125,7 +125,7 @@ export function AdminDashboard() {
             <Button
               onClick={() => {
                 setAdminViewMode('student');
-                navigate('/student');
+                navigate('/');
               }}
               variant="outline"
               className="bg-white/10 border-white/20 text-white hover:bg-white/20"

@@ -1,4 +1,5 @@
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, Navigate } from 'react-router';
+import { useAuth } from './contexts/AuthContext';
 import { Home } from './pages/Home';
 import { Events } from './pages/Events';
 import { Login } from './pages/Login';
@@ -14,7 +15,7 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        Component: Home,
+        Component: HomeRoute,
       },
       {
         path: 'events',
@@ -34,7 +35,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'student',
-        Component: StudentDashboard,
+        element: <Navigate to="/" replace />,
       },
       {
         path: '*',
@@ -43,6 +44,15 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
+
+// Logged-in students (and admins in student view) get the dashboard at /;
+// the public landing page is only shown when logged out
+function HomeRoute() {
+  const { user, adminViewMode } = useAuth();
+  const showDashboard =
+    user?.role === 'student' || (user?.role === 'admin' && adminViewMode === 'student');
+  return showDashboard ? <StudentDashboard /> : <Home />;
+}
 
 function NotFound() {
   return (

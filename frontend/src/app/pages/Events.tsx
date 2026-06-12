@@ -13,6 +13,23 @@ import { useEvents, type EventItem } from '../hooks/useEvents';
 import { useMemberships, type Membership } from '../hooks/useMemberships';
 
 export function Events() {
+  const { t } = useLanguage();
+
+  return (
+    <div className="min-h-screen bg-white">
+      <div className="bg-[#2b2b2b] text-white py-16 px-4">
+        <div className="container mx-auto text-center">
+          <h1 className="text-5xl font-bold mb-4 uppercase tracking-wide">{t('events.title')}</h1>
+          <p className="text-lg opacity-90">{t('events.subtitle')}</p>
+        </div>
+      </div>
+      <EventsBrowser />
+    </div>
+  );
+}
+
+// Browsing/booking UI without the page hero, so it can also be embedded in the student dashboard
+export function EventsBrowser() {
   const { t, language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
   const { events, loading } = useEvents(accessToken);
@@ -60,15 +77,7 @@ export function Events() {
     : [];
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="bg-[#2b2b2b] text-white py-16 px-4">
-        <div className="container mx-auto text-center">
-          <h1 className="text-5xl font-bold mb-4 uppercase tracking-wide">{t('events.title')}</h1>
-          <p className="text-lg opacity-90">{t('events.subtitle')}</p>
-        </div>
-      </div>
-
-      <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8">
         <div className="mb-6 flex gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Filter className="size-5 text-[#2b2b2b]" />
@@ -179,7 +188,6 @@ export function Events() {
             </TabsContent>
           </Tabs>
         )}
-      </div>
     </div>
   );
 }

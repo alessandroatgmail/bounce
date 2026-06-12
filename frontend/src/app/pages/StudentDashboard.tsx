@@ -45,11 +45,13 @@ import {
   Plane,
   FileText,
   Crown,
+  Ticket,
   Share2,
   ShieldCheck,
   Loader2,
   XCircle,
 } from 'lucide-react';
+import { EventsBrowser } from './Events';
 import { SocialFeed } from '../components/SocialFeed';
 import { DirectMessages } from '../components/DirectMessages';
 import { Friends } from '../components/Friends';
@@ -68,13 +70,13 @@ import { Toaster } from '../components/ui/sonner';
 import { formatDistanceToNow, format, isSameDay } from 'date-fns';
 import { it, enUS } from 'date-fns/locale';
 
-type View = 'feed' | 'events' | 'payments' | 'friends' | 'messages' | 'trips' | 'documents' | 'memberships';
+type View = 'browse' | 'feed' | 'events' | 'payments' | 'friends' | 'messages' | 'trips' | 'documents' | 'memberships';
 
 export function StudentDashboard() {
   const { user, logout, setAdminViewMode, accessToken } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
-  const [currentView, setCurrentView] = useState<View>('feed');
+  const [currentView, setCurrentView] = useState<View>('browse');
   const [posts, setPosts] = useState(mockPosts);
   const [messages, setMessages] = useState(mockDirectMessages);
   const [connections, setConnections] = useState(mockConnections);
@@ -441,6 +443,7 @@ export function StudentDashboard() {
   };
 
   const menuItems = [
+    { id: 'browse' as View, label: language === 'it' ? 'Eventi' : 'Events', icon: Ticket },
     { id: 'feed' as View, label: language === 'it' ? 'Feed' : 'Feed', icon: Home },
     { id: 'events' as View, label: language === 'it' ? 'I Miei Eventi' : 'My Events', icon: CalendarIcon },
     { id: 'payments' as View, label: language === 'it' ? 'Pagamenti' : 'Payments', icon: CreditCard },
@@ -640,6 +643,8 @@ export function StudentDashboard() {
 
         {/* Content Area */}
         <main className="flex-1 overflow-auto p-6">
+          {currentView === 'browse' && <EventsBrowser />}
+
           {currentView === 'feed' && (
             <div className="max-w-3xl mx-auto">
               <SocialFeed

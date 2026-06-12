@@ -45,7 +45,7 @@ test('admin user is redirected to /admin after login', async () => {
   expect(await screen.findByText('Admin Page')).toBeInTheDocument()
 })
 
-test('student user is redirected to /student after login', async () => {
+test('student user is redirected to the home dashboard after login', async () => {
   server.use(
     http.post('/api/auth/token/', () => {
       return HttpResponse.json({
@@ -58,7 +58,7 @@ test('student user is redirected to /student after login', async () => {
   renderWithProviders(<Login />)
   await submitLoginForm('student@example.com', 'anypassword')
 
-  expect(await screen.findByText('Student Page')).toBeInTheDocument()
+  expect(await screen.findByText('Home Page')).toBeInTheDocument()
 })
 
 // --- error cases ---
