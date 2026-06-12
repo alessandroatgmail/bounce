@@ -11,7 +11,7 @@ from config.models import SiteSettings
 from event.models import Event, PartnerRole
 from event.serializers import EventSerializer
 from membership.models import Membership
-from membership.serializers import MembershipSerializer
+from membership.serializers import MembershipSerializer, DiscountSerializer
 from .models import Booking, Contribution, ContributionStatus
 from .utils import sync_bookings
 
@@ -138,39 +138,52 @@ class UserContributionSerializer(serializers.ModelSerializer):
     partner = serializers.StringRelatedField(read_only=True)
     role_id = serializers.PrimaryKeyRelatedField(write_only=True, required=False, queryset=PartnerRole.objects.all(), source='role')
     role = serializers.StringRelatedField(read_only=True)
+    discounts = DiscountSerializer(many=True, read_only=True)
+    discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = Contribution
         fields = [
             'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
             'amount', 'start_date', 'end_date', 'upgraded_from', 'partner_email',
-            'partner_id', 'role_id', 'role', 'partner'
+            'partner_id', 'role_id', 'role', 'partner',
+            'discounts', 'discounted_amount',
         ]
         read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',]
 
     def validate_event_id(self, event_id):
-        if Contribution.objects.filter(user=self.context["request"].user,
-                                           events=event_id).exists():
+        if service._validate_double_registrations(user=self.context["request"].user, event=event_id):
                 raise serializers.ValidationError(
                     "User already registered for this event."
                 )
         return event_id
+
+    def validate_partner_id(self, partner_id):
+        if self.context["request"].user == partner_id:
+            raise serializers.ValidationError("you can't add yourself as partner")
+        return partner_id
+
 
     def validate(self, attrs):
         membership = attrs['membership']
         event = attrs.get('event_id')
         role = attrs.get('role')
         partner_email = attrs.get('partner_email')
-        partner_id = attrs.get('partner_id')
+        # partner_id is declared with source="partner", so DRF stores it under 'partner'
+        partner = attrs.get('partner')
         if event:
             _validate_membership_events(membership, [event])
             if event.event_type.partners > 1:
                 if not role:
                     raise serializers.ValidationError("For this event, you must specify a role.")
             else:
-                if partner_email or partner_id:
+                if partner_email or partner:
                     raise serializers.ValidationError("This event does not need a partner.")
-
+            if partner:
+                if service._validate_double_registrations(user=partner, event=event):
+                    raise serializers.ValidationError(
+                        "Partner already registered for this event."
+                    )
         if self.instance is None and membership.duration:
             season_end = SiteSettings.load().season_end
             if season_end:
@@ -202,6 +215,7 @@ class UserContributionSerializer(serializers.ModelSerializer):
             contribution.events.add(event)
             if contribution.partner:
                 partner_contribution = service._create_partner_contribution(contribution, contribution.partner)
+                service._apply_couple_discount(contribution, partner_contribution)
                 service._send_contribution_email(partner_contribution)
             service._send_contribution_email(
                 contribution,
@@ -218,6 +232,7 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     new_status=ContributionStatus.ACCEPTED,
                 )
                 if contribution.partner:
+
                     partner_contribution.status = ContributionStatus.ACCEPTED
                     partner_contribution.save()
                     service._dispatch_change_status_email(

@@ -36,6 +36,4 @@ class DiscountViewSet(viewsets.ModelViewSet):
     queryset = Discount.objects.all()
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"):
-            return [IsAuthenticated()]
         return [IsAdminUser()]

@@ -79,18 +79,21 @@ def partner_user(db):
 
 
 @pytest.fixture
-def admin_client(client, admin_user):
+def admin_client(admin_user):
+    client = APIClient()
     client.force_authenticate(user=admin_user)
     return client
 
 
 @pytest.fixture
-def student_client(client, student_user):
+def student_client(student_user):
+    client = APIClient()
     client.force_authenticate(user=student_user)
     return client
 
 @pytest.fixture
-def partner_client(client, partner_user):
+def partner_client(partner_user):
+    client = APIClient()
     client.force_authenticate(user=partner_user)
     return client
 

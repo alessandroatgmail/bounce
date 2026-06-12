@@ -4,7 +4,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from event.models import Event, PartnerRole
-from membership.models import Membership
+from membership.models import Membership, Discount
 
 
 class ContributionStatus(models.TextChoices):
@@ -33,6 +33,7 @@ class Contribution(models.Model):
             "self", on_delete=models.PROTECT,
             null=True, blank=True, related_name='twin_contributions'
     )
+    discounts = models.ManyToManyField(Discount, blank=True, related_name='contributions')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -50,6 +51,18 @@ class Contribution(models.Model):
             from booking.utils import sync_bookings
             sync_bookings(self.user, added_events=list(self.events.all()), removed_events=[])
         self._previous_status = self.status
+
+    @property
+    def discounted_amount(self):
+        new_amount = self.amount
+        for discount in self.discounts.all():
+            if discount.rate:
+                new_amount = new_amount * (100 - discount.rate) / 100
+            if discount.amount:
+                new_amount -= discount.amount
+        return new_amount
+
+
 
 
 class Booking(models.Model):

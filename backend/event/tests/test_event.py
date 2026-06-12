@@ -143,7 +143,7 @@ class TestEventStaffList:
             "start_date", "end_date", "duration",
             "room", "capacity",
             "styles", "genres", "artists", "events", "info", "color",
-            "image", "effective_image",
+            "image", "effective_image", "booked_by"
         }
         assert set(response.data[0].keys()) == expected
 

@@ -1,5 +1,6 @@
 import datetime
 import pytest
+from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta
 from django.utils import timezone
@@ -8,7 +9,7 @@ from rest_framework import status as http_status
 from booking.models import Booking, Contribution
 from config.models import SiteSettings
 from event.models import Event, EventType, PartnerRole, Status
-from membership.models import Membership, MembershipRule
+from membership.models import Membership, MembershipRule, Discount
 from users.models import User
 from utils.mock_event import make_event_payload
 from utils.mock_event_type import make_event_type_payload
@@ -582,6 +583,32 @@ class TestPartner:
         assert partner_contribution is None
 
 
+    def test_create_contribution_partner_same_user_400(self, world_data, student_client, student_user, partner_user, db):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
+        payload = {
+            "membership_id": m.pk,
+            "partner_email": "partner@email.com",
+            "partner_id": student_user.id,
+            "event_id": first_event.id,
+            "role_id": leader.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        print (response.data)
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        assert partner_contribution is None
+
+
 class TestAutomaticAcceptance:
     """
     Test is some rules are met the status goes directly to accepted check also emails are sent
@@ -623,6 +650,19 @@ class TestAutomaticAcceptance:
         assert partner_contribution is not None
         assert partner_contribution.status == ContributionStatus.ACCEPTED
         assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        # Booking as a couple automatically grants the COUPLE discount to both
+        couple = Discount.objects.get(name="COUPLE")
+        assert couple in original_contribution.discounts.all()
+        assert couple in partner_contribution.discounts.all()
+
+        expected_amount = Decimal(m.contribution) * (100 - couple.rate) / 100
+        assert original_contribution.discounted_amount == expected_amount
+        assert partner_contribution.discounted_amount == expected_amount
+
+        # The API exposes the discount and the discounted amount
+        assert [d["name"] for d in response.data["discounts"]] == ["COUPLE"]
+        assert Decimal(response.data["discounted_amount"]) == expected_amount
 
         # Verify that 4 emails were sent — 2 for receiving the registration and 2 for being accepted
         assert len(mail.outbox) == 4
@@ -795,7 +835,7 @@ class TestDoubleBokking:
         payload = {
             "membership_id": m.pk,
             "role_id": follower.id,
-            "partner_email": "partner@email.com",
+            # "partner_email": "partner@email.com",
             "event_id": first_event.id,
         }
 

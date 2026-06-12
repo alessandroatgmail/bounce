@@ -5,7 +5,7 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 
 from .models import Contribution, ContributionStatus
-from membership.models import Membership
+from membership.models import Membership, Discount
 
 from django.contrib.auth import get_user_model
 from utils.tasks import  send_email
@@ -72,3 +72,23 @@ def _contribution_date_range(membership: Membership, event: Event) -> tuple[date
 def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status: str, new_status: str) -> None:
     if new_status == ContributionStatus.ACCEPTED:
         send_email_accept_email(user_id=user_id, contribution_id=contribution_id)
+
+def _validate_double_registrations(user, event):
+    print ("---------- ENTERED VALIDATE REGISTRATIONS ---------")
+    print (user)
+    print (event)
+    print (Contribution.objects.filter(user=user).all())
+    return Contribution.objects.filter(user=user,
+                                   events=event).exists()
+
+#################################################
+######             DISCOUNT RULES           #####
+#################################################
+
+def _apply_couple_discount(*contributions: Contribution) -> None:
+    """Grant the COUPLE discount to contributions booked as a couple."""
+    couple_discount = Discount.objects.filter(name='COUPLE').first()
+    if not couple_discount:
+        return
+    for contribution in contributions:
+        contribution.discounts.add(couple_discount)
