@@ -148,6 +148,14 @@ class UserContributionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',]
 
+    def validate_event_id(self, event_id):
+        if Contribution.objects.filter(user=self.context["request"].user,
+                                           events=event_id).exists():
+                raise serializers.ValidationError(
+                    "User already registered for this event."
+                )
+        return event_id
+
     def validate(self, attrs):
         membership = attrs['membership']
         event = attrs.get('event_id')

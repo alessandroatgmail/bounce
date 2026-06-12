@@ -89,6 +89,11 @@ def student_client(client, student_user):
     client.force_authenticate(user=student_user)
     return client
 
+@pytest.fixture
+def partner_client(client, partner_user):
+    client.force_authenticate(user=partner_user)
+    return client
+
 
 @pytest.fixture
 def world_data(db):

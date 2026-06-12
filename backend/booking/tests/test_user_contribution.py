@@ -581,7 +581,7 @@ class TestPartner:
         assert partner_contribution is None
 
 
-class TestAutomaticAcceptaNce:
+class TestAutomaticAcceptance:
     """
     Test is some rules are met the status goes directly to accepted check also emails are sent
     """
@@ -669,4 +669,87 @@ class TestAutomaticAcceptaNce:
 
         # Verify that 2 emails were sent — 1 for receiving the registration and 1 for being accepted
         assert len(mail.outbox) == 2
-        
+
+
+class TestDoubleBokking:
+    """
+    Test user shouldn't be able to book same events twice
+    """
+
+    def test_create_contribution_with_partner_400(self, world_data,
+                                                  student_client, student_user,
+                                                  partner_user, partner_client, db):
+        """
+        Test if partner register again fails
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "partner" in response.data
+        assert "role" in response.data
+
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert partner_contribution is not None
+        payload = {
+            "membership_id": m.pk,
+            "role_id": follower.id,
+            "partner_email": "partner@email.com",
+            "event_id": first_event.id,
+        }
+
+        response = partner_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_create_contribution_single_201(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if couple under capacity status shall be accepted
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
