@@ -7,7 +7,7 @@ from rest_framework import status as http_status
 
 from booking.models import Booking, Contribution
 from config.models import SiteSettings
-from event.models import Event, EventType, PartnerRole
+from event.models import Event, EventType, PartnerRole, Status
 from membership.models import Membership, MembershipRule
 from users.models import User
 from utils.mock_event import make_event_payload
@@ -16,6 +16,7 @@ from utils.mock_event_type import make_event_type_payload
 from booking.models import ContributionStatus
 
 LIST_URL = "/api/booking/my-memberships/"
+EVENT_LIST_URL = "/api/events/events/"
 
 
 def detail_url(pk):
@@ -670,6 +671,85 @@ class TestAutomaticAcceptance:
         # Verify that 2 emails were sent — 1 for receiving the registration and 1 for being accepted
         assert len(mail.outbox) == 2
 
+    def test_retreve_event_after_booked_show_already_booked(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if event has update already_booked
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.status = Status.PUBLISHED
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        response = student_client.get(EVENT_LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        assert len(response.data) == 1
+        assert response.data[0]['id'] == first_event.id
+        assert "already_booked" in response.data[0]
+        assert response.data[0]["already_booked"] is True
+
+    def test_retreve_event_booked_by_partner_shows_booker_name(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test that booked_by returns the booker's name for the partner,
+        and stays empty for the user who made the booking.
+        """
+        from rest_framework.test import APIClient
+
+        student_user.first_name = "Anna"
+        student_user.last_name = "Rossi"
+        student_user.save()
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.status = Status.PUBLISHED
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        # The partner sees who booked them in
+        partner_api = APIClient()
+        partner_api.force_authenticate(user=partner_user)
+        response = partner_api.get(EVENT_LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        assert len(response.data) == 1
+        assert response.data[0]["already_booked"] is True
+        assert response.data[0]["booked_by"] == "Anna Rossi"
+
+        # The booker themselves gets no booked_by
+        response = student_client.get(EVENT_LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data[0]["already_booked"] is True
+        assert response.data[0]["booked_by"] is None
 
 class TestDoubleBokking:
     """

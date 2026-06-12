@@ -342,9 +342,16 @@ function EventCard({
           )}
           <div className="flex justify-end">
             {event.already_booked && !joined ? (
-              <div className="flex items-center gap-1.5 text-sm text-green-700 font-medium">
-                <BookCheck className="size-4" />
-                {it ? 'Già prenotato' : 'Already booked'}
+              <div className="flex flex-col items-end gap-0.5">
+                <div className="flex items-center gap-1.5 text-sm text-green-700 font-medium">
+                  <BookCheck className="size-4" />
+                  {it ? 'Già prenotato' : 'Already booked'}
+                </div>
+                {event.booked_by && (
+                  <p className="text-xs text-gray-500">
+                    {it ? `Prenotato da ${event.booked_by}` : `Booked by ${event.booked_by}`}
+                  </p>
+                )}
               </div>
             ) : (
               <Button

@@ -24,6 +24,7 @@ export interface EventItem {
   image: string | null;
   effective_image: string | null;
   already_booked: boolean;
+  booked_by: string | null;
 }
 
 export interface EventPayload {

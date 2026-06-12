@@ -2,7 +2,6 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from users.models import City
 from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole
-from django.db.models import Count
 
 
 class PartnerRoleSerializer(serializers.ModelSerializer):
@@ -213,6 +212,7 @@ class EventSerializer(serializers.ModelSerializer):
     )
     effective_image = serializers.SerializerMethodField()
     already_booked = serializers.SerializerMethodField()
+    booked_by = serializers.SerializerMethodField()
 
 
     class Meta:
@@ -231,7 +231,7 @@ class EventSerializer(serializers.ModelSerializer):
             "events", "event_ids",
             "info", "color",
             "image", "effective_image",
-            "already_booked",
+            "already_booked", "booked_by",
         ]
 
     def get_effective_image(self, obj):
@@ -245,14 +245,24 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_already_booked(self, obj):
         request = self.context.get("request")
-        if request:
-            user = request.user
-        else:
-            return False
-        if user.is_authenticated:
-            return obj.contributions.filter(events=obj, user=user).annotate(events_count=Count('events')
-            ).filter(events_count=0).count() > 0
+        if request and request.user.is_authenticated:
+            return obj.contributions.filter(user=request.user).exists()
         return False
+
+    def get_booked_by(self, obj):
+        request = self.context.get("request")
+        if not (request and request.user.is_authenticated):
+            return None
+        contribution = (
+            obj.contributions
+            .filter(user=request.user, original_contribution__isnull=False)
+            .select_related("original_contribution__user")
+            .first()
+        )
+        if contribution:
+            booker = contribution.original_contribution.user
+            return f"{booker.first_name} {booker.last_name}"
+        return None
 
     def validate(self, data):
         start = data.get("start_date", getattr(self.instance, "start_date", None))
