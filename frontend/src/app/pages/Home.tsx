@@ -135,7 +135,7 @@ export function Home() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Users className="size-4 text-[#d4b896]" />
-                          {event.capacity} {language === 'it' ? 'posti disponibili' : 'spots available'}
+                          {event.available_spot} {language === 'it' ? 'posti disponibili' : 'spots available'}
                         </div>
                       </div>
                       {event.info && (

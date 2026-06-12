@@ -643,7 +643,7 @@ export function StudentDashboard() {
 
         {/* Content Area */}
         <main className="flex-1 overflow-auto p-6">
-          {currentView === 'browse' && <EventsBrowser />}
+          {currentView === 'browse' && <EventsBrowser showAvailableSpots />}
 
           {currentView === 'feed' && (
             <div className="max-w-3xl mx-auto">

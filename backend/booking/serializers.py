@@ -234,7 +234,6 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 contribution,
             )
             # check availability
-            print (f" available spot {event.available_spot}")
             if event.available_spot > 1:
                 contribution.status = ContributionStatus.ACCEPTED
                 contribution.save()

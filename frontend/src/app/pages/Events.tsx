@@ -29,7 +29,7 @@ export function Events() {
 }
 
 // Browsing/booking UI without the page hero, so it can also be embedded in the student dashboard
-export function EventsBrowser() {
+export function EventsBrowser({ showAvailableSpots = false }: { showAvailableSpots?: boolean }) {
   const { t, language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
   const { events, loading } = useEvents(accessToken);
@@ -130,7 +130,7 @@ export function EventsBrowser() {
               ) : (
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filtered.map(event => (
-                    <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} />
+                    <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
                   ))}
                 </div>
               )}
@@ -171,7 +171,7 @@ export function EventsBrowser() {
                   <div className="space-y-4">
                     {eventsOnSelectedDate.length > 0 ? (
                       eventsOnSelectedDate.map(event => (
-                        <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} />
+                        <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
                       ))
                     ) : (
                       <Card>
@@ -198,12 +198,14 @@ function EventCard({
   language,
   memberships,
   membershipsLoading,
+  showAvailableSpots = false,
 }: {
   event: EventItem;
   isAuthenticated: boolean;
   language: string;
   memberships: Membership[];
   membershipsLoading: boolean;
+  showAvailableSpots?: boolean;
 }) {
   const { accessToken } = useAuth();
   const [showPanel, setShowPanel] = useState(false);
@@ -277,7 +279,7 @@ function EventCard({
     if (next) setBookingStep(hasRoles ? 'role' : 'membership');
   }
 
-  const spotsLeft = event.capacity;
+  const spotsLeft = event.available_spot;
   const isAlmostFull = spotsLeft <= 5;
   const date = new Date(event.start_date);
   const time = event.start_date.slice(11, 16);
@@ -318,7 +320,9 @@ function EventCard({
           </div>
           <div className="flex items-center gap-2">
             <Users className="size-4 text-[#d4b896]" />
-            0 / {event.capacity} {it ? 'iscritti' : 'enrolled'}
+            {showAvailableSpots
+              ? <>{event.available_spot} {it ? 'posti disponibili' : 'spots available'}</>
+              : <>{event.capacity - event.available_spot} / {event.capacity} {it ? 'iscritti' : 'enrolled'}</>}
             {isAlmostFull && (
               <Badge className="ml-2 text-xs bg-[#e67e22] text-white">
                 {it ? 'Quasi Pieno!' : 'Almost Full!'}

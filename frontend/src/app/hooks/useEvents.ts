@@ -25,6 +25,7 @@ export interface EventItem {
   effective_image: string | null;
   already_booked: boolean;
   booked_by: string | null;
+  available_spot: number;
 }
 
 export interface EventPayload {

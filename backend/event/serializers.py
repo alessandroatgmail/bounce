@@ -231,7 +231,7 @@ class EventSerializer(serializers.ModelSerializer):
             "events", "event_ids",
             "info", "color",
             "image", "effective_image",
-            "already_booked", "booked_by",
+            "already_booked", "booked_by", "available_spot"
         ]
 
     def get_effective_image(self, obj):
