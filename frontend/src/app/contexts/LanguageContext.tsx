@@ -69,9 +69,8 @@ const translations = {
     'login.submit': 'Accedi',
     'login.noAccount': 'Non hai un account?',
     'login.register': 'Registrati qui',
-    'login.demo.title': 'Account Demo',
-    'login.demo.student': 'Studente',
-    'login.demo.admin': 'Admin',
+    'login.termsPrefix': 'Cliccando su "Accedi" o "Registrati qui" accetti i nostri',
+    'login.termsLink': 'Termini e Condizioni e la Cookie Policy',
     
     // Admin Dashboard
     'admin.title': 'Pannello Amministratore',
@@ -217,9 +216,8 @@ const translations = {
     'login.submit': 'Sign In',
     'login.noAccount': 'Don\'t have an account?',
     'login.register': 'Register here',
-    'login.demo.title': 'Demo Accounts',
-    'login.demo.student': 'Student',
-    'login.demo.admin': 'Admin',
+    'login.termsPrefix': 'By clicking "Sign In" or "Register here" you accept our',
+    'login.termsLink': 'Terms and Conditions and Cookie Policy',
     
     // Admin Dashboard
     'admin.title': 'Administrator Panel',

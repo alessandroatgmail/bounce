@@ -90,15 +90,17 @@ export function Login() {
           </form>
 
           <div className="mt-6 p-4 bg-[#d4b896]/10 rounded-lg border border-[#d4b896]/30">
-            <p className="text-sm font-semibold mb-2 text-[#2b2b2b]">{t('login.demo.title')}:</p>
-            <div className="text-xs space-y-1 text-gray-600">
-              <p>
-                <strong>{t('login.demo.admin')}:</strong> admin@danceschool.com / qualsiasi password
-              </p>
-              <p>
-                <strong>{t('login.demo.student')}:</strong> student@example.com / qualsiasi password
-              </p>
-            </div>
+            <p className="text-xs text-gray-600 text-center">
+              {t('login.termsPrefix')}{' '}
+              <a
+                href="https://www.bounceswinglovers.com/privacy-cookie-policy/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#e67e22] hover:underline font-semibold"
+              >
+                {t('login.termsLink')}
+              </a>
+            </p>
           </div>
         </CardContent>
       </Card>
