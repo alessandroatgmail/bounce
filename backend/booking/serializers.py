@@ -10,7 +10,7 @@ from rest_framework import serializers
 from config.models import SiteSettings
 from event.models import Event, PartnerRole
 from event.serializers import EventSerializer
-from membership.models import Membership
+from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
 from .models import Booking, Contribution, ContributionStatus
 from .utils import sync_bookings
@@ -68,6 +68,12 @@ class ContributionSerializer(serializers.ModelSerializer):
         write_only=True, required=False, allow_null=True,
     )
     upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
+    discounts = DiscountSerializer(many=True, read_only=True)
+    discount_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Discount.objects.all(), source='discounts',
+        write_only=True, required=False,
+    )
+    discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = Contribution
@@ -75,6 +81,7 @@ class ContributionSerializer(serializers.ModelSerializer):
             'id', 'status', 'amount', 'user',
             'events', 'event_ids', 'membership', 'membership_id',
             'start_date', 'end_date', 'upgraded_from',
+            'discounts', 'discount_ids', 'discounted_amount',
         ]
         read_only_fields = ['start_date', 'end_date', 'upgraded_from']
 
@@ -92,8 +99,10 @@ class ContributionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         events = validated_data.pop('events', [])
+        discounts = validated_data.pop('discounts', [])
         contribution = Contribution.objects.create(**validated_data)
         contribution.events.set(events)
+        contribution.discounts.set(discounts)
         if contribution.membership and contribution.membership.duration:
             contribution.end_date = timezone.now() + relativedelta(months=contribution.membership.duration)
             contribution.save(update_fields=['end_date'])
@@ -101,10 +110,14 @@ class ContributionSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         events = validated_data.pop('events', None)
+        discounts = validated_data.pop('discounts', None)
         old_status = instance.status
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+
+        if discounts is not None:
+            instance.discounts.set(discounts)
 
         if events is not None:
             old_events = set(instance.events.all())

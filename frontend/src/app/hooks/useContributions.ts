@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authFetch } from '../../lib/api';
+import { type Discount } from './useDiscounts';
 
 const BASE = '/api/booking/contributions/';
 
@@ -14,6 +15,8 @@ export interface Contribution {
   membership: number | null;
   start_date: string | null;
   end_date: string | null;
+  discounts: Discount[];
+  discounted_amount: string;
 }
 
 export interface ContributionPayload {
@@ -22,6 +25,7 @@ export interface ContributionPayload {
   status?: ContributionStatus;
   event_ids?: number[];
   membership_id?: number | null;
+  discount_ids?: number[];
 }
 
 export function useContributions(token: string | null, userId: number | null) {

@@ -37,7 +37,7 @@ class ContributionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
 
     def get_queryset(self):
-        qs = Contribution.objects.select_related('user', 'membership').prefetch_related('events')
+        qs = Contribution.objects.select_related('user', 'membership').prefetch_related('events', 'discounts')
         user_id = self.request.query_params.get('user')
         if user_id:
             qs = qs.filter(user_id=user_id)

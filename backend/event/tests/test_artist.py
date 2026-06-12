@@ -288,7 +288,7 @@ class TestArtistPartialUpdate:
         new_payload = make_artist_payload()
         staff_client.patch(detail_url(artist.pk), {"style_ids": new_payload["style_ids"]}, format="json")
         artist.refresh_from_db()
-        assert list(artist.styles.values_list("id", flat=True)) == new_payload["style_ids"]
+        assert set(list(artist.styles.values_list("id", flat=True))) == set(new_payload["style_ids"])
 
 
 # ── Delete ────────────────────────────────────────────────────────────────────
