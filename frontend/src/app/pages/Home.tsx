@@ -1,33 +1,26 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router';
-import { Calendar, Clock, Users, Music } from 'lucide-react';
+import { Calendar, Clock, Users, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { mockEvents } from '../data/mockData';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useEvents } from '../hooks/useEvents';
 
 export function Home() {
   const { t, language } = useLanguage();
-  const upcomingEvents = mockEvents
-    .filter((event) => new Date(event.date) >= new Date())
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .slice(0, 6);
+  // public page: fetch events anonymously
+  const { events, loading } = useEvents(null);
 
-  const getEventTypeColor = (type: string) => {
-    switch (type) {
-      case 'class':
-        return 'bg-[#d4b896] text-[#2b2b2b]';
-      case 'workshop':
-        return 'bg-[#c89968] text-white';
-      case 'social':
-        return 'bg-[#e67e22] text-white';
-      case 'performance':
-        return 'bg-[#2b2b2b] text-[#d4b896]';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const upcomingEvents = useMemo(
+    () =>
+      events
+        .filter(e => new Date(e.start_date) >= new Date())
+        .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
+        .slice(0, 6),
+    [events],
+  );
 
   return (
     <div className="min-h-screen">
@@ -84,46 +77,6 @@ export function Home() {
         </div>
       </section>
 
-      {/* Image Section with Text Overlay */}
-      <section className="relative h-[500px] overflow-hidden">
-        <div className="absolute inset-0">
-          <ImageWithFallback 
-            src="https://images.unsplash.com/photo-1519741497674-611481863552?w=1600&h=900&fit=crop" 
-            alt="Dancers from above"
-            className="w-full h-full object-cover"
-          />
-        </div>
-        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-          <div className="text-center text-white px-4">
-            <h2 className="text-4xl md:text-5xl font-bold mb-6 uppercase tracking-wider">
-              {language === 'it' ? 'I NOSTRI CORSI' : 'OUR COURSES'}
-            </h2>
-            <Link to="/events">
-              <Button size="lg" className="bg-[#e67e22] hover:bg-[#d4b896] text-white px-8 uppercase tracking-wide">
-                {language === 'it' ? 'Scopri di più' : 'Discover More'}
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonial-style Section */}
-      <section className="py-20 px-4 bg-[#d4b896]">
-        <div className="container mx-auto text-center max-w-4xl">
-          <h2 className="text-3xl md:text-4xl font-light italic mb-6 text-[#2b2b2b]">
-            {language === 'it' ? 'DICONO DI NOI' : 'TESTIMONIALS'}
-          </h2>
-          <p className="text-lg md:text-xl mb-4 text-[#2b2b2b]/90 leading-relaxed">
-            {language === 'it' 
-              ? "L'atmosfera che si respira in Bounce è bellissima! Mi sento libero e questo mi dà gioia."
-              : "The atmosphere at Bounce is wonderful! I feel free and this brings me joy."}
-          </p>
-          <p className="text-sm uppercase tracking-widest text-[#2b2b2b]/70">
-            FLORA - LINDY HOPPERS
-          </p>
-        </div>
-      </section>
-
       {/* Upcoming Events Section */}
       <section className="py-16 px-4 bg-white">
         <div className="container mx-auto">
@@ -136,51 +89,71 @@ export function Home() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {upcomingEvents.map((event) => (
-              <Card key={event.id} className="hover:shadow-2xl transition-all duration-300 border-[#d4b896]/20 overflow-hidden group">
-                <div className="h-2 bg-gradient-to-r from-[#d4b896] to-[#e67e22]" />
-                <CardHeader>
-                  <div className="flex justify-between items-start mb-2">
-                    <Badge className={getEventTypeColor(event.type)}>
-                      {event.type.toUpperCase()}
-                    </Badge>
-                    <Badge variant="outline" className="border-[#2b2b2b] text-[#2b2b2b]">{event.level}</Badge>
-                  </div>
-                  <CardTitle className="text-xl text-[#2b2b2b] group-hover:text-[#e67e22] transition-colors">{event.title}</CardTitle>
-                  <CardDescription className="text-[#6b6b6b]">
-                    {language === 'it' ? 'con' : 'with'} {event.instructor}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2 text-sm text-gray-600 mb-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="size-4 text-[#d4b896]" />
-                      {new Date(event.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                        weekday: 'long',
-                        month: 'long',
-                        day: 'numeric',
-                      })}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="size-4 text-[#d4b896]" />
-                      {event.time} ({event.duration} min)
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Users className="size-4 text-[#d4b896]" />
-                      {event.currentEnrollment} / {event.maxCapacity} {language === 'it' ? 'iscritti' : 'enrolled'}
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">{event.description}</p>
-                  <div className="mt-4 pt-4 border-t border-[#d4b896]/20 flex justify-end items-center">
-                    <Button size="sm" className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white">
-                      {language === 'it' ? 'Diventa Membro' : 'Become a Member'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="size-6 animate-spin text-[#e67e22]" />
+            </div>
+          ) : upcomingEvents.length === 0 ? (
+            <p className="text-center text-gray-500 py-12">{t('home.upcoming.noEvents')}</p>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {upcomingEvents.map((event) => {
+                const artistLine = event.artists.map(a => a.full_name).join(' & ');
+                return (
+                  <Card key={event.id} className="hover:shadow-2xl transition-all duration-300 border-[#d4b896]/20 overflow-hidden group">
+                    <div className="h-2 shrink-0" style={{ background: event.color ?? 'linear-gradient(to right, #d4b896, #e67e22)' }} />
+                    {event.effective_image && (
+                      <img src={event.effective_image} alt={event.name} className="w-full h-auto" />
+                    )}
+                    <CardHeader>
+                      <div className="flex justify-between items-start mb-2">
+                        <Badge className="bg-[#d4b896] text-[#2b2b2b]">{event.event_type.name.toUpperCase()}</Badge>
+                        {event.level && (
+                          <Badge variant="outline" className="border-[#2b2b2b] text-[#2b2b2b]">{event.level.name}</Badge>
+                        )}
+                      </div>
+                      <CardTitle className="text-xl text-[#2b2b2b] group-hover:text-[#e67e22] transition-colors">{event.name}</CardTitle>
+                      {artistLine && (
+                        <CardDescription className="text-[#6b6b6b]">
+                          {language === 'it' ? 'con' : 'with'} {artistLine}
+                        </CardDescription>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2 text-sm text-gray-600 mb-4">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="size-4 text-[#d4b896]" />
+                          {new Date(event.start_date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
+                            weekday: 'long',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock className="size-4 text-[#d4b896]" />
+                          {event.start_date.slice(11, 16)} ({event.duration} min)
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Users className="size-4 text-[#d4b896]" />
+                          {event.capacity} {language === 'it' ? 'posti disponibili' : 'spots available'}
+                        </div>
+                      </div>
+                      {event.info && (
+                        <p className="text-sm text-gray-600 mb-4 line-clamp-2">{event.info}</p>
+                      )}
+                      <div className="mt-4 pt-4 border-t border-[#d4b896]/20 flex justify-end items-center">
+                        <Link to="/login">
+                          <Button size="sm" className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white">
+                            {language === 'it' ? 'Diventa Membro' : 'Become a Member'}
+                          </Button>
+                        </Link>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
 
           <div className="text-center mt-12">
             <Link to="/events">
