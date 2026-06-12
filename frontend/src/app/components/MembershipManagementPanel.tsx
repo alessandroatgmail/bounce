@@ -53,7 +53,7 @@ export function MembershipManagementPanel() {
     setPage(1);
   };
 
-  const { results: users, count, totalPages, loading, error } = useUserList(
+  const { results: users, count, totalPages, loading, error, refetch } = useUserList(
     accessToken,
     page,
     { name: debouncedName, membership: membershipFilter, event: eventFilter },
@@ -236,6 +236,7 @@ export function MembershipManagementPanel() {
         user={selectedUser}
         open={!!selectedUser}
         onOpenChange={open => { if (!open) setSelectedUser(null); }}
+        onChanged={refetch}
       />
     </Card>
   );

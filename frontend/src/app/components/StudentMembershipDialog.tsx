@@ -21,6 +21,8 @@ interface Props {
   user: UserListItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called after a contribution is created, updated or deleted, so the parent list can refresh. */
+  onChanged?: () => void;
 }
 
 const CONTRIBUTION_STATUSES: { value: ContributionStatus; labelIt: string; labelEn: string }[] = [
@@ -45,7 +47,7 @@ interface FormState {
 
 const emptyForm = (): FormState => ({ membershipId: '', amount: '', status: 'received', selectedEvents: [], selectedDiscounts: [] });
 
-export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
+export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }: Props) {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const { memberships } = useMemberships(accessToken);
@@ -138,6 +140,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
       } else {
         await create(payload);
       }
+      onChanged?.();
       cancelForm();
     } catch {
       setSaveError(language === 'it' ? 'Salvataggio fallito.' : 'Save failed.');
@@ -150,6 +153,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
     if (!confirm(language === 'it' ? 'Eliminare questo contributo?' : 'Delete this contribution?')) return;
     try {
       await remove(id);
+      onChanged?.();
     } catch {
       // silent
     }
