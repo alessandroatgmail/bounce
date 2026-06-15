@@ -111,11 +111,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
     place_of_birth = CityNestedSerializer(read_only=True)
     city = CityNestedSerializer(read_only=True)
     country = CountryNestedSerializer(read_only=True)
+    profile_image = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             "id",
+            "uuid",
             "email",
             "first_name",
             "last_name",
@@ -135,7 +137,22 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "marketing_consent",
             "is_active",
             "date_joined",
+            "profile_image",
         ]
+
+    def get_profile_image(self, obj):
+        if not obj.profile_image:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.profile_image.url)
+        return obj.profile_image.url
+
+
+class ProfileImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['profile_image']
 
 
 class UserListSerializer(serializers.ModelSerializer):

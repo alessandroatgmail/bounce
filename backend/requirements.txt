@@ -42,6 +42,10 @@ drf-spectacular==0.28.0
 # Color field
 django-colorfield==0.11.0
 
+# QR code generation + image processing
+qrcode[pil]==8.0
+Pillow==11.2.1
+
 # Testing
 pytest-django==4.9.0
 pytest==8.3.5

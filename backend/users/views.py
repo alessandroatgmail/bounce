@@ -1,9 +1,11 @@
+import io
 import uuid
 import redis
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from django.contrib.auth import get_user_model
+from django.http import HttpResponse
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
@@ -16,6 +18,7 @@ from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -24,7 +27,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import City
-from .serializers import BounceTokenObtainPairSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
+from .serializers import BounceTokenObtainPairSerializer, ProfileImageSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
 
 
 class LoginView(TokenObtainPairView):
@@ -249,11 +252,31 @@ class CheckEmailView(APIView):
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(responses={200: UserProfileSerializer})
     def get(self, request):
-        serializer = UserProfileSerializer(request.user)
+        serializer = UserProfileSerializer(request.user, context={'request': request})
         return Response(serializer.data)
+
+    @extend_schema(request=ProfileImageSerializer, responses={200: UserProfileSerializer})
+    def patch(self, request):
+        serializer = ProfileImageSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(UserProfileSerializer(request.user, context={'request': request}).data)
+
+
+class QRCodeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        import qrcode
+        qr = qrcode.make(str(request.user.uuid))
+        buffer = io.BytesIO()
+        qr.save(buffer, format='PNG')
+        buffer.seek(0)
+        return HttpResponse(buffer.getvalue(), content_type='image/png')
 
 
 @api_view(['POST'])

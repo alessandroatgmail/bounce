@@ -1,3 +1,5 @@
+import uuid as uuid_lib
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 
@@ -68,6 +70,9 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin):
     """Custom user model for Bounce dance school — email is the login identifier."""
+
+    uuid = models.UUIDField(default=uuid_lib.uuid4, editable=False, unique=True)
+    profile_image = models.ImageField(upload_to='profiles/', null=True, blank=True)
 
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150, blank=True)

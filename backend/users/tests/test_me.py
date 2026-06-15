@@ -1,10 +1,24 @@
+import io
+import uuid
+
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from PIL import Image
 from rest_framework import status
 
 from users.models import Country, City, User, Role
 
 ME_URL = reverse("me")
+
+
+def make_png_upload(name="avatar.png"):
+    """Return a SimpleUploadedFile containing a valid 1×1 red PNG."""
+    buf = io.BytesIO()
+    Image.new("RGB", (1, 1), color=(255, 0, 0)).save(buf, format="PNG")
+    buf.seek(0)
+    return SimpleUploadedFile(name, buf.read(), content_type="image/png")
+QRCODE_URL = reverse("me-qrcode")
 TOKEN_URL = reverse("token_obtain_pair")
 
 
@@ -105,3 +119,74 @@ class TestMeEndpoint:
 
         assert data["id"] == full_student.pk
         assert "date_joined" in data
+
+    def test_uuid_present_and_valid(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        data = client.get(ME_URL).data
+
+        assert "uuid" in data
+        parsed = uuid.UUID(str(data["uuid"]))
+        assert parsed == full_student.uuid
+
+    def test_profile_image_null_when_not_set(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        data = client.get(ME_URL).data
+
+        assert data["profile_image"] is None
+
+
+class TestMePatchProfileImage:
+    def test_upload_profile_image(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.patch(ME_URL, {"profile_image": make_png_upload()}, format="multipart")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["profile_image"] is not None
+        assert "avatar" in response.data["profile_image"]
+
+    def test_unauthenticated_patch_returns_401(self, client):
+        response = client.patch(ME_URL, {"profile_image": make_png_upload()}, format="multipart")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_get_me_returns_image_url_after_upload(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.patch(ME_URL, {"profile_image": make_png_upload()}, format="multipart")
+
+        data = client.get(ME_URL).data
+        assert data["profile_image"] is not None
+
+
+class TestQRCodeEndpoint:
+    def test_unauthenticated_returns_401(self, client):
+        response = client.get(QRCODE_URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_returns_png_content_type(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.get(QRCODE_URL)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["Content-Type"] == "image/png"
+
+    def test_response_is_valid_png(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.get(QRCODE_URL)
+
+        # PNG magic bytes
+        assert response.content[:8] == b'\x89PNG\r\n\x1a\n'
+
+    def test_response_is_non_empty(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.get(QRCODE_URL)
+
+        assert len(response.content) > 0

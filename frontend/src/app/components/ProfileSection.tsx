@@ -1,20 +1,58 @@
-import { FileText, User, Mail, Shield } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { FileText, User, Mail, Shield, Camera, QrCode } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Card, CardContent } from './ui/card';
-import { Avatar, AvatarFallback } from './ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { apiUrl } from '../../lib/api';
 import { mockDocuments } from '../data/mockData';
 
 export function ProfileSection() {
-  const { user } = useAuth();
+  const { user, accessToken, updateUser } = useAuth();
   const { language } = useLanguage();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    fetch(apiUrl('/api/auth/me/qrcode/'), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => blob ? setQrUrl(URL.createObjectURL(blob)) : null)
+      .catch(() => {});
+    return () => { if (qrUrl) URL.revokeObjectURL(qrUrl); };
+  }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) return null;
 
-  const initials = user.name.split(' ').map(n => n[0]).join('').toUpperCase();
+  const initials = user.name.split(' ').map(n => n[0]).join('').toUpperCase() || '?';
+
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !accessToken) return;
+    setUploading(true);
+    const form = new FormData();
+    form.append('profile_image', file);
+    try {
+      const res = await fetch(apiUrl('/api/auth/me/'), {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        updateUser({ profile_image: data.profile_image });
+      }
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -31,19 +69,57 @@ export function ProfileSection() {
         <TabsContent value="profile">
           <Card>
             <CardContent className="p-6 space-y-6">
-              {/* Avatar + name */}
-              <div className="flex items-center gap-4">
-                <Avatar className="size-16">
-                  <AvatarFallback className="bg-[#e67e22] text-white text-2xl">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
+              {/* Avatar + name + QR */}
+              <div className="flex items-start gap-4">
+                {/* Profile image with upload */}
+                <div className="relative shrink-0">
+                  <Avatar className="size-20">
+                    {user.profile_image && <AvatarImage src={user.profile_image} alt={user.name} className="object-cover" />}
+                    <AvatarFallback className="bg-[#e67e22] text-white text-2xl">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="absolute -bottom-1 -right-1 bg-[#e67e22] text-white rounded-full p-1 shadow hover:bg-[#d4b896] transition-colors disabled:opacity-50"
+                    title={language === 'it' ? 'Cambia foto' : 'Change photo'}
+                  >
+                    <Camera className="size-3.5" />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageChange}
+                  />
+                </div>
+
+                <div className="flex-1 min-w-0">
                   <h2 className="text-xl font-bold text-[#2b2b2b]">{user.name}</h2>
                   <Badge variant="outline" className="mt-1 border-[#e67e22] text-[#e67e22]">
-                    {user.role === 'admin' ? (language === 'it' ? 'Amministratore' : 'Administrator') : (language === 'it' ? 'Studente' : 'Student')}
+                    {user.role === 'admin'
+                      ? (language === 'it' ? 'Amministratore' : 'Administrator')
+                      : (language === 'it' ? 'Studente' : 'Student')}
                   </Badge>
                 </div>
+
+                {/* QR code */}
+                {qrUrl && (
+                  <div className="shrink-0 flex flex-col items-center gap-1">
+                    <img
+                      src={qrUrl}
+                      alt="QR code"
+                      className="size-20 rounded border border-gray-200"
+                      style={{ imageRendering: 'pixelated' }}
+                    />
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <QrCode className="size-3" />
+                      {language === 'it' ? 'ID tessera' : 'Member ID'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Info rows */}

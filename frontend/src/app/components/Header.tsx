@@ -88,9 +88,8 @@ export function Header() {
             {isAuthenticated ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="flex items-center gap-2 bg-transparent border-[#d4b896] text-white hover:bg-[#d4b896] hover:text-[#2b2b2b]">
+                  <Button variant="outline" className="bg-transparent border-[#d4b896] text-white hover:bg-[#d4b896] hover:text-[#2b2b2b] px-2">
                     <User className="size-4" />
-                    {user?.name}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="bg-[#2b2b2b] text-white border-[#d4b896]">
