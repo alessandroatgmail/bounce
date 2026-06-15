@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Button } from './ui/button';
 import { Music, LogOut, User, Languages } from 'lucide-react';
+import { NotificationsBell } from './NotificationsBell';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -73,6 +74,7 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-4">
+            {isAuthenticated && <NotificationsBell />}
             {/* Language Switcher */}
             <button
               onClick={toggleLanguage}

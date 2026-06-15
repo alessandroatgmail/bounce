@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Music } from 'lucide-react';
+import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { NotificationsBell } from './NotificationsBell';
 import { EventsSection } from './EventsSection';
 import { PaymentsSection } from './PaymentsSection';
 import { ProfileSection } from './ProfileSection';
@@ -40,15 +39,6 @@ export function AppShell() {
     <div className="flex h-screen bg-gray-50">
       {/* ── Desktop sidebar (md+) ── */}
       <aside className="hidden md:flex w-64 bg-[#2b2b2b] text-white flex-col">
-        {/* Logo */}
-        <div className="p-5 border-b border-gray-700 flex items-center gap-3">
-          <Music className="size-8 text-[#e67e22] shrink-0" />
-          <div>
-            <div className="font-bold text-lg tracking-tight">Bounce</div>
-            <div className="text-xs text-gray-400 tracking-widest uppercase">Swing Lovers</div>
-          </div>
-        </div>
-
         {/* User profile */}
         {!isGuest && (
           <div className="px-5 py-4 border-b border-gray-700 flex items-center gap-3">
@@ -120,44 +110,15 @@ export function AppShell() {
 
       {/* ── Main content column ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Desktop top bar */}
-        <header className="hidden md:flex bg-white border-b border-gray-200 px-6 py-4 items-center justify-between shrink-0">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-[#2b2b2b]">{sectionTitle}</h1>
-              {user?.role === 'admin' && (
-                <Badge variant="outline" className="bg-[#e67e22]/10 text-[#e67e22] border-[#e67e22]">
-                  <ShieldCheck className="size-3 mr-1" />
-                  {language === 'it' ? 'Vista Admin' : 'Admin View'}
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-gray-500">
-              {language === 'it' ? 'Benvenuto nella tua area personale' : 'Welcome to your personal area'}
-            </p>
-          </div>
-          <NotificationsBell />
-        </header>
-
-        {/* Mobile top bar */}
-        <header className="md:hidden bg-[#2b2b2b] text-white px-4 h-14 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <Music className="size-6 text-[#e67e22]" />
-            <span className="font-bold tracking-tight">Bounce</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <NotificationsBell />
-            {user?.role === 'admin' && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-white hover:bg-white/10"
-                onClick={() => { setAdminViewMode('admin'); navigate('/admin'); }}
-              >
-                <ShieldCheck className="size-5" />
-              </Button>
-            )}
-          </div>
+        {/* Section title bar — desktop only */}
+        <header className="hidden md:flex bg-white border-b border-gray-200 px-6 py-4 items-center gap-3 shrink-0">
+          <h1 className="text-2xl font-bold text-[#2b2b2b]">{sectionTitle}</h1>
+          {user?.role === 'admin' && (
+            <Badge variant="outline" className="bg-[#e67e22]/10 text-[#e67e22] border-[#e67e22]">
+              <ShieldCheck className="size-3 mr-1" />
+              {language === 'it' ? 'Vista Admin' : 'Admin View'}
+            </Badge>
+          )}
         </header>
 
         {/* Scrollable content — extra bottom padding on mobile for the tab bar */}
