@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone } from 'lucide-react';
+import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone, QrCode } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
@@ -10,14 +10,16 @@ import { EventsSection } from './EventsSection';
 import { PaymentsSection } from './PaymentsSection';
 import { ProfileSection } from './ProfileSection';
 import { ContactsSection } from './ContactsSection';
+import { QRCodeSection } from './QRCodeSection';
 
-type Section = 'events' | 'payments' | 'profile' | 'contacts';
+type Section = 'events' | 'payments' | 'profile' | 'contacts' | 'qrcode';
 
 const SECTION_LABELS = {
   events:   { it: 'Eventi',    en: 'Events'   },
   payments: { it: 'Pagamenti', en: 'Payments' },
   profile:  { it: 'Profilo',   en: 'Profile'  },
   contacts: { it: 'Contatti',  en: 'Contacts' },
+  qrcode:   { it: 'QR Code',   en: 'QR Code'  },
 };
 
 export function AppShell() {
@@ -36,6 +38,7 @@ export function AppShell() {
     { id: 'payments' as Section, label: SECTION_LABELS.payments[lang], icon: CreditCard },
     { id: 'profile'  as Section, label: SECTION_LABELS.profile[lang],  icon: User       },
     { id: 'contacts' as Section, label: SECTION_LABELS.contacts[lang], icon: Phone      },
+    { id: 'qrcode'   as Section, label: SECTION_LABELS.qrcode[lang],   icon: QrCode     },
   ];
 
   const guestTabs = [
@@ -159,6 +162,7 @@ export function AppShell() {
           {activeSection === 'payments' && !isGuest && <PaymentsSection />}
           {activeSection === 'profile'  && !isGuest && <ProfileSection />}
           {activeSection === 'contacts' && <ContactsSection />}
+          {activeSection === 'qrcode'   && !isGuest && <QRCodeSection />}
         </main>
       </div>
 

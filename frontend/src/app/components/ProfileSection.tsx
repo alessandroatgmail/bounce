@@ -1,5 +1,5 @@
-import { useRef, useState, useEffect } from 'react';
-import { FileText, User, Mail, Shield, Camera, QrCode } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { FileText, User, Mail, Shield, Camera } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -15,18 +15,6 @@ export function ProfileSection() {
   const { language } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [qrUrl, setQrUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    fetch(apiUrl('/api/auth/me/qrcode/'), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then(r => r.ok ? r.blob() : null)
-      .then(blob => blob ? setQrUrl(URL.createObjectURL(blob)) : null)
-      .catch(() => {});
-    return () => { if (qrUrl) URL.revokeObjectURL(qrUrl); };
-  }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) return null;
 
@@ -105,21 +93,6 @@ export function ProfileSection() {
                   </Badge>
                 </div>
 
-                {/* QR code */}
-                {qrUrl && (
-                  <div className="shrink-0 flex flex-col items-center gap-1">
-                    <img
-                      src={qrUrl}
-                      alt="QR code"
-                      className="size-20 rounded border border-gray-200"
-                      style={{ imageRendering: 'pixelated' }}
-                    />
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                      <QrCode className="size-3" />
-                      {language === 'it' ? 'ID tessera' : 'Member ID'}
-                    </span>
-                  </div>
-                )}
               </div>
 
               {/* Info rows */}
