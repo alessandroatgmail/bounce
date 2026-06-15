@@ -71,6 +71,7 @@ const translations = {
     'login.register': 'Registrati qui',
     'login.termsPrefix': 'Cliccando su "Accedi" o "Registrati qui" accetti i nostri',
     'login.termsLink': 'Termini e Condizioni e la Cookie Policy',
+    'login.acsiNotice': 'Messaggio riservato ai soci ACSI',
     
     // Admin Dashboard
     'admin.title': 'Pannello Amministratore',
@@ -218,6 +219,7 @@ const translations = {
     'login.register': 'Register here',
     'login.termsPrefix': 'By clicking "Sign In" or "Register here" you accept our',
     'login.termsLink': 'Terms and Conditions and Cookie Policy',
+    'login.acsiNotice': 'Message reserved for ACSI members',
     
     // Admin Dashboard
     'admin.title': 'Administrator Panel',

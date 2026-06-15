@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn } from 'lucide-react';
+import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
@@ -9,13 +9,15 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { EventsSection } from './EventsSection';
 import { PaymentsSection } from './PaymentsSection';
 import { ProfileSection } from './ProfileSection';
+import { ContactsSection } from './ContactsSection';
 
-type Section = 'events' | 'payments' | 'profile';
+type Section = 'events' | 'payments' | 'profile' | 'contacts';
 
 const SECTION_LABELS = {
-  events:   { it: 'Eventi',   en: 'Events'   },
+  events:   { it: 'Eventi',    en: 'Events'   },
   payments: { it: 'Pagamenti', en: 'Payments' },
-  profile:  { it: 'Profilo',  en: 'Profile'  },
+  profile:  { it: 'Profilo',   en: 'Profile'  },
+  contacts: { it: 'Contatti',  en: 'Contacts' },
 };
 
 export function AppShell() {
@@ -27,13 +29,21 @@ export function AppShell() {
   const isGuest = !user;
   const initials = user?.name.split(' ').map(n => n[0]).join('').toUpperCase() ?? '';
 
+  const lang = language === 'it' ? 'it' : 'en';
+
   const authTabs = [
-    { id: 'events'   as Section, label: SECTION_LABELS.events[language === 'it' ? 'it' : 'en'],   icon: Ticket     },
-    { id: 'payments' as Section, label: SECTION_LABELS.payments[language === 'it' ? 'it' : 'en'], icon: CreditCard },
-    { id: 'profile'  as Section, label: SECTION_LABELS.profile[language === 'it' ? 'it' : 'en'],  icon: User       },
+    { id: 'events'   as Section, label: SECTION_LABELS.events[lang],   icon: Ticket     },
+    { id: 'payments' as Section, label: SECTION_LABELS.payments[lang], icon: CreditCard },
+    { id: 'profile'  as Section, label: SECTION_LABELS.profile[lang],  icon: User       },
+    { id: 'contacts' as Section, label: SECTION_LABELS.contacts[lang], icon: Phone      },
   ];
 
-  const sectionTitle = SECTION_LABELS[activeSection][language === 'it' ? 'it' : 'en'];
+  const guestTabs = [
+    { id: 'events'   as Section, label: SECTION_LABELS.events[lang],   icon: Ticket },
+    { id: 'contacts' as Section, label: SECTION_LABELS.contacts[lang], icon: Phone  },
+  ];
+
+  const sectionTitle = SECTION_LABELS[activeSection][lang];
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -55,13 +65,32 @@ export function AppShell() {
         {/* Nav items */}
         <nav className="flex-1 p-4 space-y-1">
           {isGuest ? (
-            <button
-              onClick={() => navigate('/login')}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
-            >
-              <LogIn className="size-5" />
-              <span>{language === 'it' ? 'Accedi' : 'Login'}</span>
-            </button>
+            <>
+              {guestTabs.map(tab => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveSection(tab.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                      activeSection === tab.id
+                        ? 'bg-[#e67e22] text-white'
+                        : 'text-gray-300 hover:bg-gray-800'
+                    }`}
+                  >
+                    <Icon className="size-5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => navigate('/login')}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+              >
+                <LogIn className="size-5" />
+                <span>{lang === 'it' ? 'Accedi' : 'Login'}</span>
+              </button>
+            </>
           ) : (
             authTabs.map(tab => {
               const Icon = tab.icon;
@@ -126,9 +155,10 @@ export function AppShell() {
           className="flex-1 overflow-auto p-4 md:p-6 md:pb-6"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
         >
-          {activeSection === 'events' && <EventsSection />}
+          {activeSection === 'events'   && <EventsSection />}
           {activeSection === 'payments' && !isGuest && <PaymentsSection />}
-          {activeSection === 'profile' && !isGuest && <ProfileSection />}
+          {activeSection === 'profile'  && !isGuest && <ProfileSection />}
+          {activeSection === 'contacts' && <ContactsSection />}
         </main>
       </div>
 
@@ -137,41 +167,29 @@ export function AppShell() {
         className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 flex"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        {isGuest ? (
-          <>
+        {(isGuest ? guestTabs : authTabs).map(tab => {
+          const Icon = tab.icon;
+          return (
             <button
-              onClick={() => setActiveSection('events')}
+              key={tab.id}
+              onClick={() => setActiveSection(tab.id)}
               className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs transition-colors ${
-                activeSection === 'events' ? 'text-[#e67e22]' : 'text-gray-500'
+                activeSection === tab.id ? 'text-[#e67e22]' : 'text-gray-500'
               }`}
             >
-              <Ticket className="size-5" />
-              {SECTION_LABELS.events[language === 'it' ? 'it' : 'en']}
+              <Icon className="size-5" />
+              {tab.label}
             </button>
-            <button
-              onClick={() => navigate('/login')}
-              className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs text-gray-500 transition-colors hover:text-[#e67e22]"
-            >
-              <LogIn className="size-5" />
-              {language === 'it' ? 'Accedi' : 'Login'}
-            </button>
-          </>
-        ) : (
-          authTabs.map(tab => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveSection(tab.id)}
-                className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs transition-colors ${
-                  activeSection === tab.id ? 'text-[#e67e22]' : 'text-gray-500'
-                }`}
-              >
-                <Icon className="size-5" />
-                {tab.label}
-              </button>
-            );
-          })
+          );
+        })}
+        {isGuest && (
+          <button
+            onClick={() => navigate('/login')}
+            className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs text-gray-500 transition-colors hover:text-[#e67e22]"
+          >
+            <LogIn className="size-5" />
+            {lang === 'it' ? 'Accedi' : 'Login'}
+          </button>
         )}
       </nav>
     </div>

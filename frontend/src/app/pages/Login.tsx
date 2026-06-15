@@ -89,7 +89,7 @@ export function Login() {
             </p>
           </form>
 
-          <div className="mt-6 p-4 bg-[#d4b896]/10 rounded-lg border border-[#d4b896]/30">
+          <div className="mt-6 p-4 bg-[#d4b896]/10 rounded-lg border border-[#d4b896]/30 space-y-2">
             <p className="text-xs text-gray-600 text-center">
               {t('login.termsPrefix')}{' '}
               <a
@@ -100,6 +100,9 @@ export function Login() {
               >
                 {t('login.termsLink')}
               </a>
+            </p>
+            <p className="text-xs text-gray-500 text-center italic">
+              {t('login.acsiNotice')}
             </p>
           </div>
         </CardContent>
