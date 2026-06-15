@@ -122,7 +122,10 @@ export function AppShell() {
         </header>
 
         {/* Scrollable content — extra bottom padding on mobile for the tab bar */}
-        <main className="flex-1 overflow-auto p-4 md:p-6 pb-24 md:pb-6">
+        <main
+          className="flex-1 overflow-auto p-4 md:p-6 md:pb-6"
+          style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+        >
           {activeSection === 'events' && <EventsSection />}
           {activeSection === 'payments' && !isGuest && <PaymentsSection />}
           {activeSection === 'profile' && !isGuest && <ProfileSection />}
@@ -130,7 +133,10 @@ export function AppShell() {
       </div>
 
       {/* ── Mobile bottom tab bar ── */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 flex safe-bottom">
+      <nav
+        className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 flex"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         {isGuest ? (
           <>
             <button
