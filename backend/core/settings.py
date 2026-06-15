@@ -13,6 +13,10 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
 
+# Trust the X-Forwarded-Proto header set by the reverse proxy so that
+# build_absolute_uri() returns https:// URLs when the site is served over TLS.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 INSTALLED_APPS = [
