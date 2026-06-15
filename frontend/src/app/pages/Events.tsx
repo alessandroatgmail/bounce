@@ -29,7 +29,13 @@ export function Events() {
 }
 
 // Browsing/booking UI without the page hero, so it can also be embedded in the student dashboard
-export function EventsBrowser({ showAvailableSpots = false }: { showAvailableSpots?: boolean }) {
+export function EventsBrowser({
+  showAvailableSpots = false,
+  filterMyBookings = false,
+}: {
+  showAvailableSpots?: boolean;
+  filterMyBookings?: boolean;
+}) {
   const { t, language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
   const { events, loading } = useEvents(accessToken);
@@ -60,6 +66,7 @@ export function EventsBrowser({ showAvailableSpots = false }: { showAvailableSpo
   );
 
   const filtered = upcoming.filter(e => {
+    if (filterMyBookings && !e.already_booked) return false;
     if (filterType !== 'all' && e.event_type.name !== filterType) return false;
     if (filterLevel !== 'all' && e.level?.name !== filterLevel) return false;
     return true;
