@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView, TokenVerifyView
 
-from .views import ActivateView, CheckEmailView, CitySearchView, LoginView, LogoutView, MeView, QRCodeView, RegisterView, UserListView, ws_ticket
+from .views import ActivateView, CheckEmailView, CitySearchView, DeactivateView, LoginView, LogoutView, MeView, QRCodeView, RegisterView, UserListView, ws_ticket
 
 urlpatterns = [
     path("token/", LoginView.as_view(), name="token_obtain_pair"),
@@ -9,6 +9,7 @@ urlpatterns = [
     path("token/verify/", TokenVerifyView.as_view(), name="token_verify"),
     path('ws-ticket/', ws_ticket, name='ws-ticket'),
     path("me/", MeView.as_view(), name="me"),
+    path("me/deactivate/", DeactivateView.as_view(), name="me-deactivate"),
     path("me/qrcode/", QRCodeView.as_view(), name="me-qrcode"),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("register/", RegisterView.as_view(), name="register"),

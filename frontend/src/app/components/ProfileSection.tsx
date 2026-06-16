@@ -77,6 +77,9 @@ export function ProfileSection() {
     marketing_consent: false,
   });
   const [showPrivacyWarning, setShowPrivacyWarning] = useState(false);
+  const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   if (!user) return null;
 
@@ -227,6 +230,34 @@ export function ProfileSection() {
     } finally {
       setUploading(false);
       e.target.value = '';
+    }
+  };
+
+  const handleDeactivate = async () => {
+    if (!accessToken) return;
+    setActionLoading(true);
+    try {
+      await fetch(apiUrl('/api/auth/me/deactivate/'), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } finally {
+      setActionLoading(false);
+      logout();
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!accessToken) return;
+    setActionLoading(true);
+    try {
+      await fetch(apiUrl('/api/auth/me/'), {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } finally {
+      setActionLoading(false);
+      logout();
     }
   };
 
@@ -658,6 +689,93 @@ export function ProfileSection() {
                 </AccordionItem>
 
               </Accordion>
+
+              {/* Danger zone */}
+              <div className="border border-red-200 rounded-lg p-4 space-y-3">
+                <p className="text-sm font-semibold text-red-600">
+                  {t('Zona pericolosa', 'Danger zone')}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-orange-400 text-orange-600 hover:bg-orange-50"
+                    onClick={() => setShowDeactivateDialog(true)}
+                    disabled={actionLoading}
+                  >
+                    {t('Disattiva account', 'Deactivate account')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500 text-red-600 hover:bg-red-50"
+                    onClick={() => setShowDeleteDialog(true)}
+                    disabled={actionLoading}
+                  >
+                    {t('Elimina account', 'Delete account')}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Deactivate dialog */}
+              <AlertDialog open={showDeactivateDialog} onOpenChange={setShowDeactivateDialog}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('Disattiva account', 'Deactivate account')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t(
+                        'Il tuo account verrà disattivato e verrai disconnesso. I tuoi dati verranno conservati. Contatta l\'amministratore per riattivarlo.',
+                        'Your account will be deactivated and you will be logged out. Your data will be kept. Contact an administrator to reactivate it.',
+                      )}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('Annulla', 'Cancel')}</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-orange-500 hover:bg-orange-600 text-white"
+                      onClick={handleDeactivate}
+                    >
+                      {t('Disattiva', 'Deactivate')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              {/* Delete / anonymize dialog */}
+              <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-red-600">
+                      {t('Elimina account', 'Delete account')}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-2 text-sm text-gray-600">
+                        <p>
+                          {t(
+                            'Questa azione è irreversibile. Il tuo account verrà anonimizzato:',
+                            'This action is irreversible. Your account will be anonymized:',
+                          )}
+                        </p>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li>{t('Email sostituita con un indirizzo non rintracciabile', 'Email replaced with a non-traceable address')}</li>
+                          <li>{t('Tutti i dati personali cancellati', 'All personal data deleted')}</li>
+                          <li>{t('Consensi revocati e account disattivato', 'Consents revoked and account deactivated')}</li>
+                        </ul>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('Annulla', 'Cancel')}</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      onClick={handleDelete}
+                    >
+                      {t('Elimina definitivamente', 'Delete permanently')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
             </CardContent>
           </Card>
         </TabsContent>

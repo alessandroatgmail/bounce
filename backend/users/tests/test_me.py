@@ -10,6 +10,7 @@ from rest_framework import status
 from users.models import Country, City, User, Role
 
 ME_URL = reverse("me")
+REFRESH_URL = reverse("token_refresh")
 
 
 def make_png_upload(name="avatar.png"):
@@ -60,6 +61,12 @@ def full_student(db, country, city):
 def _get_token(client, email, password):
     resp = client.post(TOKEN_URL, {"email": email, "password": password})
     return resp.data["access"]
+
+
+def _get_tokens(client, email, password):
+    """Return (access, refresh) token pair."""
+    resp = client.post(TOKEN_URL, {"email": email, "password": password})
+    return resp.data["access"], resp.data["refresh"]
 
 
 class TestMeEndpoint:
@@ -165,7 +172,7 @@ class TestMePatchProfileImage:
 
 class TestMePutProfile:
     def test_unauthenticated_returns_401(self, client):
-        response = client.put(ME_URL, {}, content_type="application/json")
+        response = client.put(ME_URL, {}, format="json")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_update_personal_info(self, client, full_student):
@@ -175,7 +182,7 @@ class TestMePutProfile:
         response = client.put(
             ME_URL,
             {"first_name": "Luigi", "last_name": "Verdi", "phone": "+39 02 999999", "ci": "VRDLGU85A01H501X"},
-            content_type="application/json",
+            format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -192,7 +199,7 @@ class TestMePutProfile:
         response = client.put(
             ME_URL,
             {"address": "Via Milano 10", "postal_code": "20100", "city": city.pk, "country": country.pk},
-            content_type="application/json",
+            format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -209,7 +216,7 @@ class TestMePutProfile:
         response = client.put(
             ME_URL,
             {"acsi": True, "acsi_number": 99999, "acsi_expiration_date": "2028-06-30"},
-            content_type="application/json",
+            format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -229,7 +236,7 @@ class TestMePutProfile:
         response = client.put(
             ME_URL,
             {"acsi": True, "acsi_expiration_date": "2028-06-30"},
-            content_type="application/json",
+            format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -246,7 +253,7 @@ class TestMePutProfile:
         response = client.put(
             ME_URL,
             {"acsi": True, "acsi_number": 12345},
-            content_type="application/json",
+            format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -256,7 +263,7 @@ class TestMePutProfile:
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        response = client.put(ME_URL, {"marketing_consent": True}, content_type="application/json")
+        response = client.put(ME_URL, {"marketing_consent": True}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["marketing_consent"] is True
@@ -265,7 +272,7 @@ class TestMePutProfile:
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        response = client.put(ME_URL, {"privacy_consent": False}, content_type="application/json")
+        response = client.put(ME_URL, {"privacy_consent": False}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["privacy_consent"] is False
@@ -278,7 +285,7 @@ class TestMePutProfile:
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        client.put(ME_URL, {"privacy_consent": False}, content_type="application/json")
+        client.put(ME_URL, {"privacy_consent": False}, format="json")
 
         # Token was obtained before deactivation; subsequent requests should be rejected
         response = client.get(ME_URL)
@@ -288,13 +295,173 @@ class TestMePutProfile:
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        response = client.put(ME_URL, {"phone": "+39 02 111111"}, content_type="application/json")
+        response = client.put(ME_URL, {"phone": "+39 02 111111"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
         # Fields not in payload stay untouched
         assert response.data["first_name"] == "Mario"
         assert response.data["ci"] == "RSSMRA90H15L736Z"
         assert response.data["acsi"] is True
+
+
+DEACTIVATE_URL = reverse("me-deactivate")
+
+
+class TestDeactivateView:
+    def test_unauthenticated_returns_401(self, client):
+        response = client.post(DEACTIVATE_URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_deactivates_user(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.post(DEACTIVATE_URL)
+
+        assert response.status_code == status.HTTP_200_OK
+        full_student.refresh_from_db()
+        assert full_student.is_active is False
+
+    def test_deactivated_user_cannot_access_me(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.post(DEACTIVATE_URL)
+        response = client.get(ME_URL)
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_data_is_preserved_after_deactivation(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.post(DEACTIVATE_URL)
+        full_student.refresh_from_db()
+
+        assert full_student.email == "mario@bounce.com"
+        assert full_student.first_name == "Mario"
+        assert full_student.ci == "RSSMRA90H15L736Z"
+
+    def test_refresh_token_blacklisted_after_deactivate(self, client, full_student):
+        access, refresh = _get_tokens(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+
+        client.post(DEACTIVATE_URL)
+
+        client.credentials()
+        response = client.post(REFRESH_URL, {"refresh": refresh}, format="json")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_access_token_rejected_after_deactivate(self, client, full_student):
+        access, _ = _get_tokens(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+
+        client.post(DEACTIVATE_URL)
+
+        response = client.get(ME_URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestAnonymizeView:
+    def test_unauthenticated_returns_401(self, client):
+        response = client.delete(ME_URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_anonymize_returns_200(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.delete(ME_URL)
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_email_replaced_with_non_traceable(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.delete(ME_URL)
+        full_student.refresh_from_db()
+
+        assert full_student.email != "mario@bounce.com"
+        assert str(full_student.uuid) in full_student.email
+        assert full_student.email.endswith("@deleted.invalid")
+
+    def test_personal_data_cleared(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.delete(ME_URL)
+        full_student.refresh_from_db()
+
+        assert full_student.first_name == ""
+        assert full_student.last_name == ""
+        assert full_student.phone == ""
+        assert full_student.address == ""
+        assert full_student.ci == ""
+        assert full_student.postal_code == ""
+        assert full_student.date_of_birth is None
+        assert full_student.place_of_birth is None
+        assert full_student.city is None
+        assert full_student.country is None
+
+    def test_flags_set_correctly(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.delete(ME_URL)
+        full_student.refresh_from_db()
+
+        assert full_student.is_active is False
+        assert full_student.privacy_consent is False
+        assert full_student.marketing_consent is False
+
+    def test_acsi_cleared(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.delete(ME_URL)
+        full_student.refresh_from_db()
+
+        assert full_student.acsi is False
+        assert full_student.acsi_number is None
+        assert full_student.acsi_expiration_date is None
+
+    def test_anonymized_user_cannot_login_with_old_email(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.delete(ME_URL)
+
+        response = client.post(TOKEN_URL, {"email": "mario@bounce.com", "password": "StrongPass123!"})
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_anonymized_user_cannot_access_me(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.delete(ME_URL)
+        response = client.get(ME_URL)
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_refresh_token_blacklisted_after_anonymize(self, client, full_student):
+        access, refresh = _get_tokens(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+
+        client.delete(ME_URL)
+
+        client.credentials()
+        response = client.post(REFRESH_URL, {"refresh": refresh}, format="json")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_access_token_rejected_after_anonymize(self, client, full_student):
+        access, _ = _get_tokens(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+
+        client.delete(ME_URL)
+
+        response = client.get(ME_URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 class TestQRCodeEndpoint:

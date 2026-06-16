@@ -22,12 +22,21 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import City
 from .serializers import BounceTokenObtainPairSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
+
+
+def _blacklist_user_tokens(user):
+    """Blacklist all outstanding (non-expired) refresh tokens for the given user."""
+    outstanding = OutstandingToken.objects.filter(user=user, expires_at__gt=timezone.now())
+    for token in outstanding:
+        BlacklistedToken.objects.get_or_create(token=token)
 
 
 class LoginView(TokenObtainPairView):
@@ -275,6 +284,46 @@ class MeView(APIView):
             user.is_active = False
             user.save(update_fields=['is_active'])
         return Response(UserProfileSerializer(user, context={'request': request}).data)
+
+    @extend_schema(responses={200: inline_serializer('AnonymizeResponse', {'detail': serializers.CharField()})})
+    def delete(self, request):
+        user = request.user
+        _blacklist_user_tokens(user)
+        anon_email = f'deleted-{user.uuid}@deleted.invalid'
+        user.email = anon_email
+        user.first_name = ''
+        user.last_name = ''
+        user.phone = ''
+        user.address = ''
+        user.ci = ''
+        user.postal_code = ''
+        user.date_of_birth = None
+        user.place_of_birth = None
+        user.city = None
+        user.country = None
+        user.acsi = False
+        user.acsi_number = None
+        user.acsi_expiration_date = None
+        user.privacy_consent = False
+        user.marketing_consent = False
+        user.is_active = False
+        if user.profile_image:
+            user.profile_image.delete(save=False)
+            user.profile_image = None
+        user.save()
+        return Response({'detail': 'Account anonymized.'}, status=status.HTTP_200_OK)
+
+
+class DeactivateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: inline_serializer('DeactivateResponse', {'detail': serializers.CharField()})})
+    def post(self, request):
+        user = request.user
+        user.is_active = False
+        user.save(update_fields=['is_active'])
+        _blacklist_user_tokens(user)
+        return Response({'detail': 'Account deactivated.'}, status=status.HTTP_200_OK)
 
 
 class QRCodeView(APIView):
