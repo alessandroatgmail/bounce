@@ -12,6 +12,7 @@ class ContributionStatus(models.TextChoices):
     ACCEPTED = "accepted", "Accepted"
     CONFIRMED = "confirmed", "Confirmed"
     PAYED = "payed", "Payed"
+    CANCELLED = "cancelled", "Cancelled"
 
 
 class Contribution(models.Model):
@@ -19,6 +20,7 @@ class Contribution(models.Model):
     status = models.CharField(max_length=20, choices=ContributionStatus.choices, default=ContributionStatus.RECEIVED)
     amount = models.DecimalField(decimal_places=2, max_digits=10)
     user = models.ForeignKey(get_user_model(), on_delete=models.PROTECT)
+    date = models.DateTimeField(default=timezone.now)
     events = models.ManyToManyField(Event, blank=True, related_name='contributions')
     membership = models.ForeignKey(Membership, on_delete=models.PROTECT, null=True, blank=True,
                                    related_name='contributions')

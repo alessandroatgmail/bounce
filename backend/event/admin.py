@@ -61,19 +61,20 @@ class EventTypeAdmin(admin.ModelAdmin):
     list_filter = ("frequency",)
     search_fields = ("name",)
     ordering = ("name",)
+    filter_horizontal = ("partner_roles",)
 
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ("name", "event_type", "status", "type", "start_date", "end_date", "room", "capacity", "level")
+    list_display = ("name", "event_type", "status", "type", "start_date", "end_date", "room", "capacity", "level", "payment_days", "warning_threshold")
     list_filter = ("status", "type", "event_type", "level", "styles", "genres")
     search_fields = ("name",)
     ordering = ("-start_date",)
-    filter_horizontal = ("events", "styles", "genres", "artists")
+    filter_horizontal = ("events", "styles", "genres", "artists", "accepted_roles")
     fieldsets = (
-        (None,
-        {"fields": ("name", "status", "event_type", "type", "level", "color", "image")}),
+        (None, {"fields": ("name", "status", "event_type", "type", "level", "color", "image")}),
         ("Schedule", {"fields": ("start_date", "end_date", "duration")}),
         ("Venue", {"fields": ("room", "capacity")}),
-        ("Details", {"fields": ("styles", "genres", "artists", "events")}),
+        ("Details", {"fields": ("styles", "genres", "artists", "events", "info", "extras")}),
+        ("Registration", {"fields": ("payment_days", "warning_threshold", "accepted_roles")}),
     )

@@ -23,6 +23,10 @@ export interface EventItem {
   color: string | null;
   image: string | null;
   effective_image: string | null;
+  accepted_roles: { id: number; name: string }[];
+  warning_threshold: number;
+  extras: number;
+  payment_days: number;
   already_booked: boolean;
   booked_by: string | null;
   available_spot: number;
@@ -44,6 +48,10 @@ export interface EventPayload {
   style_ids?: number[];
   info?: string | null;
   color?: string | null;
+  payment_days?: number;
+  warning_threshold?: number;
+  extras?: number;
+  accepted_role_ids?: number[];
 }
 
 export function useEvents(token: string | null) {

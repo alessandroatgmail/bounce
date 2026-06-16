@@ -210,10 +210,14 @@ class EventSerializer(serializers.ModelSerializer):
     event_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Event.objects.all(), source="events", write_only=True, required=False
     )
+    accepted_roles = PartnerRoleSerializer(many=True, read_only=True)
+    accepted_role_ids = serializers.PrimaryKeyRelatedField(
+        many=True, write_only=True, source="accepted_roles",
+        queryset=PartnerRole.objects.all(), required=False,
+    )
     effective_image = serializers.SerializerMethodField()
     already_booked = serializers.SerializerMethodField()
     booked_by = serializers.SerializerMethodField()
-
 
     class Meta:
         model = Event
@@ -231,7 +235,11 @@ class EventSerializer(serializers.ModelSerializer):
             "events", "event_ids",
             "info", "color",
             "image", "effective_image",
-            "already_booked", "booked_by", "available_spot"
+            "accepted_roles", "accepted_role_ids",
+            "warning_threshold",
+            "extras",
+            "payment_days",
+            "already_booked", "booked_by", "available_spot",
         ]
 
     def get_effective_image(self, obj):
@@ -280,12 +288,14 @@ class EventSerializer(serializers.ModelSerializer):
         genres = validated_data.pop("genres", [])
         artists = validated_data.pop("artists", [])
         events = validated_data.pop("events", [])
-        roles = validated_data.pop("partner_roles", None)
+        accepted_roles = validated_data.pop("accepted_roles", None)
         event = Event.objects.create(**validated_data)
         event.styles.set(styles)
         event.genres.set(genres)
         event.artists.set(artists)
         event.events.set(events)
+        if accepted_roles is not None:
+            event.accepted_roles.set(accepted_roles)
         return event
 
     def update(self, instance, validated_data):
@@ -293,7 +303,7 @@ class EventSerializer(serializers.ModelSerializer):
         genres = validated_data.pop("genres", None)
         artists = validated_data.pop("artists", None)
         events = validated_data.pop("events", None)
-        roles = validated_data.pop("partner_roles", None)
+        accepted_roles = validated_data.pop("accepted_roles", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -305,4 +315,6 @@ class EventSerializer(serializers.ModelSerializer):
             instance.artists.set(artists)
         if events is not None:
             instance.events.set(events)
+        if accepted_roles is not None:
+            instance.accepted_roles.set(accepted_roles)
         return instance

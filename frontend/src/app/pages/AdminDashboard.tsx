@@ -990,6 +990,13 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(
     initialData?.styles ?? []
   );
+  const [paymentDays, setPaymentDays] = useState(initialData?.payment_days?.toString() ?? '7');
+  const [warningThreshold, setWarningThreshold] = useState(initialData?.warning_threshold?.toString() ?? '5');
+  const [extras, setExtras] = useState((initialData?.extras ?? 0).toString());
+  const [selectedRoles, setSelectedRoles] = useState<{ id: number; name: string }[]>(
+    initialData?.accepted_roles ?? []
+  );
+  const { partnerRoles, loading: loadingRoles } = usePartnerRoles(accessToken);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialData?.effective_image ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1031,6 +1038,10 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
       artist_ids: selectedArtists.map(a => a.id),
       genre_ids: selectedGenres.map(g => g.id),
       style_ids: selectedStyles.map(s => s.id),
+      payment_days: Number(paymentDays),
+      warning_threshold: Number(warningThreshold),
+      extras: Number(extras) || 0,
+      accepted_role_ids: selectedRoles.map(r => r.id),
     };
     try {
       if (isEdit) {
@@ -1151,6 +1162,33 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
 
         <div className="col-span-2">
           <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style..." onChange={setSelectedStyles} />
+        </div>
+
+        <div className="col-span-2 space-y-2">
+          <Label htmlFor="extras">Extras</Label>
+          <Input id="extras" type="number" min={0} value={extras} onChange={e => setExtras(e.target.value)} placeholder="0" />
+        </div>
+
+        <div className="col-span-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Registration</p>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="space-y-2">
+              <Label htmlFor="payment_days">Payment deadline (days)</Label>
+              <Input id="payment_days" type="number" min={1} value={paymentDays} onChange={e => setPaymentDays(e.target.value)} placeholder="7" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="warning_threshold">Warning threshold (spots)</Label>
+              <Input id="warning_threshold" type="number" min={0} value={warningThreshold} onChange={e => setWarningThreshold(e.target.value)} placeholder="5" />
+            </div>
+          </div>
+          <MultiSearchSelect
+            label="Accepted Roles"
+            items={partnerRoles}
+            selected={selectedRoles}
+            loading={loadingRoles}
+            placeholder="Search role…"
+            onChange={setSelectedRoles}
+          />
         </div>
 
         <div className="col-span-2 space-y-2">

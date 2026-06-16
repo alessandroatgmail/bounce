@@ -102,6 +102,10 @@ class Event(models.Model):
     info = models.TextField(blank=True, null=True)
     color = ColorField(format="hex", null=True, blank=True)
     image = models.ImageField(upload_to="events/", blank=True, null=True)
+    payment_days = models.IntegerField(verbose_name="Giorni per pagare", default=7)
+    accepted_roles = models.ManyToManyField(PartnerRole, blank=True, null=True)
+    warning_threshold = models.IntegerField(verbose_name="Warning Threshold", default=5)
+    extras = models.IntegerField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"
@@ -132,7 +136,6 @@ class Event(models.Model):
         from booking.models import ContributionStatus as CS
 
         return self.contributions.filter(status=CS.ACCEPTED).count()
-
 
 
 

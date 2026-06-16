@@ -1,7 +1,7 @@
 import pytest
 from rest_framework import status as http_status
 
-from event.models import Event, Status, PartnerRole
+from event.models import Event, EventType, Status, PartnerRole
 from utils.mock_event import make_event_payload, make_event_payloads
 
 LIST_URL = "/api/events/events/"
@@ -143,7 +143,8 @@ class TestEventStaffList:
             "start_date", "end_date", "duration",
             "room", "capacity",
             "styles", "genres", "artists", "events", "info", "color",
-            "image", "effective_image", "booked_by", "available_spot"
+            "image", "effective_image", "booked_by", "available_spot",
+            "accepted_roles", "warning_threshold", "extras", "payment_days",
         }
         assert set(response.data[0].keys()) == expected
 
@@ -309,3 +310,103 @@ class TestEventDelete:
     def test_delete_nonexistent_returns_404(self, staff_client, world_data):
         response = staff_client.delete(detail_url(9999))
         assert response.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+# ── accepted_roles automation ─────────────────────────────────────────────────
+
+def _make_event_type_with_roles(*role_names):
+    """Create an EventType whose partner_roles are the given named PartnerRoles."""
+    roles = [PartnerRole.objects.get_or_create(name=n)[0] for n in role_names]
+    et = EventType.objects.create(name=f"Type-{'-'.join(role_names)}", frequency="single", partners=len(roles))
+    et.partner_roles.set(roles)
+    return et, roles
+
+
+class TestEventAcceptedRolesAutomation:
+
+    def test_accepted_roles_set_from_event_type_on_create(self, staff_client, world_data, roles):
+        et, partner_roles = _make_event_type_with_roles("Leader", "Follower")
+        payload = make_event_payload(event_type_id=et.pk)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        event = Event.objects.get(pk=response.data["id"])
+        role_names = set(event.accepted_roles.values_list("name", flat=True))
+        assert role_names == {"Leader", "Follower"}
+
+    def test_accepted_roles_in_response_on_create(self, staff_client, world_data, roles):
+        et, _ = _make_event_type_with_roles("Leader", "Follower")
+        payload = make_event_payload(event_type_id=et.pk)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        returned_names = {r["name"] for r in response.data["accepted_roles"]}
+        assert returned_names == {"Leader", "Follower"}
+
+    def test_accepted_roles_empty_when_event_type_has_no_roles(self, staff_client, world_data):
+        et = EventType.objects.create(name="Solo", frequency="single", partners=0)
+        payload = make_event_payload(event_type_id=et.pk)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["accepted_roles"] == []
+
+    def test_accepted_roles_reset_when_event_type_changes(self, staff_client, world_data, roles):
+        et1, _ = _make_event_type_with_roles("Leader", "Follower")
+        et2, _ = _make_event_type_with_roles("Both")
+        event = create_event(event_type_id=et1.pk)
+        # Verify initial sync
+        assert set(event.accepted_roles.values_list("name", flat=True)) == {"Leader", "Follower"}
+        # Update event_type
+        payload = make_event_payload(event_type_id=et2.pk)
+        staff_client.put(detail_url(event.pk), payload, format="json")
+        event.refresh_from_db()
+        assert set(event.accepted_roles.values_list("name", flat=True)) == {"Both"}
+
+    def test_accepted_roles_unchanged_when_event_type_not_changed(self, staff_client, world_data, roles):
+        et, _ = _make_event_type_with_roles("Leader", "Follower")
+        event = create_event(event_type_id=et.pk)
+        original_role_ids = set(event.accepted_roles.values_list("id", flat=True))
+        # Patch something unrelated
+        staff_client.patch(detail_url(event.pk), {"name": "Renamed"}, format="json")
+        event.refresh_from_db()
+        assert set(event.accepted_roles.values_list("id", flat=True)) == original_role_ids
+
+
+# ── new scalar fields ─────────────────────────────────────────────────────────
+
+class TestEventNewFields:
+
+    def test_warning_threshold_default_is_5(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.data["warning_threshold"] == 5
+
+    def test_payment_days_default_is_7(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.data["payment_days"] == 7
+
+    def test_extras_default_is_null(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.data["extras"] is None
+
+    def test_can_set_warning_threshold(self, staff_client, world_data):
+        payload = make_event_payload(warning_threshold=10)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["warning_threshold"] == 10
+
+    def test_can_set_payment_days(self, staff_client, world_data):
+        payload = make_event_payload(payment_days=14)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["payment_days"] == 14
+
+    def test_can_set_extras(self, staff_client, world_data):
+        payload = make_event_payload(extras="Bring your own shoes")
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["extras"] == "Bring your own shoes"
+
+    def test_patch_warning_threshold(self, staff_client, world_data):
+        event = create_event()
+        staff_client.patch(detail_url(event.pk), {"warning_threshold": 3}, format="json")
+        event.refresh_from_db()
+        assert event.warning_threshold == 3
+
+    def test_patch_extras(self, staff_client, world_data):
+        event = create_event()
+        staff_client.patch(detail_url(event.pk), {"extras": "Socks required"}, format="json")
+        event.refresh_from_db()
+        assert event.extras == "Socks required"

@@ -8,12 +8,14 @@ import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
 import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
+import { usePartnerRoles } from '../hooks/usePartnerRoles';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { authFetch, authFetchFile } from '../../lib/api';
 
@@ -125,6 +127,7 @@ function WeeklyEventDialog({
   const { styles, loading: loadingStyles } = useStyles(accessToken);
   const { rooms, loading: loadingRooms } = useRooms(accessToken);
   const { levels, loading: loadingLevels } = useLevels(accessToken);
+  const { partnerRoles, loading: loadingRoles } = usePartnerRoles(accessToken);
 
   const isEdit = !!editEvent;
   const slotDayIndex = slot?.dayIndex ?? getDayIndex(editEvent!.start_date);
@@ -149,6 +152,10 @@ function WeeklyEventDialog({
   );
   const [selectedGenres, setSelectedGenres] = useState<{ id: number; name: string }[]>(editEvent?.genres ?? []);
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(editEvent?.styles ?? []);
+  const [selectedRoles, setSelectedRoles] = useState<{ id: number; name: string }[]>(editEvent?.accepted_roles ?? []);
+  const [paymentDays, setPaymentDays] = useState(editEvent?.payment_days?.toString() ?? '7');
+  const [warningThreshold, setWarningThreshold] = useState(editEvent?.warning_threshold?.toString() ?? '5');
+  const [extras, setExtras] = useState((editEvent?.extras ?? 0).toString());
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(editEvent?.effective_image ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +209,10 @@ function WeeklyEventDialog({
         style_ids: selectedStyles.map(s => s.id),
         color: color || null,
         level_id: levelId ? Number(levelId) : null,
+        payment_days: Number(paymentDays) || 7,
+        warning_threshold: Number(warningThreshold) || 5,
+        extras: Number(extras) || 0,
+        accepted_role_ids: selectedRoles.map(r => r.id),
       };
 
       const url = isEdit ? `/api/events/events/${editEvent!.id}/` : '/api/events/events/';
@@ -318,6 +329,21 @@ function WeeklyEventDialog({
           <MultiSearchSelect label="Artists" items={artists.map(a => ({ id: a.id, name: a.full_name }))} selected={selectedArtists} loading={loadingArtists} placeholder="Search artist…" onChange={setSelectedArtists} />
           <MultiSearchSelect label="Genres" items={genres} selected={selectedGenres} loading={loadingGenres} placeholder="Search genre…" onChange={setSelectedGenres} />
           <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style…" onChange={setSelectedStyles} />
+          <MultiSearchSelect label="Accepted Roles" items={partnerRoles} selected={selectedRoles} loading={loadingRoles} placeholder="Search role…" onChange={setSelectedRoles} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Payment days</Label>
+              <Input type="number" min={1} value={paymentDays} onChange={e => setPaymentDays(e.target.value)} placeholder="7" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Warning threshold</Label>
+              <Input type="number" min={0} value={warningThreshold} onChange={e => setWarningThreshold(e.target.value)} placeholder="5" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Extras / Notes</Label>
+            <Textarea value={extras} onChange={e => setExtras(e.target.value)} placeholder="Additional notes…" rows={2} />
+          </div>
           <div className="space-y-1.5">
             <Label>Color</Label>
             <div className="flex gap-2 items-center">
@@ -603,6 +629,10 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
         genre_ids: ev.genres.map(g => g.id),
         style_ids: ev.styles.map(s => s.id),
         color: ev.color,
+        payment_days: ev.payment_days,
+        warning_threshold: ev.warning_threshold,
+        extras: ev.extras ?? 0,
+        accepted_role_ids: ev.accepted_roles.map(r => r.id),
       } satisfies EventPayload),
     });
     onRefetch();

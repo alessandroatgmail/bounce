@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 import environ
+from celery.schedules import crontab
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -152,6 +153,14 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@bounce.com")
 POST_OFFICE = {
     'DEFAULT_PRIORITY': 'now',
     'CELERY_ENABLED': True,
+}
+
+# ── Celery Beat ────────────────────────────────────────────────────────────────
+CELERY_BEAT_SCHEDULE = {
+    'cancel-expired-contributions-daily': {
+        'task': 'booking.task.cancel_expired_contributions',
+        'schedule': crontab(hour=8, minute=0),
+    },
 }
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
