@@ -155,6 +155,40 @@ class ProfileImageSerializer(serializers.ModelSerializer):
         fields = ['profile_image']
 
 
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    place_of_birth = serializers.PrimaryKeyRelatedField(
+        queryset=City.objects.all(), allow_null=True, required=False
+    )
+    city = serializers.PrimaryKeyRelatedField(
+        queryset=City.objects.all(), allow_null=True, required=False
+    )
+    country = serializers.PrimaryKeyRelatedField(
+        queryset=Country.objects.all(), allow_null=True, required=False
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            'first_name', 'last_name', 'phone',
+            'date_of_birth', 'place_of_birth', 'ci',
+            'address', 'city', 'postal_code', 'country',
+            'acsi', 'acsi_number', 'acsi_expiration_date',
+            'privacy_consent', 'marketing_consent',
+        ]
+
+    def validate(self, attrs):
+        instance = self.instance
+        acsi = attrs.get('acsi', getattr(instance, 'acsi', False) if instance else False)
+        if acsi:
+            acsi_number = attrs.get('acsi_number', getattr(instance, 'acsi_number', None) if instance else None)
+            acsi_exp = attrs.get('acsi_expiration_date', getattr(instance, 'acsi_expiration_date', None) if instance else None)
+            if not acsi_number:
+                raise serializers.ValidationError({'acsi_number': 'Required when ACSI membership is active.'})
+            if not acsi_exp:
+                raise serializers.ValidationError({'acsi_expiration_date': 'Required when ACSI membership is active.'})
+        return attrs
+
+
 class UserListSerializer(serializers.ModelSerializer):
     memberships = serializers.SerializerMethodField()
 

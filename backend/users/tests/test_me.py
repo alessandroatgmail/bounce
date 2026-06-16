@@ -163,6 +163,140 @@ class TestMePatchProfileImage:
         assert data["profile_image"] is not None
 
 
+class TestMePutProfile:
+    def test_unauthenticated_returns_401(self, client):
+        response = client.put(ME_URL, {}, content_type="application/json")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_update_personal_info(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.put(
+            ME_URL,
+            {"first_name": "Luigi", "last_name": "Verdi", "phone": "+39 02 999999", "ci": "VRDLGU85A01H501X"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.data
+        assert data["first_name"] == "Luigi"
+        assert data["last_name"] == "Verdi"
+        assert data["phone"] == "+39 02 999999"
+        assert data["ci"] == "VRDLGU85A01H501X"
+
+    def test_update_address(self, client, full_student, city, country):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.put(
+            ME_URL,
+            {"address": "Via Milano 10", "postal_code": "20100", "city": city.pk, "country": country.pk},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.data
+        assert data["address"] == "Via Milano 10"
+        assert data["postal_code"] == "20100"
+        assert data["city"]["id"] == city.pk
+        assert data["country"]["id"] == country.pk
+
+    def test_update_acsi(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.put(
+            ME_URL,
+            {"acsi": True, "acsi_number": 99999, "acsi_expiration_date": "2028-06-30"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["acsi"] is True
+        assert response.data["acsi_number"] == 99999
+        assert response.data["acsi_expiration_date"] == "2028-06-30"
+
+    def test_acsi_true_without_number_returns_400(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        # Clear existing ACSI data first, then try to set acsi=True with no number
+        full_student.acsi_number = None
+        full_student.acsi_expiration_date = None
+        full_student.save()
+
+        response = client.put(
+            ME_URL,
+            {"acsi": True, "acsi_expiration_date": "2028-06-30"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "acsi_number" in response.data
+
+    def test_acsi_true_without_expiry_returns_400(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        full_student.acsi_number = None
+        full_student.acsi_expiration_date = None
+        full_student.save()
+
+        response = client.put(
+            ME_URL,
+            {"acsi": True, "acsi_number": 12345},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "acsi_expiration_date" in response.data
+
+    def test_update_marketing_consent(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.put(ME_URL, {"marketing_consent": True}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["marketing_consent"] is True
+
+    def test_privacy_consent_false_deactivates_user(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.put(ME_URL, {"privacy_consent": False}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["privacy_consent"] is False
+        assert response.data["is_active"] is False
+
+        full_student.refresh_from_db()
+        assert full_student.is_active is False
+
+    def test_deactivated_user_cannot_access_me(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        client.put(ME_URL, {"privacy_consent": False}, content_type="application/json")
+
+        # Token was obtained before deactivation; subsequent requests should be rejected
+        response = client.get(ME_URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_partial_update_preserves_unrelated_fields(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = client.put(ME_URL, {"phone": "+39 02 111111"}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_200_OK
+        # Fields not in payload stay untouched
+        assert response.data["first_name"] == "Mario"
+        assert response.data["ci"] == "RSSMRA90H15L736Z"
+        assert response.data["acsi"] is True
+
+
 class TestQRCodeEndpoint:
     def test_unauthenticated_returns_401(self, client):
         response = client.get(QRCODE_URL)
