@@ -51,6 +51,28 @@ def ensure_email_templates(db):
         }
     )
 
+    reset_base, _ = EmailTemplate.objects.get_or_create(
+        name='password_reset_email',
+        language='',
+        default_template=None,
+        defaults={
+            'subject': 'Reset your Bounce password',
+            'content': 'Hi {{ first_name }}, reset link: {{ reset_link }}',
+            'html_content': '<p>Hi {{ first_name }}, <a href="{{ reset_link }}">reset your password</a></p>',
+        }
+    )
+    for lang in ('it', 'en'):
+        EmailTemplate.objects.get_or_create(
+            name='password_reset_email',
+            language=lang,
+            default_template=reset_base,
+            defaults={
+                'subject': 'Reset your Bounce password',
+                'content': 'Hi {{ first_name }}, reset link: {{ reset_link }}',
+                'html_content': '<p>Hi {{ first_name }}, <a href="{{ reset_link }}">reset your password</a></p>',
+            }
+        )
+
 @pytest.fixture(autouse=True)
 def override_test_settings(settings):
     """

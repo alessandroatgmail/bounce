@@ -142,6 +142,26 @@ const translations = {
     'student.settings.newsletter': 'Newsletter',
     'student.settings.saveChanges': 'Salva Modifiche',
     
+    // Forgot / Reset password
+    'forgotPassword.title': 'Reset password',
+    'forgotPassword.subtitle': 'Inserisci la tua email e ti invieremo un link per reimpostare la password.',
+    'forgotPassword.submit': 'Invia link di reset',
+    'forgotPassword.backToLogin': 'Torna al login',
+    'forgotPassword.successMessage': 'Se esiste un account con quella email, ti abbiamo inviato un link di reset. Controlla la tua casella di posta.',
+    'forgotPassword.error': 'Si è verificato un errore. Riprova.',
+    'resetPassword.title': 'Scegli una nuova password',
+    'resetPassword.subtitle': 'Inserisci la tua nuova password qui sotto.',
+    'resetPassword.newPassword': 'Nuova password',
+    'resetPassword.confirmPassword': 'Conferma nuova password',
+    'resetPassword.newPasswordPlaceholder': 'Minimo 8 caratteri',
+    'resetPassword.confirmPasswordPlaceholder': 'Ripeti la password',
+    'resetPassword.submit': 'Reimposta password',
+    'resetPassword.backToLogin': 'Torna al login',
+    'resetPassword.passwordMismatch': 'Le password non corrispondono.',
+    'resetPassword.error': 'Si è verificato un errore. Riprova.',
+    'resetPassword.invalidLink': 'Link di reset non valido o scaduto.',
+    'login.forgotPassword': 'Password dimenticata?',
+
     // Common
     'common.loading': 'Caricamento...',
     'common.error': 'Si è verificato un errore',
@@ -290,6 +310,26 @@ const translations = {
     'student.settings.newsletter': 'Newsletter',
     'student.settings.saveChanges': 'Save Changes',
     
+    // Forgot / Reset password
+    'forgotPassword.title': 'Reset password',
+    'forgotPassword.subtitle': 'Enter your email and we\'ll send you a link to reset your password.',
+    'forgotPassword.submit': 'Send reset link',
+    'forgotPassword.backToLogin': 'Back to login',
+    'forgotPassword.successMessage': 'If an account with that email exists, we\'ve sent a reset link. Check your inbox.',
+    'forgotPassword.error': 'An error occurred. Please try again.',
+    'resetPassword.title': 'Choose a new password',
+    'resetPassword.subtitle': 'Enter your new password below.',
+    'resetPassword.newPassword': 'New password',
+    'resetPassword.confirmPassword': 'Confirm new password',
+    'resetPassword.newPasswordPlaceholder': 'Minimum 8 characters',
+    'resetPassword.confirmPasswordPlaceholder': 'Repeat password',
+    'resetPassword.submit': 'Reset password',
+    'resetPassword.backToLogin': 'Back to login',
+    'resetPassword.passwordMismatch': 'Passwords do not match.',
+    'resetPassword.error': 'An error occurred. Please try again.',
+    'resetPassword.invalidLink': 'Invalid or expired reset link.',
+    'login.forgotPassword': 'Forgot password?',
+
     // Common
     'common.loading': 'Loading...',
     'common.error': 'An error occurred',

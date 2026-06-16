@@ -155,6 +155,26 @@ class ProfileImageSerializer(serializers.ModelSerializer):
         fields = ['profile_image']
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(min_length=8, write_only=True)
+    new_password2 = serializers.CharField(min_length=8, write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password2']:
+            raise serializers.ValidationError({'new_password2': 'Passwords do not match.'})
+        try:
+            validate_password(attrs['new_password'])
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({'new_password': list(e.messages)})
+        return attrs
+
+
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     place_of_birth = serializers.PrimaryKeyRelatedField(
         queryset=City.objects.all(), allow_null=True, required=False

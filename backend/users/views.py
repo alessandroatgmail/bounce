@@ -28,8 +28,10 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from utils.tasks import send_password_reset_email
+
 from .models import City
-from .serializers import BounceTokenObtainPairSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
+from .serializers import BounceTokenObtainPairSerializer, PasswordResetConfirmSerializer, PasswordResetRequestSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
 
 
 def _blacklist_user_tokens(user):
@@ -172,6 +174,55 @@ class CitySearchView(APIView):
             for city in cities
         ]
         return Response(data)
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=PasswordResetRequestSerializer,
+        responses={200: inline_serializer('PasswordResetRequestResponse', {'detail': serializers.CharField()})},
+    )
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        User = get_user_model()
+        try:
+            user = User.objects.get(email__iexact=email, is_active=True)
+            send_password_reset_email.delay(user.id)
+        except User.DoesNotExist:
+            pass
+        return Response({'detail': 'If an account with that email exists, a reset link has been sent.'})
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=PasswordResetConfirmSerializer,
+        responses={
+            200: inline_serializer('PasswordResetConfirmResponse', {'detail': serializers.CharField()}),
+            400: inline_serializer('PasswordResetConfirmError', {'detail': serializers.CharField()}),
+        },
+    )
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        uid = serializer.validated_data['uid']
+        token = serializer.validated_data['token']
+        new_password = serializer.validated_data['new_password']
+        User = get_user_model()
+        try:
+            pk = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=pk)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({'detail': 'Invalid reset link.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not default_token_generator.check_token(user, token):
+            return Response({'detail': 'Reset link is invalid or has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+        return Response({'detail': 'Password reset successfully.'})
 
 
 class UserListPagination(PageNumberPagination):

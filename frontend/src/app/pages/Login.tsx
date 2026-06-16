@@ -83,7 +83,13 @@ export function Login() {
               {loading ? '...' : t('login.submit')}
             </Button>
 
-            <p className="text-center text-sm text-gray-600 mt-4">
+            <p className="text-center text-sm mt-1">
+              <Link to="/forgot-password" className="text-[#e67e22] hover:underline text-sm">
+                {t('login.forgotPassword')}
+              </Link>
+            </p>
+
+            <p className="text-center text-sm text-gray-600 mt-2">
               {t('login.noAccount')} <Link to="/register" className="text-[#e67e22] hover:underline font-semibold">{t('login.register')}</Link>
             </p>
           </form>
