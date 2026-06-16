@@ -7,7 +7,6 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Button } from '../components/ui/button';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { Music } from 'lucide-react';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -42,7 +41,7 @@ export function Login() {
       <Card className="w-full max-w-md border-[#d4b896]/30">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <Music className="size-12 text-[#e67e22]" />
+            <img src="/logo.png" alt="Bounce" className="size-16 object-contain" />
           </div>
           <CardTitle className="text-3xl text-[#2b2b2b]">{t('login.title')}</CardTitle>
           <CardDescription>{t('login.subtitle')}</CardDescription>

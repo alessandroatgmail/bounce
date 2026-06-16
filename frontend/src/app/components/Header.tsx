@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Button } from './ui/button';
-import { Music, LogOut, User, Languages } from 'lucide-react';
+import { LogOut, User, Languages } from 'lucide-react';
 import { NotificationsBell } from './NotificationsBell';
 import {
   DropdownMenu,
@@ -34,12 +34,11 @@ export function Header() {
       </div>
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3">
-            <Music className="size-10 text-white" />
-            <div className="text-white">
-              <h1 className="text-2xl font-bold tracking-tight">Bounce</h1>
-              <p className="text-xs tracking-widest uppercase">Swing Lovers</p>
-            </div>
+          <Link to="/" className="flex items-center">
+            {/* desktop: full horizontal logo */}
+            <img src="/logo-full.png" alt="Bounce Swing Lovers" className="hidden md:block h-10 w-auto object-contain" />
+            {/* mobile: compact icon */}
+            <img src="/logo.png" alt="Bounce" className="block md:hidden size-10 object-contain" />
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
