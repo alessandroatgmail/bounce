@@ -8,8 +8,22 @@ export interface User {
   uuid: string;
   email: string;
   name: string;
+  first_name?: string;
+  last_name?: string;
   role: UserRole;
   phone?: string;
+  date_of_birth?: string | null;
+  place_of_birth?: { id: number; name: string } | null;
+  ci?: string;
+  address?: string;
+  city?: { id: number; name: string } | null;
+  postal_code?: string;
+  country?: { id: number; name: string } | null;
+  acsi?: boolean;
+  acsi_number?: number | null;
+  acsi_expiration_date?: string | null;
+  privacy_consent?: boolean;
+  marketing_consent?: boolean;
   joinedDate?: string;
   profile_image?: string | null;
 }
@@ -94,7 +108,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ...u,
           uuid: data.uuid ?? '',
           name: `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim(),
+          first_name: data.first_name ?? '',
+          last_name: data.last_name ?? '',
           phone: data.phone ?? undefined,
+          date_of_birth: data.date_of_birth ?? null,
+          place_of_birth: data.place_of_birth ?? null,
+          ci: data.ci ?? '',
+          address: data.address ?? '',
+          city: data.city ?? null,
+          postal_code: data.postal_code ?? '',
+          country: data.country ?? null,
+          acsi: data.acsi ?? false,
+          acsi_number: data.acsi_number ?? null,
+          acsi_expiration_date: data.acsi_expiration_date ?? null,
+          privacy_consent: data.privacy_consent ?? false,
+          marketing_consent: data.marketing_consent ?? false,
           joinedDate: data.date_joined ?? undefined,
           profile_image: data.profile_image ?? null,
         } : u);

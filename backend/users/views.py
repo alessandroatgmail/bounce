@@ -18,7 +18,7 @@ from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -27,7 +27,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import City
-from .serializers import BounceTokenObtainPairSerializer, ProfileImageSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
+from .serializers import BounceTokenObtainPairSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
 
 
 class LoginView(TokenObtainPairView):
@@ -252,7 +252,7 @@ class CheckEmailView(APIView):
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @extend_schema(responses={200: UserProfileSerializer})
     def get(self, request):
@@ -265,6 +265,16 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(UserProfileSerializer(request.user, context={'request': request}).data)
+
+    @extend_schema(request=ProfileUpdateSerializer, responses={200: UserProfileSerializer})
+    def put(self, request):
+        serializer = ProfileUpdateSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        if not user.privacy_consent:
+            user.is_active = False
+            user.save(update_fields=['is_active'])
+        return Response(UserProfileSerializer(user, context={'request': request}).data)
 
 
 class QRCodeView(APIView):
