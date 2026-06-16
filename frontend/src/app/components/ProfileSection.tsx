@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { FileText, Camera, User, Home, CreditCard, ShieldCheck, Pencil } from 'lucide-react';
+import { FileText, Camera, User, Home, CreditCard, ShieldCheck, Pencil, KeyRound } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -27,7 +27,7 @@ import { apiUrl } from '../../lib/api';
 import { mockDocuments } from '../data/mockData';
 import { CitySearch, type CityResult } from './CitySearch';
 
-type EditSection = 'personal' | 'address' | 'acsi' | 'consents' | null;
+type EditSection = 'personal' | 'address' | 'acsi' | 'consents' | 'password' | null;
 
 function FieldRow({ label, value }: { label: string; value?: string | number | null }) {
   return (
@@ -76,6 +76,14 @@ export function ProfileSection() {
     privacy_consent: false,
     marketing_consent: false,
   });
+  const [passwordDraft, setPasswordDraft] = useState({
+    old_password: '',
+    new_password: '',
+    new_password2: '',
+  });
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
   const [showPrivacyWarning, setShowPrivacyWarning] = useState(false);
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -125,6 +133,9 @@ export function ProfileSection() {
         privacy_consent: user.privacy_consent ?? false,
         marketing_consent: user.marketing_consent ?? false,
       });
+    } else if (section === 'password') {
+      setPasswordDraft({ old_password: '', new_password: '', new_password2: '' });
+      setPasswordError(null);
     }
     setEditingSection(section);
   };
@@ -206,6 +217,36 @@ export function ProfileSection() {
       }
     } catch {
       setSaveError(t('Errore di rete.', 'Network error.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePasswordSave = async () => {
+    if (!accessToken) return;
+    setPasswordError(null);
+    setPasswordSuccess(false);
+    setSaving(true);
+    try {
+      const res = await fetch(apiUrl('/api/auth/me/password/'), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(passwordDraft),
+      });
+      if (res.ok) {
+        setPasswordSuccess(true);
+        setPasswordDraft({ old_password: '', new_password: '', new_password2: '' });
+        setEditingSection(null);
+      } else {
+        const errData = await res.json();
+        const msgs = Object.values(errData).flat().join('; ');
+        setPasswordError(msgs || t('Errore nel salvataggio.', 'Save failed.'));
+      }
+    } catch {
+      setPasswordError(t('Errore di rete.', 'Network error.'));
     } finally {
       setSaving(false);
     }
@@ -682,6 +723,104 @@ export function ProfileSection() {
                         >
                           <Pencil className="size-3.5" />
                           {t('Modifica', 'Edit')}
+                        </Button>
+                      </div>
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+
+                {/* Password */}
+                <AccordionItem value="password">
+                  <AccordionTrigger className="font-semibold text-[#2b2b2b]">
+                    <span className="flex items-center gap-2">
+                      <KeyRound className="size-4 text-[#e67e22]" />
+                      {t('Sicurezza', 'Security')}
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    {editingSection === 'password' ? (
+                      <div className="space-y-3">
+                        <div>
+                          <Label>{t('Password attuale', 'Current password')}</Label>
+                          <Input
+                            type="password"
+                            value={passwordDraft.old_password}
+                            onChange={e => setPasswordDraft(p => ({ ...p, old_password: e.target.value }))}
+                            autoComplete="current-password"
+                          />
+                        </div>
+                        <div>
+                          <Label>{t('Nuova password', 'New password')}</Label>
+                          <Input
+                            type="password"
+                            value={passwordDraft.new_password}
+                            onChange={e => setPasswordDraft(p => ({ ...p, new_password: e.target.value }))}
+                            autoComplete="new-password"
+                          />
+                        </div>
+                        <div>
+                          <Label>{t('Conferma nuova password', 'Confirm new password')}</Label>
+                          <Input
+                            type="password"
+                            value={passwordDraft.new_password2}
+                            onChange={e => setPasswordDraft(p => ({ ...p, new_password2: e.target.value }))}
+                            autoComplete="new-password"
+                          />
+                        </div>
+                        {passwordError && (
+                          <Alert variant="destructive">
+                            <AlertDescription>{passwordError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <div className="flex gap-2 pt-1">
+                          <Button
+                            size="sm"
+                            type="button"
+                            onClick={handlePasswordSave}
+                            disabled={saving}
+                            className="bg-[#e67e22] hover:bg-[#d4b896] text-white"
+                          >
+                            {saving ? t('Salvataggio...', 'Saving...') : t('Salva', 'Save')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            type="button"
+                            onClick={() => {
+                              setEditingSection(null);
+                              setPasswordError(null);
+                              setPasswordDraft({ old_password: '', new_password: '', new_password2: '' });
+                            }}
+                            disabled={saving}
+                          >
+                            {t('Annulla', 'Cancel')}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        {passwordSuccess && (
+                          <Alert className="mb-3 border-green-300 bg-green-50">
+                            <AlertDescription className="text-green-700">
+                              {t('Password aggiornata con successo.', 'Password updated successfully.')}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        <p className="text-sm text-gray-500 mb-3">
+                          {t('Cambia la password del tuo account.', 'Change your account password.')}
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex items-center gap-1.5"
+                          onClick={() => {
+                            setPasswordSuccess(false);
+                            startEditing('password');
+                          }}
+                          disabled={editingSection !== null}
+                        >
+                          <Pencil className="size-3.5" />
+                          {t('Cambia password', 'Change password')}
                         </Button>
                       </div>
                     )}

@@ -31,7 +31,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from utils.tasks import send_password_reset_email
 
 from .models import City
-from .serializers import BounceTokenObtainPairSerializer, PasswordResetConfirmSerializer, PasswordResetRequestSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
+from .serializers import BounceTokenObtainPairSerializer, ChangePasswordSerializer, PasswordResetConfirmSerializer, PasswordResetRequestSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
 
 
 def _blacklist_user_tokens(user):
@@ -363,6 +363,24 @@ class MeView(APIView):
             user.profile_image = None
         user.save()
         return Response({'detail': 'Account anonymized.'}, status=status.HTTP_200_OK)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=ChangePasswordSerializer,
+        responses={
+            200: inline_serializer('ChangePasswordResponse', {'detail': serializers.CharField()}),
+            400: inline_serializer('ChangePasswordError', {'detail': serializers.CharField()}),
+        },
+    )
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data['new_password'])
+        request.user.save(update_fields=['password'])
+        return Response({'detail': 'Password changed successfully.'})
 
 
 class DeactivateView(APIView):

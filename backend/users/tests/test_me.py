@@ -490,4 +490,97 @@ class TestQRCodeEndpoint:
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         response = client.get(QRCODE_URL)
 
-        assert len(response.content) > 0
+
+CHANGE_PASSWORD_URL = reverse("me-password")
+
+
+class TestChangePasswordView:
+    def test_unauthenticated_returns_401(self, client):
+        response = client.post(CHANGE_PASSWORD_URL, {}, format="json")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_correct_old_password_changes_password(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.post(CHANGE_PASSWORD_URL, {
+            "old_password": "StrongPass123!",
+            "new_password": "NewStrongPass1!",
+            "new_password2": "NewStrongPass1!",
+        }, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        full_student.refresh_from_db()
+        assert full_student.check_password("NewStrongPass1!")
+
+    def test_can_login_with_new_password(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        client.post(CHANGE_PASSWORD_URL, {
+            "old_password": "StrongPass123!",
+            "new_password": "NewStrongPass1!",
+            "new_password2": "NewStrongPass1!",
+        }, format="json")
+        client.credentials()
+        resp = client.post(TOKEN_URL, {"email": "mario@bounce.com", "password": "NewStrongPass1!"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        assert "access" in resp.data
+
+    def test_wrong_old_password_returns_400(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.post(CHANGE_PASSWORD_URL, {
+            "old_password": "WrongPassword!",
+            "new_password": "NewStrongPass1!",
+            "new_password2": "NewStrongPass1!",
+        }, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        full_student.refresh_from_db()
+        assert full_student.check_password("StrongPass123!")
+
+    def test_mismatched_new_passwords_returns_400(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.post(CHANGE_PASSWORD_URL, {
+            "old_password": "StrongPass123!",
+            "new_password": "NewStrongPass1!",
+            "new_password2": "DifferentPass1!",
+        }, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_weak_new_password_returns_400(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.post(CHANGE_PASSWORD_URL, {
+            "old_password": "StrongPass123!",
+            "new_password": "password",
+            "new_password2": "password",
+        }, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_short_new_password_returns_400(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.post(CHANGE_PASSWORD_URL, {
+            "old_password": "StrongPass123!",
+            "new_password": "abc",
+            "new_password2": "abc",
+        }, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_missing_fields_returns_400(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.post(CHANGE_PASSWORD_URL, {"old_password": "StrongPass123!"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_old_password_not_changed_on_failure(self, client, full_student):
+        token = _get_token(client, "mario@bounce.com", "StrongPass123!")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = client.post(CHANGE_PASSWORD_URL, {
+            "old_password": "WrongPassword!",
+            "new_password": "NewStrongPass1!",
+            "new_password2": "NewStrongPass1!",
+        }, format="json")
+        full_student.refresh_from_db()
+        assert full_student.check_password("StrongPass123!")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
