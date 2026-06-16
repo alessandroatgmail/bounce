@@ -4,6 +4,9 @@
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/ATTRIBUTIONS.md
+frontend/guidelines/claude-frontend.md
+frontend/guidelines/Guidelines.md
 
 # Django
 backend/__pycache__/
