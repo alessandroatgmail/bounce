@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { StudentDashboard } from './pages/StudentDashboard';
+import { Activate } from './pages/Activate';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
 import { Layout } from './components/Layout';
@@ -30,6 +31,10 @@ export const router = createBrowserRouter([
       {
         path: 'register',
         Component: Register,
+      },
+      {
+        path: 'activate/:uidb64/:token',
+        Component: Activate,
       },
       {
         path: 'forgot-password',

@@ -142,6 +142,17 @@ const translations = {
     'student.settings.newsletter': 'Newsletter',
     'student.settings.saveChanges': 'Salva Modifiche',
     
+    // Activate account
+    'activate.titleLoading': 'Attivazione in corso...',
+    'activate.titleSuccess': 'Account attivato!',
+    'activate.titleError': 'Attivazione fallita',
+    'activate.pleaseWait': 'Stiamo verificando il tuo link di attivazione.',
+    'activate.success': 'Il tuo account è stato attivato con successo. Puoi ora effettuare il login.',
+    'activate.invalidLink': 'Il link di attivazione non è valido o è scaduto.',
+    'activate.error': 'Si è verificato un errore. Riprova più tardi.',
+    'activate.goToLogin': 'Vai al login',
+    'activate.contactSupport': 'Se il problema persiste, contatta il supporto.',
+
     // Forgot / Reset password
     'forgotPassword.title': 'Reset password',
     'forgotPassword.subtitle': 'Inserisci la tua email e ti invieremo un link per reimpostare la password.',
@@ -310,6 +321,17 @@ const translations = {
     'student.settings.newsletter': 'Newsletter',
     'student.settings.saveChanges': 'Save Changes',
     
+    // Activate account
+    'activate.titleLoading': 'Activating...',
+    'activate.titleSuccess': 'Account activated!',
+    'activate.titleError': 'Activation failed',
+    'activate.pleaseWait': 'We are verifying your activation link.',
+    'activate.success': 'Your account has been activated successfully. You can now log in.',
+    'activate.invalidLink': 'The activation link is invalid or has expired.',
+    'activate.error': 'An error occurred. Please try again later.',
+    'activate.goToLogin': 'Go to login',
+    'activate.contactSupport': 'If the problem persists, please contact support.',
+
     // Forgot / Reset password
     'forgotPassword.title': 'Reset password',
     'forgotPassword.subtitle': 'Enter your email and we\'ll send you a link to reset your password.',
