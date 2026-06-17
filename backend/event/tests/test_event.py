@@ -380,9 +380,9 @@ class TestEventNewFields:
         response = staff_client.post(LIST_URL, make_event_payload(), format="json")
         assert response.data["payment_days"] == 7
 
-    def test_extras_default_is_null(self, staff_client, world_data):
+    def test_extras_default_is_zero(self, staff_client, world_data):
         response = staff_client.post(LIST_URL, make_event_payload(), format="json")
-        assert response.data["extras"] is None
+        assert response.data["extras"] is 0
 
     def test_can_set_warning_threshold(self, staff_client, world_data):
         payload = make_event_payload(warning_threshold=10)
@@ -395,9 +395,9 @@ class TestEventNewFields:
         assert response.data["payment_days"] == 14
 
     def test_can_set_extras(self, staff_client, world_data):
-        payload = make_event_payload(extras="Bring your own shoes")
+        payload = make_event_payload(extras=5)
         response = staff_client.post(LIST_URL, payload, format="json")
-        assert response.data["extras"] == "Bring your own shoes"
+        assert response.data["extras"] == 5
 
     def test_patch_warning_threshold(self, staff_client, world_data):
         event = create_event()
@@ -407,6 +407,6 @@ class TestEventNewFields:
 
     def test_patch_extras(self, staff_client, world_data):
         event = create_event()
-        staff_client.patch(detail_url(event.pk), {"extras": "Socks required"}, format="json")
+        staff_client.patch(detail_url(event.pk), {"extras": 6}, format="json")
         event.refresh_from_db()
-        assert event.extras == "Socks required"
+        assert event.extras == 6

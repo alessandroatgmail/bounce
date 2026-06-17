@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='event',
             name='extras',
-            field=models.TextField(blank=True, null=True),
+            field=models.TextField(default=0),
         ),
         migrations.AddField(
             model_name='event',

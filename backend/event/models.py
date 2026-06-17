@@ -105,7 +105,7 @@ class Event(models.Model):
     payment_days = models.IntegerField(verbose_name="Giorni per pagare", default=7)
     accepted_roles = models.ManyToManyField(PartnerRole, blank=True, null=True)
     warning_threshold = models.IntegerField(verbose_name="Warning Threshold", default=5)
-    extras = models.IntegerField(blank=True, null=True)
+    extras = models.IntegerField(default=0)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"

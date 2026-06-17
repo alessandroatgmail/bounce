@@ -87,6 +87,52 @@ def send_contribution_expiry_reminder_email(user_id: int, contribution_id: int) 
     print("Celery Task reminder ended")
 
 @shared_task
+def send_waiting_list_for_role_email(user_id: int, contribution_id: int) -> None:
+    User = get_user_model()
+    user = User.objects.get(pk=user_id)
+    contribution = Contribution.objects.get(pk=contribution_id)
+    event = contribution.events.first()
+    context = {
+        "user": user,
+        "contribution": contribution,
+        "event": event,
+    }
+    try:
+        mail.send(
+            user.email,
+            template="waiting_list_for_role",
+            context=context,
+            language=user.language,
+        )
+    except Exception as exc:
+        print(f"email failed user {user.email} - template waiting_list_for_role - {context}")
+        print(exc)
+
+
+@shared_task
+def send_waiting_list_max_email(user_id: int, contribution_id: int) -> None:
+    User = get_user_model()
+    user = User.objects.get(pk=user_id)
+    contribution = Contribution.objects.get(pk=contribution_id)
+    event = contribution.events.first()
+    context = {
+        "user": user,
+        "contribution": contribution,
+        "event": event,
+    }
+    try:
+        mail.send(
+            user.email,
+            template="waiting_list_max",
+            context=context,
+            language=user.language,
+        )
+    except Exception as exc:
+        print(f"email failed user {user.email} - template waiting_list_max - {context}")
+        print(exc)
+
+
+@shared_task
 def send_email_accept_email(user_id: int, contribution_id: int) -> None:
     User = get_user_model()
     user = User.objects.get(pk=user_id)

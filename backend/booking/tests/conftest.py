@@ -71,7 +71,7 @@ def subject_user(db):
 def partner_user(db):
     """A regular user who is the subject of contributions."""
     return User.objects.create_user(
-        email="subject@bounce.com",
+        email="partner@bounce.com",
         password="StrongPass123!",
         is_staff=False,
         is_active=True,

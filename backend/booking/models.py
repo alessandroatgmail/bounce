@@ -13,6 +13,7 @@ class ContributionStatus(models.TextChoices):
     CONFIRMED = "confirmed", "Confirmed"
     PAYED = "payed", "Payed"
     CANCELLED = "cancelled", "Cancelled"
+    WAITING = "waiting", "Waiting"
 
 
 class Contribution(models.Model):

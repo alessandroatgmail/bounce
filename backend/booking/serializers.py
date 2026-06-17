@@ -233,8 +233,28 @@ class UserContributionSerializer(serializers.ModelSerializer):
             service._send_contribution_email(
                 contribution,
             )
-            # check availability
-            if event.available_spot > 1:
+            accepted_roles = event.accepted_roles.all()
+            role_not_accepted = (
+                accepted_roles.exists()
+                and contribution.role is not None
+                and not accepted_roles.filter(pk=contribution.role.pk).exists()
+            )
+            at_max_capacity = event.available_spot < 1
+            if role_not_accepted:
+                contribution.status = ContributionStatus.WAITING
+                contribution.save()
+                from booking.tasks import send_waiting_list_for_role_email
+                send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
+            elif at_max_capacity:
+                contribution.status = ContributionStatus.WAITING
+                contribution.save()
+                from booking.tasks import send_waiting_list_max_email
+                send_waiting_list_max_email.delay(contribution.user.id, contribution.id)
+                if contribution.partner:
+                    partner_contribution.status = ContributionStatus.WAITING
+                    partner_contribution.save()
+                    send_waiting_list_max_email.delay(partner_contribution.user.id, partner_contribution.id)
+            elif event.available_spot >= 1:
                 contribution.status = ContributionStatus.ACCEPTED
                 contribution.save()
                 service._dispatch_change_status_email(
