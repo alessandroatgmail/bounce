@@ -128,8 +128,34 @@ services:
       kafka:
         condition: service_healthy
 
+  # ─────────────────────────────────────────────
+  # CELERY BEAT (periodic task scheduler)
+  # Must run as a single dedicated instance, separate
+  # from celery_worker, to avoid duplicate task firing
+  # if celery_worker is ever scaled to multiple replicas.
+  # ─────────────────────────────────────────────
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A core beat --loglevel=info --schedule=/app/celerybeat-data/celerybeat-schedule
+    volumes:
+      - ./backend:/app
+      - celery_beat_schedule:/app/celerybeat-data
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   zookeeper_data:
   zookeeper_logs:
   kafka_data:
+  celery_beat_schedule:

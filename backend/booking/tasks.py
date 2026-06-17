@@ -5,6 +5,9 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from post_office import mail
 import json
+from celery.utils.log import get_task_logger
+
+logger = get_task_logger(__name__)
 
 from .models import Contribution, ContributionStatus
 
@@ -20,11 +23,13 @@ def cancel_expired_contributions() -> None:
         .prefetch_related('events')
         .select_related('user')
     )
+    logger.info(f"Found {contributions.count()} ACCEPTED contributions, today={today}")
     for contribution in contributions:
         event = contribution.events.first()
         if event is None:
             continue
         deadline = contribution.date.date() + timedelta(days=event.payment_days)
+        logger.info(f"Contribution {contribution.id}: deadline={deadline}, today={today}, reminder_date={reminder_date}")
         if deadline < today:
             contribution.status = ContributionStatus.CANCELLED
             contribution.save(update_fields=['status'])
@@ -35,6 +40,7 @@ def cancel_expired_contributions() -> None:
 
 @shared_task
 def send_contribution_cancelled_email(user_id: int, contribution_id: int) -> None:
+    print ("Celery Task started")
     User = get_user_model()
     user = User.objects.get(pk=user_id)
     contribution = Contribution.objects.get(pk=contribution_id)
@@ -54,10 +60,11 @@ def send_contribution_cancelled_email(user_id: int, contribution_id: int) -> Non
     except Exception as exc:
         print(f"email failed user {user.email} - template contribution_cancelled_email - {context}")
         print(exc)
-
+    print("Celery Task ended")
 
 @shared_task
 def send_contribution_expiry_reminder_email(user_id: int, contribution_id: int) -> None:
+    print("Celery Task reminder started")
     User = get_user_model()
     user = User.objects.get(pk=user_id)
     contribution = Contribution.objects.get(pk=contribution_id)
@@ -77,7 +84,7 @@ def send_contribution_expiry_reminder_email(user_id: int, contribution_id: int) 
     except Exception as exc:
         print(f"email failed user {user.email} - template contribution_expiry_reminder_email - {context}")
         print(exc)
-
+    print("Celery Task reminder ended")
 
 @shared_task
 def send_email_accept_email(user_id: int, contribution_id: int) -> None:

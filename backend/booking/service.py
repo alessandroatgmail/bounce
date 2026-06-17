@@ -10,7 +10,7 @@ from membership.models import Membership, Discount
 from django.contrib.auth import get_user_model
 from utils.tasks import  send_email
 from event.models import Event
-from .task import send_email_accept_email
+from .tasks import send_email_accept_email
 
 def _create_partner_contribution(original: Contribution, partner: get_user_model()) -> Contribution:
     """

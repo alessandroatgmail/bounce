@@ -5,7 +5,7 @@ from django.core import mail
 from django.utils import timezone
 
 from booking.models import Contribution, ContributionStatus
-from booking.task import cancel_expired_contributions
+from booking.tasks import cancel_expired_contributions
 from event.models import Event
 from utils.mock_event import make_event_payload
 

@@ -155,12 +155,18 @@ POST_OFFICE = {
     'CELERY_ENABLED': True,
 }
 
+CELERY_TIMEZONE = 'Europe/Rome'
+
 # ── Celery Beat ────────────────────────────────────────────────────────────────
 CELERY_BEAT_SCHEDULE = {
     'cancel-expired-contributions-daily': {
-        'task': 'booking.task.cancel_expired_contributions',
-        'schedule': crontab(hour=8, minute=0),
+        'task': 'booking.tasks.cancel_expired_contributions',
+        'schedule': crontab(hour=0, minute=5),
     },
+    # 'warning-expired-contributions-daily': {
+    #     'task': 'booking.tasks.send_contribution_expiry_reminder_email',
+    #     'schedule': crontab(hour=13, minute=9),
+    # },
 }
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
