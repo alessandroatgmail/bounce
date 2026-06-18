@@ -79,6 +79,19 @@ Examples with `extras = 2`:
 - `extras = 0` means strict parity: any lead by one role blocks further bookings for that role.
 - This check is skipped when no role is provided or when `event_type.partners <= 1`.
 
+### Spot available notification
+
+When an **ACCEPTED** contribution is cancelled, the system checks whether to notify the next person on the waiting list.
+
+**Condition:** `event.available_spot >= 1` (capacity minus PAYED count). If no physical spot is open, no one is notified.
+
+**Who gets notified** depends on the current role balance at the time of cancellation:
+
+- **Roles balanced** (or no partner roles): notify the oldest `WAITING` contribution for the event, regardless of role.
+- **Roles imbalanced** (some role exceeds `lower_count + extras`): notify the oldest `WAITING` contribution for the **minority role** (the role with the lowest ACCEPTED count), to help restore balance.
+
+Only one email is sent per cancellation event. The triggered email is `spot_available_email`.
+
 ### Email templates
 
 | Template | Trigger |
@@ -90,5 +103,7 @@ Examples with `extras = 2`:
 | `registration_accepted_with_partner_email` | Couple registration accepted |
 | `waiting_list_for_role` | Role not currently open on this event |
 | `waiting_list_max` | Event at full capacity |
+| `waiting_list_for_role` | Role imbalance exceeds `extras` threshold |
+| `spot_available_email` | A spot opened and a waiting user should be notified |
 | `contribution_cancelled_email` | Contribution cancelled due to missed payment |
 | `contribution_expiry_reminder_email` | Payment deadline approaching (2 days) |

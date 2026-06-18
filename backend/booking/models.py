@@ -48,11 +48,22 @@ class Contribution(models.Model):
             self.status == ContributionStatus.CONFIRMED
             and self._previous_status != ContributionStatus.CONFIRMED
         )
+        was_accepted_now_cancelled = (
+            self._previous_status == ContributionStatus.ACCEPTED
+            and self.status == ContributionStatus.CANCELLED
+        )
         super().save(*args, **kwargs)
 
         if is_confirmation:
             from booking.utils import sync_bookings
             sync_bookings(self.user, added_events=list(self.events.all()), removed_events=[])
+
+        if was_accepted_now_cancelled:
+            event = self.events.first()
+            if event:
+                from booking.tasks import notify_next_waiting
+                notify_next_waiting.delay(event.id, self.role_id)
+
         self._previous_status = self.status
 
     @property

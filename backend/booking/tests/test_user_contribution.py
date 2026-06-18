@@ -1257,3 +1257,182 @@ class TestRoleImbalance:
         )
         assert response.status_code == http_status.HTTP_201_CREATED
         assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+
+# ── Spot available notification ────────────────────────────────────────────────
+
+class TestSpotAvailableNotification:
+    """
+    When an ACCEPTED contribution is cancelled, notify the correct WAITING user.
+
+    - If available_spot < 1 → no notification
+    - If balanced (or no roles) → notify oldest WAITING overall
+    - If imbalanced → notify oldest WAITING for the minority role
+    """
+
+    def _make_couple_event(self, capacity=20, extras=0):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = capacity
+        event.extras = extras
+        event.accepted_roles.set([leader, follower])
+        event.save()
+        return event, leader, follower
+
+    def _contribution(self, user, event, status, role=None):
+        c = Contribution.objects.create(amount=50, user=user, status=status, role=role)
+        c.events.add(event)
+        return c
+
+    def test_oldest_waiting_notified_when_accepted_cancelled(
+        self, world_data, student_user, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+        self._contribution(student_user, event, ContributionStatus.WAITING)
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert student_user.email in spot_emails[0].to
+
+    def test_only_oldest_waiting_notified_not_newer(
+        self, world_data, student_user, subject_user, partner_user, db
+    ):
+        from django.core import mail
+        from datetime import timedelta
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+        older = self._contribution(student_user, event, ContributionStatus.WAITING)
+        self._contribution(partner_user, event, ContributionStatus.WAITING)
+        Contribution.objects.filter(pk=older.pk).update(date=older.date - timedelta(hours=1))
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert student_user.email in spot_emails[0].to
+        assert partner_user.email not in {e.to[0] for e in spot_emails}
+
+    def test_no_email_when_no_waiting_contributions(
+        self, world_data, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        assert not any("disponibile" in e.subject for e in mail.outbox)
+
+    def test_no_email_when_no_available_spot(
+        self, world_data, student_user, subject_user, db
+    ):
+        """available_spot = capacity - PAYED; if 0 we should stay silent."""
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 1
+        event.save()
+        other = User.objects.create_user(email="other@test.com", password="pass", is_active=True)
+        self._contribution(other, event, ContributionStatus.PAYED)
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+        self._contribution(student_user, event, ContributionStatus.WAITING)
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        assert not any("disponibile" in e.subject for e in mail.outbox)
+
+    def test_non_accepted_cancellation_does_not_notify(
+        self, world_data, student_user, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        received = self._contribution(subject_user, event, ContributionStatus.RECEIVED)
+        self._contribution(student_user, event, ContributionStatus.WAITING)
+
+        received.status = ContributionStatus.CANCELLED
+        received.save()
+
+        assert not any("disponibile" in e.subject for e in mail.outbox)
+
+    def test_imbalanced_event_notifies_minority_role(
+        self, world_data, student_user, subject_user, db
+    ):
+        """
+        Leaders=2 ACCEPTED, Followers=0, extras=0 → imbalanced.
+        Cancel one leader → leaders=1 > 0+0 → still imbalanced.
+        Minority role is follower → notify oldest WAITING follower.
+        """
+        from django.core import mail
+
+        event, leader, follower = self._make_couple_event(capacity=20, extras=0)
+        other = User.objects.create_user(email="other@test.com", password="pass", is_active=True)
+        waiting_leader_user = User.objects.create_user(email="wl@test.com", password="pass", is_active=True)
+
+        self._contribution(other, event, ContributionStatus.ACCEPTED, role=leader)
+        accepted_leader = self._contribution(subject_user, event, ContributionStatus.ACCEPTED, role=leader)
+        self._contribution(student_user, event, ContributionStatus.WAITING, role=follower)
+        self._contribution(waiting_leader_user, event, ContributionStatus.WAITING, role=leader)
+
+        accepted_leader.status = ContributionStatus.CANCELLED
+        accepted_leader.save()
+
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert student_user.email in spot_emails[0].to
+
+    def test_balanced_event_notifies_oldest_waiting_overall(
+        self, world_data, student_user, subject_user, db
+    ):
+        """
+        After cancellation roles are balanced → notify oldest WAITING regardless of role.
+        """
+        from django.core import mail
+        from datetime import timedelta
+
+        event, leader, follower = self._make_couple_event(capacity=20, extras=1)
+        other = User.objects.create_user(email="other@test.com", password="pass", is_active=True)
+        newer_user = User.objects.create_user(email="newer@test.com", password="pass", is_active=True)
+
+        accepted_leader = self._contribution(subject_user, event, ContributionStatus.ACCEPTED, role=leader)
+        self._contribution(other, event, ContributionStatus.ACCEPTED, role=follower)
+
+        older_waiting = self._contribution(student_user, event, ContributionStatus.WAITING)
+        self._contribution(newer_user, event, ContributionStatus.WAITING)
+        Contribution.objects.filter(pk=older_waiting.pk).update(date=older_waiting.date - timedelta(hours=1))
+
+        accepted_leader.status = ContributionStatus.CANCELLED
+        accepted_leader.save()
+
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert student_user.email in spot_emails[0].to

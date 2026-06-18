@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
+from django.db.models import Count, Min, Q
 from django.utils import timezone
 from post_office import mail
 import json
@@ -129,6 +130,80 @@ def send_waiting_list_max_email(user_id: int, contribution_id: int) -> None:
         )
     except Exception as exc:
         print(f"email failed user {user.email} - template waiting_list_max - {context}")
+        print(exc)
+
+
+@shared_task
+def notify_next_waiting(event_id: int, role_id: int = None) -> None:
+    from event.models import Event
+
+    event = Event.objects.select_related('event_type').get(pk=event_id)
+
+    if event.available_spot < 1:
+        return
+
+    lower_role_id = None
+    role_imbalance = False
+
+    if event.event_type.partners > 1:
+        role_counts = event.event_type.partner_roles.annotate(
+            count=Count(
+                'contribution',
+                filter=Q(
+                    contribution__events=event,
+                    contribution__status=ContributionStatus.ACCEPTED,
+                ),
+                distinct=True,
+            )
+        )
+        lower_count = role_counts.aggregate(min_count=Min('count'))['min_count'] or 0
+        if role_counts.filter(count__gt=lower_count + event.extras).exists():
+            role_imbalance = True
+            lower_role_id = role_counts.order_by('count').values_list('id', flat=True).first()
+
+    if role_imbalance and lower_role_id is not None:
+        waiting = (
+            Contribution.objects.filter(
+                events=event,
+                status=ContributionStatus.WAITING,
+                role_id=lower_role_id,
+            )
+            .order_by('date')
+            .select_related('user')
+            .first()
+        )
+    else:
+        waiting = (
+            Contribution.objects.filter(events=event, status=ContributionStatus.WAITING)
+            .order_by('date')
+            .select_related('user')
+            .first()
+        )
+
+    if waiting:
+        send_spot_available_email.delay(waiting.user.id, waiting.id)
+
+
+@shared_task
+def send_spot_available_email(user_id: int, contribution_id: int) -> None:
+    User = get_user_model()
+    user = User.objects.get(pk=user_id)
+    contribution = Contribution.objects.get(pk=contribution_id)
+    event = contribution.events.first()
+    context = {
+        "user": user,
+        "contribution": contribution,
+        "event": event,
+    }
+    try:
+        mail.send(
+            user.email,
+            template="spot_available_email",
+            context=context,
+            language=user.language,
+        )
+    except Exception as exc:
+        print(f"email failed user {user.email} - template spot_available_email - {context}")
         print(exc)
 
 
