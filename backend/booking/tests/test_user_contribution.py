@@ -1307,6 +1307,8 @@ class TestSpotAvailableNotification:
         spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
         assert len(spot_emails) == 1
         assert student_user.email in spot_emails[0].to
+        waiting_c = Contribution.objects.filter(user=student_user, events=event).first()
+        assert waiting_c.status == ContributionStatus.ACCEPTED
 
     def test_only_oldest_waiting_notified_not_newer(
         self, world_data, student_user, subject_user, partner_user, db
@@ -1320,7 +1322,7 @@ class TestSpotAvailableNotification:
         event.save()
         accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
         older = self._contribution(student_user, event, ContributionStatus.WAITING)
-        self._contribution(partner_user, event, ContributionStatus.WAITING)
+        newer = self._contribution(partner_user, event, ContributionStatus.WAITING)
         Contribution.objects.filter(pk=older.pk).update(date=older.date - timedelta(hours=1))
 
         accepted.status = ContributionStatus.CANCELLED
@@ -1330,6 +1332,10 @@ class TestSpotAvailableNotification:
         assert len(spot_emails) == 1
         assert student_user.email in spot_emails[0].to
         assert partner_user.email not in {e.to[0] for e in spot_emails}
+        older.refresh_from_db()
+        assert older.status == ContributionStatus.ACCEPTED
+        newer.refresh_from_db()
+        assert newer.status == ContributionStatus.WAITING
 
     def test_no_email_when_no_waiting_contributions(
         self, world_data, subject_user, db
@@ -1409,6 +1415,8 @@ class TestSpotAvailableNotification:
         spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
         assert len(spot_emails) == 1
         assert student_user.email in spot_emails[0].to
+        promoted = Contribution.objects.filter(user=student_user, events=event).first()
+        assert promoted.status == ContributionStatus.ACCEPTED
 
     def test_balanced_event_notifies_oldest_waiting_overall(
         self, world_data, student_user, subject_user, db
@@ -1436,3 +1444,5 @@ class TestSpotAvailableNotification:
         spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
         assert len(spot_emails) == 1
         assert student_user.email in spot_emails[0].to
+        older_waiting.refresh_from_db()
+        assert older_waiting.status == ContributionStatus.ACCEPTED

@@ -181,6 +181,8 @@ def notify_next_waiting(event_id: int, role_id: int = None) -> None:
         )
 
     if waiting:
+        waiting.status = ContributionStatus.ACCEPTED
+        waiting.save(update_fields=['status'])
         send_spot_available_email.delay(waiting.user.id, waiting.id)
 
 
