@@ -50,7 +50,34 @@ An event can restrict which roles are currently open for booking via `Event.acce
 - If the user's role is **not** in `event.accepted_roles` (and the field is non-empty):
   - Status → `WAITING`
   - A **waiting list for role email** (`waiting_list_for_role`) is sent to the user.
-  - This check takes priority over the capacity check.
+  - This check takes priority over the capacity check and the imbalance check.
+
+### Role balance (extras)
+
+For partner events (`event_type.partners > 1`), `Event.extras` controls how much one role can outnumber another before new bookings for the over-represented role are held back.
+
+The check counts **ACCEPTED** contributions per role and compares the new booking's role against the least-booked role:
+
+```
+role_counts  = ACCEPTED contributions per role (roles with 0 bookings count as 0)
+lower_count  = min(role_counts)
+new_role_count = ACCEPTED count for the role being booked
+
+if new_role_count > lower_count + event.extras → WAITING
+```
+
+Examples with `extras = 2`:
+
+| Leaders (ACCEPTED) | Followers (ACCEPTED) | New booking | Result |
+|---|---|---|---|
+| 0 | 0 | Leader | Accepted (0 > 0+2 is false) |
+| 2 | 0 | Leader | Accepted (2 > 0+2 is false) |
+| 3 | 0 | Leader | Waiting (3 > 0+2) |
+| 1 | 0 | Follower | Accepted (0 > 0+2 is false — minority role always allowed) |
+
+- When a booking is put on waiting due to imbalance, a **waiting list for role email** (`waiting_list_for_role`) is sent to the user.
+- `extras = 0` means strict parity: any lead by one role blocks further bookings for that role.
+- This check is skipped when no role is provided or when `event_type.partners <= 1`.
 
 ### Email templates
 

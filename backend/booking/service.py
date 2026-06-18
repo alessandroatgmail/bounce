@@ -92,3 +92,7 @@ def _apply_couple_discount(*contributions: Contribution) -> None:
         return
     for contribution in contributions:
         contribution.discounts.add(couple_discount)
+
+#################################################
+######             STATUS RULES             #####
+#################################################

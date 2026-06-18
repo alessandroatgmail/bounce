@@ -1123,3 +1123,137 @@ class TestWaitingListMaxCapacity:
         recipients = {e.to[0] for e in max_emails}
         assert student_user.email in recipients
         assert partner_user.email in recipients
+
+
+# ── Role imbalance (extras) ────────────────────────────────────────────────────
+
+class TestRoleImbalance:
+    """
+    When one role already has more than lower_count + event.extras ACCEPTED
+    contributions, the new contribution for that role goes to WAITING.
+    """
+
+    def _make_couple_event(self, capacity=20, extras=0):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = capacity
+        event.extras = extras
+        event.accepted_roles.set([leader, follower])
+        event.save()
+        return event, leader, follower
+
+    def _accepted_contribution(self, user, event, role):
+        c = Contribution.objects.create(
+            amount=50, user=user, status=ContributionStatus.ACCEPTED, role=role,
+        )
+        c.events.add(event)
+        return c
+
+    def test_no_existing_bookings_is_accepted(
+        self, world_data, student_client, student_user, db
+    ):
+        """0 leaders, 0 followers, extras=0 → new leader → ACCEPTED (0 > 0+0 is False)."""
+        event, leader, _ = self._make_couple_event(extras=0)
+        m = make_membership()
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+    def test_imbalance_exceeds_extras_goes_to_waiting(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        """1 leader ACCEPTED, 0 followers, extras=0 → new leader: 1 > 0+0 → WAITING."""
+        event, leader, _ = self._make_couple_event(extras=0)
+        m = make_membership()
+        self._accepted_contribution(subject_user, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.WAITING
+
+    def test_at_extras_boundary_is_accepted(
+        self, world_data, student_client, student_user, db
+    ):
+        """2 leaders ACCEPTED, 0 followers, extras=2 → new leader: 2 > 0+2 is False → ACCEPTED."""
+        event, leader, _ = self._make_couple_event(extras=2)
+        m = make_membership()
+        for i in range(2):
+            u = User.objects.create_user(email=f"extra{i}@test.com", password="pass", is_active=True)
+            self._accepted_contribution(u, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+    def test_beyond_extras_boundary_goes_to_waiting(
+        self, world_data, student_client, student_user, db
+    ):
+        """3 leaders ACCEPTED, 0 followers, extras=2 → new leader: 3 > 0+2 → WAITING."""
+        event, leader, _ = self._make_couple_event(extras=2)
+        m = make_membership()
+        for i in range(3):
+            u = User.objects.create_user(email=f"extra{i}@test.com", password="pass", is_active=True)
+            self._accepted_contribution(u, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.WAITING
+
+    def test_minority_role_is_accepted_despite_imbalance(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        """1 leader ACCEPTED, 0 followers, extras=0 → new follower: 0 > 0+0 is False → ACCEPTED."""
+        event, leader, follower = self._make_couple_event(extras=0)
+        m = make_membership()
+        self._accepted_contribution(subject_user, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": follower.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+    def test_imbalance_sends_waiting_list_email(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        """Role imbalance waiting must trigger the waiting-list-for-role email."""
+        from django.core import mail
+        event, leader, _ = self._make_couple_event(extras=0)
+        m = make_membership()
+        self._accepted_contribution(subject_user, event, leader)
+        student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        waiting_emails = [e for e in mail.outbox if "attesa" in e.subject]
+        assert len(waiting_emails) == 1
+        assert student_user.email in waiting_emails[0].to
+
+    def test_imbalance_check_skipped_for_non_partner_event(
+        self, world_data, student_client, student_user, db
+    ):
+        """event_type.partners <= 1 → no imbalance check → ACCEPTED."""
+        et = make_event_type()  # partners=0 by default
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        m = make_membership()
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED

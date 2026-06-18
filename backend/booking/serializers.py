@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from . import service
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from django.db.models import Count, Min, Q
 from rest_framework import serializers
 from config.models import SiteSettings
 from event.models import Event, PartnerRole
@@ -240,7 +241,34 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 and not accepted_roles.filter(pk=contribution.role.pk).exists()
             )
             at_max_capacity = event.available_spot < 1
+
+            role_imbalance = False
+            if contribution.role is not None and event.event_type.partners > 1:
+                role_counts = event.event_type.partner_roles.annotate(
+                    count=Count(
+                        'contribution',
+                        filter=Q(
+                            contribution__events=event,
+                            contribution__status=ContributionStatus.ACCEPTED,
+                        ),
+                        distinct=True,
+                    )
+                )
+                lower_count = role_counts.aggregate(min_count=Min('count'))['min_count'] or 0
+                new_role_count = (
+                    role_counts.filter(pk=contribution.role_id)
+                    .values_list('count', flat=True)
+                    .first() or 0
+                )
+                if new_role_count > lower_count + event.extras:
+                    role_imbalance = True
+
             if role_not_accepted:
+                contribution.status = ContributionStatus.WAITING
+                contribution.save()
+                from booking.tasks import send_waiting_list_for_role_email
+                send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
+            elif role_imbalance:
                 contribution.status = ContributionStatus.WAITING
                 contribution.save()
                 from booking.tasks import send_waiting_list_for_role_email
