@@ -134,6 +134,21 @@ class ContributionSerializer(serializers.ModelSerializer):
         return instance
 
 
+class LinkedContributionSerializer(serializers.ModelSerializer):
+    """Embedded representation of a related contribution (possibly owned by another user)."""
+    events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    membership = MembershipSerializer(read_only=True)
+    discounts = DiscountSerializer(many=True, read_only=True)
+    discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    role = serializers.StringRelatedField(read_only=True)
+    partner = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = Contribution
+        fields = ['id', 'status', 'amount', 'discounted_amount', 'events',
+                  'membership', 'discounts', 'role', 'partner']
+
+
 class UserContributionSerializer(serializers.ModelSerializer):
     membership = MembershipSerializer(read_only=True)
     membership_id = serializers.PrimaryKeyRelatedField(
@@ -144,6 +159,8 @@ class UserContributionSerializer(serializers.ModelSerializer):
         queryset=Event.objects.all(), write_only=True, required=False, allow_null=True,
     )
     upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
+    original_contribution = LinkedContributionSerializer(read_only=True, allow_null=True)
+    twin_contributions = LinkedContributionSerializer(many=True, read_only=True)
     partner_email = serializers.EmailField(required=False)
     partner_id = serializers.PrimaryKeyRelatedField(
         queryset=get_user_model().objects.filter(is_active=True), write_only=True, required=False,
@@ -159,11 +176,13 @@ class UserContributionSerializer(serializers.ModelSerializer):
         model = Contribution
         fields = [
             'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
-            'amount', 'start_date', 'end_date', 'upgraded_from', 'partner_email',
+            'amount', 'start_date', 'end_date', 'upgraded_from', 'original_contribution',
+            'twin_contributions', 'partner_email',
             'partner_id', 'role_id', 'role', 'partner',
             'discounts', 'discounted_amount',
         ]
-        read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',]
+        read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',
+                            'original_contribution', 'twin_contributions']
 
     def validate_event_id(self, event_id):
         if service._validate_double_registrations(user=self.context["request"].user, event=event_id):

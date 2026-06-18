@@ -57,8 +57,22 @@ class UserContributionViewSet(
         return (
             Contribution.objects
             .filter(user=self.request.user)
-            .select_related('membership')
-            .prefetch_related('events', 'membership__membershiprule_set__event_type')
+            .select_related(
+                'membership', 'role',
+                'original_contribution__membership',
+                'original_contribution__role',
+            )
+            .prefetch_related(
+                'events', 'discounts',
+                'original_contribution__events',
+                'original_contribution__discounts',
+                'twin_contributions',
+                'twin_contributions__events',
+                'twin_contributions__discounts',
+                'twin_contributions__membership',
+                'twin_contributions__role',
+                'membership__membershiprule_set__event_type',
+            )
         )
 
     def perform_create(self, serializer):
