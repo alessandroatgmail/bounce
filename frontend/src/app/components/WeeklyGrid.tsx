@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, Loader2, AlertTriangle, Upload, X } from 'lucide-react';
+import { Plus, Loader2, AlertTriangle, Upload, X, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { type EventItem, type EventPayload } from '../hooks/useEvents';
 import { useEventTypes } from '../hooks/useEventTypes';
@@ -17,6 +17,8 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Calendar } from './ui/calendar';
 import { authFetch, authFetchFile } from '../../lib/api';
 
 // ── Grid constants ─────────────────────────────────────────────────────────────
@@ -83,6 +85,18 @@ function toISO(date: string, totalMin: number) {
   const h = Math.floor(totalMin / 60) % 24;
   const m = totalMin % 60;
   return `${date}T${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:00`;
+}
+
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getWeekMonday(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun…6=Sat
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
 }
 
 function computeLanes(events: EventItem[]): Map<number, number> {
@@ -513,6 +527,7 @@ function LaneColumn({
 
 function DayColumn({
   dayIndex,
+  date,
   dayEvents,
   minLanes,
   onAddLane,
@@ -521,6 +536,7 @@ function DayColumn({
   onEventDrop,
 }: {
   dayIndex: number;
+  date: string; // "YYYY-MM-DD" of this column in the selected week
   dayEvents: EventItem[];
   minLanes: number;
   onAddLane: () => void;
@@ -544,7 +560,12 @@ function DayColumn({
         className="sticky top-0 z-20 bg-gray-50 border-l border-b px-2 py-1.5 flex items-center justify-between"
         style={{ width: totalLanes * LANE_W }}
       >
-        <span className="text-xs font-semibold text-gray-700">{WEEKDAY_NAMES[dayIndex]}</span>
+        <span className="text-xs font-semibold text-gray-700">
+          {WEEKDAY_NAMES[dayIndex]}
+          <span className="ml-1 font-normal text-gray-400">
+            {new Date(date + 'T00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+          </span>
+        </span>
         <button onClick={onAddLane} className="text-gray-400 hover:text-[#e67e22] transition-colors" title="Add lane">
           <Plus className="size-3.5" />
         </button>
@@ -586,6 +607,23 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
   const [minLanes, setMinLanes] = useState<Record<number, number>>({});
   const [addingSlot, setAddingSlot] = useState<WeekSlot | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [weekMonday, setWeekMonday] = useState<Date>(() => getWeekMonday(new Date()));
+  const [calOpen, setCalOpen] = useState(false);
+
+  const prevWeek = () => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; });
+  const nextWeek = () => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; });
+  const goToday  = () => setWeekMonday(getWeekMonday(new Date()));
+
+  // Dates for Mon–Fri of the selected week
+  const weekDates = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(weekMonday);
+    d.setDate(d.getDate() + i);
+    return toDateStr(d);
+  });
+
+  const weekFriday = new Date(weekMonday);
+  weekFriday.setDate(weekFriday.getDate() + 4);
+  const weekLabel = `${weekMonday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${weekFriday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
   // Weekly parent events only: weekly frequency + not a child of another event
   const childIds = new Set(allEvents.flatMap(e => e.events));
@@ -593,9 +631,17 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
     e.event_type.frequency === 'weekly' && !childIds.has(e.id)
   );
 
-  // Group by day of week (0=Mon…4=Fri); ignore weekend events
+  // Keep only events whose day in the selected week falls within [start_date, end_date]
+  const visibleEvents = weeklyParents.filter(ev => {
+    const dayIdx = getDayIndex(ev.start_date);
+    if (dayIdx < 0 || dayIdx > 4) return false;
+    const dayDateStr = weekDates[dayIdx];
+    return dayDateStr >= ev.start_date.slice(0, 10) && dayDateStr <= ev.end_date.slice(0, 10);
+  });
+
+  // Group by day of week (0=Mon…4=Fri)
   const byDay: EventItem[][] = Array.from({ length: 5 }, () => []);
-  weeklyParents.forEach(ev => {
+  visibleEvents.forEach(ev => {
     const d = getDayIndex(ev.start_date);
     if (d >= 0 && d <= 4) byDay[d].push(ev);
   });
@@ -640,6 +686,39 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
 
   return (
     <div className="space-y-2">
+      {/* Week selector */}
+      <div className="flex items-center gap-1">
+        <button onClick={prevWeek} className="p-1 rounded hover:bg-gray-100 transition-colors" title="Previous week">
+          <ChevronLeft className="size-4 text-gray-600" />
+        </button>
+        <button onClick={nextWeek} className="p-1 rounded hover:bg-gray-100 transition-colors" title="Next week">
+          <ChevronRight className="size-4 text-gray-600" />
+        </button>
+        <Popover open={calOpen} onOpenChange={setCalOpen}>
+          <PopoverTrigger asChild>
+            <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+              <CalendarDays className="size-4 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">{weekLabel}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="range"
+              selected={{ from: weekMonday, to: weekFriday }}
+              onDayClick={(day) => {
+                setWeekMonday(getWeekMonday(day));
+                setCalOpen(false);
+              }}
+              weekStartsOn={1}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+        <button onClick={goToday} className="ml-1 text-xs text-gray-500 hover:text-[#e67e22] underline transition-colors">
+          Today
+        </button>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="size-5 animate-spin text-gray-400" /></div>
       ) : (
@@ -667,6 +746,7 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
               <DayColumn
                 key={i}
                 dayIndex={i}
+                date={weekDates[i]}
                 dayEvents={evs}
                 minLanes={minLanes[i] ?? 1}
                 onAddLane={() => setMinLanes(prev => ({ ...prev, [i]: (prev[i] ?? 1) + 1 }))}
