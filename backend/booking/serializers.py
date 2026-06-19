@@ -104,9 +104,19 @@ class ContributionSerializer(serializers.ModelSerializer):
         contribution = Contribution.objects.create(**validated_data)
         contribution.events.set(events)
         contribution.discounts.set(discounts)
-        if contribution.membership and contribution.membership.duration:
-            contribution.end_date = timezone.now() + relativedelta(months=contribution.membership.duration)
-            contribution.save(update_fields=['end_date'])
+        if contribution.membership:
+            first_event = events[0] if events else None
+            start_date, end_date = service._contribution_date_range(contribution.membership, first_event)
+            if start_date is None:
+                start_date = timezone.now()
+            if end_date is None and contribution.membership.duration:
+                end_date = start_date + relativedelta(months=contribution.membership.duration)
+            contribution.start_date = start_date
+            update_fields = ['start_date']
+            if end_date:
+                contribution.end_date = end_date
+                update_fields.append('end_date')
+            contribution.save(update_fields=update_fields)
         return contribution
 
     def update(self, instance, validated_data):

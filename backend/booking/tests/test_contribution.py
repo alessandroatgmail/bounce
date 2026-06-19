@@ -166,6 +166,39 @@ class TestContributionCRUD:
         assert len(res.data) == 2
 
 
+# ── start_date assignment ─────────────────────────────────────────────────────
+
+class TestContributionStartDate:
+
+    def _create_via_api(self, admin_client, subject_user, event, membership):
+        payload = make_contribution_payload(
+            subject_user,
+            event_ids=[event.pk],
+            membership_id=membership.pk,
+        )
+        return admin_client.post(LIST_URL, payload, format="json")
+
+    def test_future_event_start_date_is_event_start(self, admin_client, subject_user, world_data):
+        now = timezone.now()
+        future_event = make_event_at(now + timedelta(days=10))
+        membership = Membership.objects.create(name="Pass", contribution=100)
+        res = self._create_via_api(admin_client, subject_user, future_event, membership)
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.start_date is not None
+        assert abs((c.start_date - future_event.start_date).total_seconds()) < 1
+
+    def test_past_event_start_date_is_now(self, admin_client, subject_user, world_data):
+        now = timezone.now()
+        past_event = make_event_at(now - timedelta(days=10))
+        membership = Membership.objects.create(name="Pass", contribution=100)
+        res = self._create_via_api(admin_client, subject_user, past_event, membership)
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.start_date is not None
+        assert c.start_date >= now - timedelta(seconds=5)
+
+
 # ── Booking sync helpers ──────────────────────────────────────────────────────
 
 def confirm_contribution(contribution):

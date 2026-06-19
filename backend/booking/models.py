@@ -25,7 +25,7 @@ class Contribution(models.Model):
     events = models.ManyToManyField(Event, blank=True, related_name='contributions')
     membership = models.ForeignKey(Membership, on_delete=models.PROTECT, null=True, blank=True,
                                    related_name='contributions')
-    start_date = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     upgraded_from = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True)
     role = models.ForeignKey(PartnerRole, on_delete=models.PROTECT, null=True, blank=True)
