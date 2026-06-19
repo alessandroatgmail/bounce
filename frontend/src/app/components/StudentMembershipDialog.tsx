@@ -29,12 +29,18 @@ const CONTRIBUTION_STATUSES: { value: ContributionStatus; labelIt: string; label
   { value: 'received',  labelIt: 'Ricevuto',   labelEn: 'Received'  },
   { value: 'accepted',  labelIt: 'Accettato',  labelEn: 'Accepted'  },
   { value: 'confirmed', labelIt: 'Confermato', labelEn: 'Confirmed' },
+  { value: 'payed',     labelIt: 'Pagato',     labelEn: 'Paid'      },
+  { value: 'cancelled', labelIt: 'Annullato',  labelEn: 'Cancelled' },
+  { value: 'waiting',   labelIt: 'In attesa',  labelEn: 'Waiting'   },
 ];
 
 const STATUS_BADGE: Record<ContributionStatus, string> = {
   received:  'bg-yellow-100 text-yellow-800 border-yellow-200',
   accepted:  'bg-blue-100 text-blue-800 border-blue-200',
   confirmed: 'bg-green-100 text-green-800 border-green-200',
+  payed:     'bg-purple-100 text-purple-800 border-purple-200',
+  cancelled: 'bg-red-100 text-red-800 border-red-200',
+  waiting:   'bg-gray-100 text-gray-600 border-gray-200',
 };
 
 interface FormState {
