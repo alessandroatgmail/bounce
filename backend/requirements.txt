@@ -46,6 +46,9 @@ django-colorfield==0.11.0
 qrcode[pil]==8.0
 Pillow==11.2.1
 
+# Stripe payments
+stripe==15.2.0
+
 # Testing
 pytest-django==4.9.0
 pytest==8.3.5

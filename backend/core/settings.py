@@ -180,6 +180,11 @@ CSRF_TRUSTED_ORIGINS = env.list(
     default=["http://localhost"]
 )
 
+# ── Stripe ─────────────────────────────────────────────────────────────────────
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", default="")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

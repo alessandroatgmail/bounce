@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { CreditCard, Crown, FileText, XCircle, Loader2, ChevronDown, ArrowRightLeft } from 'lucide-react';
 import type { CheckoutItem } from '../pages/CheckoutPage';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -213,6 +213,14 @@ export function PaymentsSection() {
   const { language } = useLanguage();
   const lang = language === 'it' ? 'it' : 'en';
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const validTabs = ['transactions', 'memberships', 'topay'] as const;
+  type PayTab = typeof validTabs[number];
+  const initialTab = (() => {
+    const t = new URLSearchParams(location.search).get('tab') as PayTab | null;
+    return t && (validTabs as readonly string[]).includes(t) ? t : 'transactions';
+  })();
 
   const { userMemberships, loading: contribLoading } = useUserMemberships(accessToken);
   const { events: allEvents } = useEvents(accessToken);
@@ -289,7 +297,7 @@ export function PaymentsSection() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <Tabs defaultValue="transactions">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="bg-[#2b2b2b] mb-6">
           <TabsTrigger value="transactions" className="data-[state=active]:bg-[#e67e22] data-[state=active]:text-white text-gray-300">
             {lang === 'it' ? 'Pagamenti' : 'Transactions'}

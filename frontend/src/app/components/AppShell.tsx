@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone, QrCode } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
@@ -22,11 +22,20 @@ const SECTION_LABELS = {
   qrcode:   { it: 'QR Code',   en: 'QR Code'  },
 };
 
+const VALID_SECTIONS: Section[] = ['events', 'payments', 'profile', 'contacts', 'qrcode'];
+
 export function AppShell() {
   const { user, logout, setAdminViewMode, accessToken: _token } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
-  const [activeSection, setActiveSection] = useState<Section>('events');
+  const location = useLocation();
+
+  const initialSection = (() => {
+    const s = new URLSearchParams(location.search).get('section') as Section | null;
+    return s && VALID_SECTIONS.includes(s) ? s : 'events';
+  })();
+
+  const [activeSection, setActiveSection] = useState<Section>(initialSection);
 
   const isGuest = !user;
   const initials = user?.name.split(' ').map(n => n[0]).join('').toUpperCase() ?? '';
