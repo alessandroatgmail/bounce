@@ -10,6 +10,7 @@ import { Activate } from './pages/Activate';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
 import { Layout } from './components/Layout';
+import { CheckoutPage } from './pages/CheckoutPage';
 
 export const router = createBrowserRouter([
   {
@@ -43,6 +44,10 @@ export const router = createBrowserRouter([
       {
         path: 'reset-password/:uid/:token',
         Component: ResetPassword,
+      },
+      {
+        path: 'checkout',
+        Component: CheckoutPage,
       },
       {
         path: 'admin',

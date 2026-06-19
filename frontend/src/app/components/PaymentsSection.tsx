@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { CreditCard, Crown, FileText, XCircle, Loader2, ChevronDown, ArrowRightLeft } from 'lucide-react';
+import type { CheckoutItem } from '../pages/CheckoutPage';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
@@ -210,6 +212,7 @@ export function PaymentsSection() {
   const { user, accessToken } = useAuth();
   const { language } = useLanguage();
   const lang = language === 'it' ? 'it' : 'en';
+  const navigate = useNavigate();
 
   const { userMemberships, loading: contribLoading } = useUserMemberships(accessToken);
   const { events: allEvents } = useEvents(accessToken);
@@ -263,6 +266,26 @@ export function PaymentsSection() {
     const c = contribMap.get(id) ?? linkedMap.get(id);
     return sum + (c ? parseFloat(c.discounted_amount) : 0);
   }, 0);
+
+  const goToCheckout = () => {
+    const items: CheckoutItem[] = [...selected].map(id => {
+      const c = contribMap.get(id) ?? linkedMap.get(id);
+      if (!c) return null;
+      const firstEventId = c.events[0];
+      const eventName = firstEventId != null ? (eventMap.get(firstEventId)?.name ?? `#${id}`) : `#${id}`;
+      return {
+        id: c.id,
+        eventName,
+        membershipName: c.membership?.name ?? '—',
+        role: c.role,
+        partner: c.partner,
+        amount: c.amount,
+        discounted_amount: c.discounted_amount,
+        discounts: c.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
+      };
+    }).filter((x): x is CheckoutItem => x !== null);
+    navigate('/checkout', { state: { items } });
+  };
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -532,7 +555,7 @@ export function PaymentsSection() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               {selected.size > 0 ? (
-                <Button className="ml-auto bg-[#e67e22] hover:bg-[#d47420]">
+                <Button className="ml-auto bg-[#e67e22] hover:bg-[#d47420]" onClick={goToCheckout}>
                   <CreditCard className="size-4 mr-2" />
                   {lang === 'it'
                     ? `Paga selezionati (€${totalSelected.toFixed(2)})`
