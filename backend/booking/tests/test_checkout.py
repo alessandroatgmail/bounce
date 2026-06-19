@@ -211,6 +211,28 @@ class TestStripeWebhook:
 
         assert res.status_code == 400
 
+    @patch("booking.views_checkout.send_email_task.delay")
+    @patch("booking.views_checkout.stripe.Webhook.construct_event")
+    def test_completed_event_sends_payment_email(
+        self, mock_construct, mock_send_email, client, accepted_contribution
+    ):
+        mock_construct.return_value = _mock_event([accepted_contribution.id])
+
+        client.post(
+            WEBHOOK_URL,
+            data=json.dumps({}),
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="t=1,v1=abc",
+        )
+
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        assert call_args[0][0] == accepted_contribution.user.id
+        assert call_args[1]['template'] == 'payment_success_email'
+        context = call_args[1]['context']
+        assert context['first_name'] == accepted_contribution.user.first_name
+        assert context['amount'] == str(accepted_contribution.discounted_amount)
+
     @patch("booking.views_checkout.stripe.Webhook.construct_event")
     def test_missing_contribution_ids_in_metadata_does_not_crash(
         self, mock_construct, client

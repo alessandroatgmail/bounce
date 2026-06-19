@@ -7,6 +7,23 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Contribution, ContributionStatus
+from utils.tasks import send_email as send_email_task
+
+
+def _send_payment_emails(contributions):
+    for c in contributions:
+        first_event = c.events.first()
+        send_email_task.delay(
+            c.user.id,
+            template='payment_success_email',
+            context={
+                'first_name': c.user.first_name,
+                'event_name': first_event.name if first_event else '—',
+                'membership_name': c.membership.name if c.membership else '—',
+                'amount': str(c.discounted_amount),
+                'url': settings.FRONTEND_URL + '/?section=payments',
+            },
+        )
 
 
 @api_view(['POST'])
@@ -105,8 +122,10 @@ def stripe_webhook(request):
         raw_ids = metadata['contribution_ids'] if (metadata and 'contribution_ids' in metadata) else ''
         ids = [i for i in raw_ids.split(',') if i]
         if ids:
-            Contribution.objects.filter(id__in=ids).update(
-                status=ContributionStatus.PAYED
-            )
+            contributions = Contribution.objects.filter(id__in=ids).select_related(
+                'user', 'membership'
+            ).prefetch_related('events')
+            contributions.update(status=ContributionStatus.PAYED)
+            _send_payment_emails(contributions)
 
     return Response({'status': 'ok'})
