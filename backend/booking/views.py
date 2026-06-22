@@ -7,12 +7,14 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
+from django.conf import settings
 from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from .models import Booking, Contribution, ContributionStatus
 from .serializers import ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
+from utils.tasks import send_email
 
 
 class UserBookingViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -48,6 +50,7 @@ class UserContributionViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = UserContributionSerializer
@@ -143,3 +146,20 @@ class UserContributionViewSet(
         new_contribution.events.set(old_contribution.events.all())
 
         return Response(self.get_serializer(new_contribution).data, status=status.HTTP_201_CREATED)
+
+    def perform_destroy(self, instance):
+        if instance.status == ContributionStatus.PAYED:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Paid contributions cannot be cancelled.')
+        instance.status = ContributionStatus.CANCELLED
+        instance.save(update_fields=['status'])
+        first_event = instance.events.first()
+        send_email.delay(
+            instance.user.id,
+            template='cancellation_email',
+            context={
+                'first_name': instance.user.first_name,
+                'event_name': first_event.name if first_event else (instance.membership.name if instance.membership else '—'),
+                'url': settings.FRONTEND_URL + '/contacts',
+            },
+        )

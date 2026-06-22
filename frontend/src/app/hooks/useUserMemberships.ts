@@ -98,5 +98,12 @@ export function useUserMemberships(token: string | null) {
     await fetchAll();
   }, [token, fetchAll]);
 
-  return { userMemberships, loading, error, refetch: fetchAll, create, upgrade, addEvent };
+  const cancel = useCallback(async (id: number): Promise<void> => {
+    if (!token) return;
+    const res = await authFetch(`${BASE}${id}/`, token, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    await fetchAll();
+  }, [token, fetchAll]);
+
+  return { userMemberships, loading, error, refetch: fetchAll, create, upgrade, addEvent, cancel };
 }

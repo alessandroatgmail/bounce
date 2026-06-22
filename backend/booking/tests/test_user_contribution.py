@@ -1446,3 +1446,55 @@ class TestSpotAvailableNotification:
         assert student_user.email in spot_emails[0].to
         older_waiting.refresh_from_db()
         assert older_waiting.status == ContributionStatus.ACCEPTED
+
+
+# ── User-triggered cancellation ───────────────────────────────────────────────
+
+class TestUserCancellation:
+
+    def _make_contribution(self, user, status=ContributionStatus.RECEIVED):
+        m = Membership.objects.create(name="Pass", contribution=50)
+        return Contribution.objects.create(user=user, membership=m, amount=50, status=status)
+
+    def test_cancel_sets_status_cancelled(self, student_client, student_user, world_data):
+        c = self._make_contribution(student_user, ContributionStatus.ACCEPTED)
+        res = student_client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_204_NO_CONTENT
+        c.refresh_from_db()
+        assert c.status == ContributionStatus.CANCELLED
+
+    def test_cancel_payed_returns_403(self, student_client, student_user, world_data):
+        c = self._make_contribution(student_user, ContributionStatus.PAYED)
+        res = student_client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_403_FORBIDDEN
+        c.refresh_from_db()
+        assert c.status == ContributionStatus.PAYED
+
+    def test_cancel_unauthenticated_returns_401(self, client, student_user, world_data):
+        c = self._make_contribution(student_user)
+        res = client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_401_UNAUTHORIZED
+
+    def test_cancel_other_users_contribution_returns_404(self, student_client, subject_user, world_data):
+        c = self._make_contribution(subject_user)
+        res = student_client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_404_NOT_FOUND
+
+    def test_cancel_sends_cancellation_email(self, student_client, student_user, world_data):
+        from unittest.mock import patch
+        c = self._make_contribution(student_user, ContributionStatus.ACCEPTED)
+        with patch('booking.views.send_email.delay') as mock_email:
+            student_client.delete(f"{LIST_URL}{c.pk}/")
+        mock_email.assert_called_once()
+        call_kwargs = mock_email.call_args
+        assert call_kwargs[0][0] == student_user.id
+        assert call_kwargs[1]['template'] == 'cancellation_email'
+
+    def test_system_cancel_does_not_send_email(self, student_user, world_data):
+        """Cancellation via ORM (e.g. expired) must NOT trigger the user email."""
+        from unittest.mock import patch
+        c = self._make_contribution(student_user, ContributionStatus.ACCEPTED)
+        with patch('booking.views.send_email.delay') as mock_email:
+            c.status = ContributionStatus.CANCELLED
+            c.save()
+        mock_email.assert_not_called()

@@ -222,7 +222,7 @@ export function PaymentsSection() {
     return t && (validTabs as readonly string[]).includes(t) ? t : 'transactions';
   })();
 
-  const { userMemberships, loading: contribLoading } = useUserMemberships(accessToken);
+  const { userMemberships, loading: contribLoading, cancel: cancelContribution } = useUserMemberships(accessToken);
   const { events: allEvents } = useEvents(accessToken);
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -459,17 +459,10 @@ export function PaymentsSection() {
                             <div className="flex gap-2 mt-auto">
                               <Button
                                 size="sm"
-                                className="flex-1 bg-[#e67e22] hover:bg-[#d47420]"
-                                disabled={c.status !== 'accepted'}
-                              >
-                                <CreditCard className="size-3.5 mr-1" />
-                                {lang === 'it' ? 'Paga' : 'Pay'}
-                              </Button>
-                              <Button
-                                size="sm"
                                 variant="outline"
                                 className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
-                                disabled={c.status === 'payed'}
+                                disabled={c.status === 'payed' || c.status === 'cancelled'}
+                                onClick={() => cancelContribution(c.id)}
                               >
                                 <XCircle className="size-3.5 mr-1" />
                                 {lang === 'it' ? 'Annulla' : 'Cancel'}
