@@ -232,8 +232,10 @@ function generateDaysFromRange(startDate: string, endDate: string): DayConfig[] 
   if (!startDate || !endDate) return days;
   const current = new Date(startDate + 'T00:00:00');
   const end = new Date(endDate + 'T00:00:00');
+  const pad = (n: number) => String(n).padStart(2, '0');
   while (current <= end) {
-    days.push({ date: current.toISOString().slice(0, 10), rooms: [] });
+    const dateStr = `${current.getFullYear()}-${pad(current.getMonth() + 1)}-${pad(current.getDate())}`;
+    days.push({ date: dateStr, rooms: [] });
     current.setDate(current.getDate() + 1);
   }
   return days;
