@@ -114,6 +114,7 @@ function EventSlotDialog({
     editEvent?.styles ?? []
   );
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const date = editEvent ? editEvent.start_date.slice(0, 10) : slot!.date;
@@ -129,6 +130,24 @@ function EventSlotDialog({
     const duration = crossesMidnight ? (24 * 60 - startMin) + endMin : endMin - startMin;
     const endDate = crossesMidnight ? addOneDay(date) : date;
     return { duration, endDate };
+  };
+
+  const handleDelete = async () => {
+    if (!accessToken || !editEvent) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/events/events/${editEvent.id}/`, accessToken, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? 'Failed to delete event.');
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete event.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -267,11 +286,28 @@ function EventSlotDialog({
           </div>
 
           {error && <p className="text-xs text-red-500">{error}</p>}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={saving || !eventTypeId}>
-              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}Add
-            </Button>
+          <div className="flex items-center justify-between pt-1">
+            <div>
+              {isEdit && editEvent!.status !== 'published' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={deleting || saving}
+                  onClick={handleDelete}
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                >
+                  {deleting && <Loader2 className="size-3 mr-1 animate-spin" />}Delete
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+              <Button type="submit" size="sm" disabled={saving || deleting || !eventTypeId}>
+                {saving && <Loader2 className="size-3 mr-1 animate-spin" />}
+                {isEdit ? 'Save' : 'Add'}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>
