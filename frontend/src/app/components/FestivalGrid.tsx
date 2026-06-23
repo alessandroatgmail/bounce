@@ -80,6 +80,7 @@ function EventSlotDialog({
 }) {
   const { accessToken } = useAuth();
   const { eventTypes, loading: loadingTypes } = useEventTypes(accessToken);
+  const { levels, loading: loadingLevels } = useLevels(accessToken);
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
@@ -88,6 +89,7 @@ function EventSlotDialog({
 
   const [name, setName] = useState(editEvent?.name ?? '');
   const [eventTypeId, setEventTypeId] = useState(editEvent?.event_type.id.toString() ?? '');
+  const [levelId, setLevelId] = useState(editEvent?.level?.id.toString() ?? '');
   const [status, setStatus] = useState(editEvent?.status ?? 'draft');
   const [startTime, setStartTime] = useState(
     editEvent ? formatTime(editEvent.start_date) : (slot?.startTime ?? '')
@@ -136,6 +138,7 @@ function EventSlotDialog({
         duration,
         room_id: roomId,
         capacity: Number(capacity) || festival.capacity,
+        level_id: levelId ? Number(levelId) : null,
         artist_ids: selectedArtists.map(a => a.id),
         genre_ids: selectedGenres.map(g => g.id),
         style_ids: selectedStyles.map(s => s.id),
@@ -190,14 +193,26 @@ function EventSlotDialog({
             <Label htmlFor="ae-name">Name *</Label>
             <Input id="ae-name" value={name} onChange={e => setName(e.target.value)} required />
           </div>
-          <div className="space-y-1.5">
-            <Label>Event Type *</Label>
-            <Select value={eventTypeId} onValueChange={setEventTypeId} disabled={loadingTypes}>
-              <SelectTrigger><SelectValue placeholder="Select type…" /></SelectTrigger>
-              <SelectContent>
-                {eventTypes.map(et => <SelectItem key={et.id} value={et.id.toString()}>{et.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Event Type *</Label>
+              <Select value={eventTypeId} onValueChange={setEventTypeId} disabled={loadingTypes}>
+                <SelectTrigger><SelectValue placeholder="Select type…" /></SelectTrigger>
+                <SelectContent>
+                  {eventTypes.map(et => <SelectItem key={et.id} value={et.id.toString()}>{et.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Level</Label>
+              <Select value={levelId || 'none'} onValueChange={v => setLevelId(v === 'none' ? '' : v)} disabled={loadingLevels}>
+                <SelectTrigger><SelectValue placeholder={loadingLevels ? 'Loading…' : 'None'} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -760,6 +775,7 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
           duration: copiedEvent.duration,
           room_id: slot.room.room.id,
           capacity: copiedEvent.capacity,
+          level_id: copiedEvent.level?.id ?? null,
           artist_ids: copiedEvent.artists.map(a => a.id),
           genre_ids: copiedEvent.genres.map(g => g.id),
           style_ids: copiedEvent.styles.map(s => s.id),
