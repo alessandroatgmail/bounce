@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Loader2, Save, Copy, ClipboardPaste, X } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, Copy, ClipboardPaste, X, Plus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents, type EventItem, type EventPayload } from '../hooks/useEvents';
 import { useEventTypes } from '../hooks/useEventTypes';
@@ -279,6 +279,84 @@ function EventSlotDialog({
   );
 }
 
+// ── Add-room dialog ───────────────────────────────────────────────────────────
+
+function AddRoomDialog({
+  day,
+  accessToken,
+  onClose,
+  onAdded,
+}: {
+  day: FestivalDay;
+  accessToken: string;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const { rooms, loading } = useRooms(accessToken);
+  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const existingIds = new Set(day.rooms.map(fr => fr.room.id));
+  const available = rooms.filter(r => !existingIds.has(r.id));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRoomId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch('/api/festival/festival-rooms/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ festival_day: day.id, room_id: Number(selectedRoomId) }),
+      });
+      if (!res.ok) throw new Error('Failed to add room.');
+      onAdded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add room.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-xs">
+        <DialogHeader>
+          <DialogTitle>Add Room</DialogTitle>
+          <DialogDescription>
+            {formatDate(day.date, { weekday: 'long', day: 'numeric', month: 'long' })}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3 pt-1">
+          <div className="space-y-1.5">
+            <Label>Room *</Label>
+            <Select value={selectedRoomId} onValueChange={setSelectedRoomId} disabled={loading || available.length === 0}>
+              <SelectTrigger>
+                <SelectValue placeholder={loading ? 'Loading…' : available.length === 0 ? 'All rooms already assigned' : 'Select room…'} />
+              </SelectTrigger>
+              <SelectContent>
+                {available.map(r => (
+                  <SelectItem key={r.id} value={r.id.toString()}>
+                    {r.name} — {r.location.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={saving || !selectedRoomId}>
+              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}Add
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Single room column ────────────────────────────────────────────────────────
 
 function RoomColumn({
@@ -419,21 +497,27 @@ function DayGrid({
   festival,
   allEvents,
   copiedEvent,
+  removingRoomId,
   onSlotClick,
   onEventClick,
   onEventDrop,
   onCopy,
   onPaste,
+  onAddRoom,
+  onRemoveRoom,
 }: {
   day: FestivalDay;
   festival: EventItem;
   allEvents: EventItem[];
   copiedEvent: EventItem | null;
+  removingRoomId: number | null;
   onSlotClick: (slot: AddSlot) => void;
   onEventClick: (event: EventItem) => void;
   onEventDrop: (eventId: number, room: FestivalRoom, date: string, startMin: number) => void;
   onCopy: (event: EventItem) => void;
   onPaste: (slot: AddSlot) => void;
+  onAddRoom: () => void;
+  onRemoveRoom: (fr: FestivalRoom) => void;
 }) {
   // Events belonging to this festival that fall on this day
   const festivalEventIds = new Set(festival.events);
@@ -458,12 +542,32 @@ function DayGrid({
         {day.rooms.map(fr => (
           <div
             key={fr.id}
-            className="border-l px-2 py-2 text-sm font-medium text-gray-700 bg-gray-50"
+            className="group border-l px-2 py-2 text-sm font-medium text-gray-700 bg-gray-50 flex items-center justify-between gap-1"
             style={{ width: ROOM_COL_W, flexShrink: 0 }}
           >
-            {fr.room.name}
+            <span className="truncate">{fr.room.name}</span>
+            <button
+              onClick={() => onRemoveRoom(fr)}
+              disabled={removingRoomId === fr.id}
+              className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 disabled:opacity-40"
+              title="Remove room"
+            >
+              {removingRoomId === fr.id
+                ? <Loader2 className="size-3 animate-spin" />
+                : <X className="size-3" />}
+            </button>
           </div>
         ))}
+        {/* Add room button */}
+        <div className="border-l px-2 py-2 bg-gray-50 flex items-center" style={{ flexShrink: 0 }}>
+          <button
+            onClick={onAddRoom}
+            className="text-gray-400 hover:text-[#e67e22] transition-colors"
+            title="Add room"
+          >
+            <Plus className="size-4" />
+          </button>
+        </div>
       </div>
 
       {/* Grid body */}
@@ -736,13 +840,18 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
 
 export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack: () => void }) {
   const { accessToken } = useAuth();
-  const { days, loading: loadingDays } = useFestivalDays(accessToken, festival.id);
+  const { days, loading: loadingDays, refetch: refetchDays } = useFestivalDays(accessToken, festival.id);
   const { events: allEvents, refetch: refetchEvents } = useEvents(accessToken);
 
   const [selectedTab, setSelectedTab] = useState<'info' | number>('info');
   const [addingSlot, setAddingSlot] = useState<AddSlot | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
   const [copiedEvent, setCopiedEvent] = useState<EventItem | null>(null);
+  const [addingDay, setAddingDay] = useState(false);
+  const [removingDayId, setRemovingDayId] = useState<number | null>(null);
+  const [dayError, setDayError] = useState<string | null>(null);
+  const [addRoomDay, setAddRoomDay] = useState<FestivalDay | null>(null);
+  const [removingRoomId, setRemovingRoomId] = useState<number | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCopiedEvent(null); };
@@ -764,6 +873,67 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
     setAddingSlot(null);
     setEditingEvent(null);
     refetchEvents();
+  };
+
+  const handleRemoveDay = async (day: FestivalDay) => {
+    if (!accessToken) return;
+    const festivalIds = new Set(liveFestival.events);
+    const hasEvents = allEvents.some(
+      e => festivalIds.has(e.id) && e.start_date.slice(0, 10) === day.date
+    );
+    if (hasEvents) {
+      setDayError(`Cannot remove ${formatDayLabel(day.date)} — it still has classes scheduled.`);
+      setTimeout(() => setDayError(null), 4000);
+      return;
+    }
+    setRemovingDayId(day.id);
+    try {
+      await authFetch(`/api/festival/festival-days/${day.id}/`, accessToken, { method: 'DELETE' });
+      if (selectedTab === day.id) setSelectedTab('info');
+      await refetchDays();
+    } finally {
+      setRemovingDayId(null);
+    }
+  };
+
+  const handleRemoveRoom = async (fr: FestivalRoom, day: FestivalDay) => {
+    if (!accessToken) return;
+    const festivalIds = new Set(liveFestival.events);
+    const hasEvents = allEvents.some(
+      e => festivalIds.has(e.id) && e.start_date.slice(0, 10) === day.date && e.room.id === fr.room.id
+    );
+    if (hasEvents) {
+      setDayError(`Cannot remove "${fr.room.name}" — it still has classes scheduled on this day.`);
+      setTimeout(() => setDayError(null), 4000);
+      return;
+    }
+    setRemovingRoomId(fr.id);
+    try {
+      await authFetch(`/api/festival/festival-rooms/${fr.id}/`, accessToken, { method: 'DELETE' });
+      await refetchDays();
+    } finally {
+      setRemovingRoomId(null);
+    }
+  };
+
+  const handleAddNextDay = async () => {
+    if (!accessToken || days.length === 0) return;
+    const lastDate = days[days.length - 1].date;
+    const nextDate = addOneDay(lastDate);
+    setAddingDay(true);
+    try {
+      const res = await authFetch('/api/festival/festival-days/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ event_id: festival.id, date: nextDate }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        await refetchDays();
+        setSelectedTab(created.id);
+      }
+    } finally {
+      setAddingDay(false);
+    }
   };
 
   const handlePaste = async (slot: AddSlot) => {
@@ -916,22 +1086,54 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
         {loadingDays ? (
           <span className="px-4 py-2"><Loader2 className="size-4 animate-spin text-gray-400" /></span>
         ) : (
-          days.map(day => (
-            <button
-              key={day.id}
-              onClick={() => setSelectedTab(day.id)}
-              className={[
-                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                selectedTab === day.id
-                  ? 'border-[#e67e22] text-[#e67e22]'
-                  : 'border-transparent text-gray-500 hover:text-gray-800',
-              ].join(' ')}
-            >
-              {formatDayLabel(day.date)}
-            </button>
-          ))
+          <>
+            {days.map(day => (
+              <div
+                key={day.id}
+                className={[
+                  'group flex items-center gap-1 border-b-2 -mb-px transition-colors',
+                  selectedTab === day.id
+                    ? 'border-[#e67e22] text-[#e67e22]'
+                    : 'border-transparent text-gray-500 hover:text-gray-800',
+                ].join(' ')}
+              >
+                <button
+                  onClick={() => setSelectedTab(day.id)}
+                  className="px-3 py-2 text-sm font-medium"
+                >
+                  {formatDayLabel(day.date)}
+                </button>
+                <button
+                  onClick={() => handleRemoveDay(day)}
+                  disabled={removingDayId === day.id}
+                  className="pr-2 py-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 disabled:opacity-40"
+                  title="Remove day"
+                >
+                  {removingDayId === day.id
+                    ? <Loader2 className="size-3 animate-spin" />
+                    : <X className="size-3" />}
+                </button>
+              </div>
+            ))}
+            {days.length > 0 && (
+              <button
+                onClick={handleAddNextDay}
+                disabled={addingDay}
+                className="px-3 py-2 text-sm font-medium border-b-2 border-transparent -mb-px text-gray-400 hover:text-[#e67e22] transition-colors disabled:opacity-40"
+                title={days.length ? `Add ${formatDayLabel(addOneDay(days[days.length - 1].date))}` : 'Add day'}
+              >
+                {addingDay ? <Loader2 className="size-4 animate-spin" /> : '+'}
+              </button>
+            )}
+          </>
         )}
       </div>
+
+      {dayError && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+          {dayError}
+        </p>
+      )}
 
       {/* Copy/paste banner */}
       {copiedEvent && (
@@ -961,11 +1163,14 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
             festival={liveFestival}
             allEvents={allEvents}
             copiedEvent={copiedEvent}
+            removingRoomId={removingRoomId}
             onSlotClick={setAddingSlot}
             onEventClick={setEditingEvent}
             onEventDrop={handleEventDrop}
             onCopy={setCopiedEvent}
             onPaste={handlePaste}
+            onAddRoom={() => setAddRoomDay(selectedDay)}
+            onRemoveRoom={fr => handleRemoveRoom(fr, selectedDay)}
           />
         ) : (
           !loadingDays && (
@@ -993,6 +1198,16 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
           festival={liveFestival}
           onClose={() => setEditingEvent(null)}
           onSaved={handleSaved}
+        />
+      )}
+
+      {/* Add room dialog */}
+      {addRoomDay && accessToken && (
+        <AddRoomDialog
+          day={addRoomDay}
+          accessToken={accessToken}
+          onClose={() => setAddRoomDay(null)}
+          onAdded={() => { setAddRoomDay(null); refetchDays(); }}
         />
       )}
     </div>
