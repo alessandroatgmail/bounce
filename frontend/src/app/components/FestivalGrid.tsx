@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { ArrowLeft, Loader2, Save } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { ArrowLeft, Loader2, Save, Copy, ClipboardPaste, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents, type EventItem, type EventPayload } from '../hooks/useEvents';
 import { useEventTypes } from '../hooks/useEventTypes';
@@ -258,16 +258,22 @@ function RoomColumn({
   festivalRoom,
   dayDate,
   dayEvents,
+  copiedEvent,
   onSlotClick,
   onEventClick,
   onEventDrop,
+  onCopy,
+  onPaste,
 }: {
   festivalRoom: FestivalRoom;
   dayDate: string;
   dayEvents: EventItem[];
+  copiedEvent: EventItem | null;
   onSlotClick: (slot: AddSlot) => void;
   onEventClick: (event: EventItem) => void;
   onEventDrop: (eventId: number, room: FestivalRoom, date: string, startMin: number) => void;
+  onCopy: (event: EventItem) => void;
+  onPaste: (slot: AddSlot) => void;
 }) {
   const colRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -284,11 +290,16 @@ function RoomColumn({
     const minutes = Math.floor(y / PIXELS_PER_MINUTE / 30) * 30 + DAY_START_MIN;
     const h = Math.floor(minutes / 60) % 24;
     const m = minutes % 60;
-    onSlotClick({
+    const slot: AddSlot = {
       room: festivalRoom,
       date: dayDate,
       startTime: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`,
-    });
+    };
+    if (copiedEvent) {
+      onPaste(slot);
+    } else {
+      onSlotClick(slot);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -309,10 +320,12 @@ function RoomColumn({
     onEventDrop(eventId, festivalRoom, dayDate, startMin);
   };
 
+  const colCursor = copiedEvent ? 'cursor-copy' : 'cursor-crosshair';
+
   return (
     <div
       ref={colRef}
-      className={`relative border-l border-gray-100 cursor-crosshair select-none transition-colors ${dragOver ? 'bg-orange-50' : ''}`}
+      className={`relative border-l border-gray-100 select-none transition-colors ${colCursor} ${dragOver ? 'bg-orange-50' : copiedEvent ? 'bg-amber-50/40' : ''}`}
       style={{ width: ROOM_COL_W, height: GRID_HEIGHT, flexShrink: 0 }}
       onClick={handleClick}
       onDragOver={handleDragOver}
@@ -335,22 +348,34 @@ function RoomColumn({
         const endM = eventMinutes(ev.end_date);
         const top = minutesToTop(startM);
         const height = Math.max((endM - startM) * PIXELS_PER_MINUTE, 20);
+        const isCopied = copiedEvent?.id === ev.id;
         return (
           <div
             key={ev.id}
-            draggable
+            draggable={!copiedEvent}
             onDragStart={e => {
               e.dataTransfer.effectAllowed = 'move';
               e.dataTransfer.setData('eventId', String(ev.id));
               const rect = e.currentTarget.getBoundingClientRect();
               e.dataTransfer.setData('offsetY', String(e.clientY - rect.top));
             }}
-            className="absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 cursor-grab active:cursor-grabbing hover:opacity-90"
+            className={`group absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 hover:opacity-90 ${copiedEvent ? 'cursor-copy' : 'cursor-grab active:cursor-grabbing'} ${isCopied ? 'ring-2 ring-white ring-offset-1' : ''}`}
             style={{ top, height, backgroundColor: ev.color ?? '#e67e22' }}
-            onClick={e => { e.stopPropagation(); onEventClick(ev); }}
+            onClick={e => { e.stopPropagation(); if (!copiedEvent) onEventClick(ev); }}
           >
-            <div className="font-medium truncate leading-tight">{ev.name}</div>
-            <div className="opacity-80 text-[10px]">{formatTime(ev.start_date)}–{formatTime(ev.end_date)}</div>
+            <div className="flex items-start gap-1">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate leading-tight">{ev.name}</div>
+                <div className="opacity-80 text-[10px]">{formatTime(ev.start_date)}–{formatTime(ev.end_date)}</div>
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); onCopy(ev); }}
+                className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-white/25 transition-opacity cursor-copy"
+                title="Copy event"
+              >
+                <Copy className="size-2.5" />
+              </button>
+            </div>
           </div>
         );
       })}
@@ -364,16 +389,22 @@ function DayGrid({
   day,
   festival,
   allEvents,
+  copiedEvent,
   onSlotClick,
   onEventClick,
   onEventDrop,
+  onCopy,
+  onPaste,
 }: {
   day: FestivalDay;
   festival: EventItem;
   allEvents: EventItem[];
+  copiedEvent: EventItem | null;
   onSlotClick: (slot: AddSlot) => void;
   onEventClick: (event: EventItem) => void;
   onEventDrop: (eventId: number, room: FestivalRoom, date: string, startMin: number) => void;
+  onCopy: (event: EventItem) => void;
+  onPaste: (slot: AddSlot) => void;
 }) {
   // Events belonging to this festival that fall on this day
   const festivalEventIds = new Set(festival.events);
@@ -438,9 +469,12 @@ function DayGrid({
             festivalRoom={fr}
             dayDate={day.date}
             dayEvents={dayEvents}
+            copiedEvent={copiedEvent}
             onSlotClick={onSlotClick}
             onEventClick={onEventClick}
             onEventDrop={onEventDrop}
+            onCopy={onCopy}
+            onPaste={onPaste}
           />
         ))}
       </div>
@@ -679,6 +713,13 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
   const [selectedTab, setSelectedTab] = useState<'info' | number>('info');
   const [addingSlot, setAddingSlot] = useState<AddSlot | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [copiedEvent, setCopiedEvent] = useState<EventItem | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCopiedEvent(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Keep festival in sync with the live events list so festival.events reflects newly added children
   const liveFestival = allEvents.find(e => e.id === festival.id) ?? festival;
@@ -694,6 +735,47 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
     setAddingSlot(null);
     setEditingEvent(null);
     refetchEvents();
+  };
+
+  const handlePaste = async (slot: AddSlot) => {
+    if (!copiedEvent || !accessToken) return;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const startMin = parseInt(slot.startTime.slice(0, 2), 10) * 60 + parseInt(slot.startTime.slice(3, 5), 10);
+    const endMin = startMin + copiedEvent.duration;
+    const toISO = (totalMin: number) => {
+      const h = Math.floor(totalMin / 60) % 24;
+      const m = totalMin % 60;
+      return `${slot.date}T${pad(h)}:${pad(m)}:00`;
+    };
+    try {
+      const res = await authFetch('/api/events/events/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: copiedEvent.name,
+          status: copiedEvent.status,
+          event_type_id: copiedEvent.event_type.id,
+          type: copiedEvent.type,
+          start_date: toISO(startMin),
+          end_date: toISO(endMin),
+          duration: copiedEvent.duration,
+          room_id: slot.room.room.id,
+          capacity: copiedEvent.capacity,
+          artist_ids: copiedEvent.artists.map(a => a.id),
+          genre_ids: copiedEvent.genres.map(g => g.id),
+          style_ids: copiedEvent.styles.map(s => s.id),
+          color: copiedEvent.color,
+        } satisfies EventPayload),
+      });
+      if (!res.ok) return;
+      const created: EventItem = await res.json();
+      await authFetch(`/api/events/events/${liveFestival.id}/`, accessToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ event_ids: [...liveFestival.events, created.id] }),
+      });
+      refetchEvents();
+    } catch {
+      // silently ignore — user can try again
+    }
   };
 
   const handleEventDrop = async (
@@ -819,6 +901,23 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
         )}
       </div>
 
+      {/* Copy/paste banner */}
+      {copiedEvent && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+          <ClipboardPaste className="size-4 text-amber-600 flex-shrink-0" />
+          <span className="text-amber-800">
+            Click a slot to paste <strong>{copiedEvent.name}</strong>
+          </span>
+          <button
+            onClick={() => setCopiedEvent(null)}
+            className="ml-auto text-amber-500 hover:text-amber-800 transition-colors"
+            title="Cancel (Esc)"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
       {selectedTab === 'info' && (
         <FestivalInfoTab festival={liveFestival} onSaved={refetchEvents} />
       )}
@@ -829,9 +928,12 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
             day={selectedDay}
             festival={liveFestival}
             allEvents={allEvents}
+            copiedEvent={copiedEvent}
             onSlotClick={setAddingSlot}
             onEventClick={setEditingEvent}
             onEventDrop={handleEventDrop}
+            onCopy={setCopiedEvent}
+            onPaste={handlePaste}
           />
         ) : (
           !loadingDays && (
