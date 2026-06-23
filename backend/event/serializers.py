@@ -239,6 +239,8 @@ class EventSerializer(serializers.ModelSerializer):
             "warning_threshold",
             "extras",
             "payment_days",
+            "multi_events",
+            "free",
             "already_booked", "booked_by", "available_spot",
         ]
 

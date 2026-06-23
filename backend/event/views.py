@@ -124,21 +124,45 @@ class EventViewSet(viewsets.ModelViewSet):
         event = serializer.save()
         logger.info(f"Created event {event.name}")
 
+    def perform_destroy(self, instance):
+        from booking.models import Contribution, Booking
+        from rest_framework.exceptions import ValidationError
+
+        child_ids = list(instance.events.values_list('id', flat=True))
+        all_ids = [instance.pk] + child_ids
+
+        has_registrations = (
+            Contribution.objects.filter(events__in=all_ids).exists()
+            or Booking.objects.filter(event_id__in=all_ids).exists()
+        )
+        if has_registrations:
+            raise ValidationError({"detail": "Cannot delete an event with existing registrations."})
+
+        instance.events.all().delete()
+        instance.delete()
+
     def perform_update(self, serializer):
-        # Capture state before save
         prev_status = serializer.instance.status
-        if self.request.method == 'PUT':
+
+        # For non-multi PUT, capture children before the save so we can cascade
+        if self.request.method == 'PUT' and not serializer.instance.multi_events:
             children = list(serializer.instance.events.all())
         else:
             children = []
 
         instance = serializer.save()
 
-        # Trigger recurring generation when status moves draft → confirmed (only once)
+        # multi_events parent: cascade status only when it changed
+        if instance.multi_events:
+            if instance.status != prev_status:
+                instance.events.all().update(status=instance.status)
+            return
+
+        # Non-multi: trigger recurring generation on draft → confirmed
         if prev_status == Status.DRAFT and instance.status == Status.CONFIRMED and not instance.events.exists():
             _create_recurring_events(instance)
 
-        # Cascade field changes to existing children (PUT only)
+        # Non-multi PUT: cascade room/dates/duration/color/artists/styles/genres to children
         if not children:
             return
         for child in children:

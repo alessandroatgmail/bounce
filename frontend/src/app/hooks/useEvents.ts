@@ -27,6 +27,8 @@ export interface EventItem {
   warning_threshold: number;
   extras: number;
   payment_days: number;
+  multi_events: boolean;
+  free: boolean;
   already_booked: boolean;
   booked_by: string | null;
   available_spot: number;
@@ -52,6 +54,9 @@ export interface EventPayload {
   warning_threshold?: number;
   extras?: number;
   accepted_role_ids?: number[];
+  multi_events?: boolean;
+  free?: boolean;
+  event_ids?: number[];
 }
 
 export function useEvents(token: string | null) {

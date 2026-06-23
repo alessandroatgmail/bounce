@@ -410,6 +410,7 @@ function FestivalWizard({ onComplete, onCancel }: { onComplete: (festival: Event
         genre_ids: infoData.selectedGenres.map(g => g.id),
         style_ids: infoData.selectedStyles.map(s => s.id),
         info: infoData.info || null,
+        multi_events: true,
       };
 
       const eventRes = await authFetch('/api/events/events/', accessToken, {

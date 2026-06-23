@@ -107,6 +107,8 @@ class Event(models.Model):
     accepted_roles = models.ManyToManyField(PartnerRole, blank=True, null=True)
     warning_threshold = models.IntegerField(verbose_name="Warning Threshold", default=5)
     extras = models.IntegerField(default=0)
+    multi_events = models.BooleanField(default=False)
+    free = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"

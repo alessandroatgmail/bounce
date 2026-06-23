@@ -145,6 +145,7 @@ class TestEventStaffList:
             "styles", "genres", "artists", "events", "info", "color",
             "image", "effective_image", "booked_by", "available_spot",
             "accepted_roles", "warning_threshold", "extras", "payment_days",
+            "multi_events", "free"
         }
         assert set(response.data[0].keys()) == expected
 
@@ -310,6 +311,45 @@ class TestEventDelete:
     def test_delete_nonexistent_returns_404(self, staff_client, world_data):
         response = staff_client.delete(detail_url(9999))
         assert response.status_code == http_status.HTTP_404_NOT_FOUND
+
+    def test_delete_blocked_when_event_has_contribution(self, staff_client, world_data, student_user):
+        from booking.models import Contribution
+        event = create_event()
+        c = Contribution.objects.create(user=student_user, amount=10)
+        c.events.add(event)
+        response = staff_client.delete(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Event.objects.filter(pk=event.pk).exists()
+
+    def test_delete_blocked_when_event_has_booking(self, staff_client, world_data, student_user):
+        from booking.models import Booking
+        event = create_event()
+        Booking.objects.create(user=student_user, event=event)
+        response = staff_client.delete(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Event.objects.filter(pk=event.pk).exists()
+
+    def test_delete_parent_also_deletes_children(self, staff_client, world_data):
+        parent = create_event()
+        child1 = create_event()
+        child2 = create_event()
+        parent.events.set([child1, child2])
+        response = staff_client.delete(detail_url(parent.pk))
+        assert response.status_code == http_status.HTTP_204_NO_CONTENT
+        assert not Event.objects.filter(pk=child1.pk).exists()
+        assert not Event.objects.filter(pk=child2.pk).exists()
+
+    def test_delete_parent_blocked_when_child_has_contribution(self, staff_client, world_data, student_user):
+        from booking.models import Contribution
+        parent = create_event()
+        child = create_event()
+        parent.events.set([child])
+        c = Contribution.objects.create(user=student_user, amount=10)
+        c.events.add(child)
+        response = staff_client.delete(detail_url(parent.pk))
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Event.objects.filter(pk=parent.pk).exists()
+        assert Event.objects.filter(pk=child.pk).exists()
 
 
 # ── accepted_roles automation ─────────────────────────────────────────────────

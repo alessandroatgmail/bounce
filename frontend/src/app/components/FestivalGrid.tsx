@@ -1,8 +1,10 @@
 import { useState, useRef } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Save } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useEvents, type EventItem, type EventPayload } from '../hooks/useEvents';
 import { useEventTypes } from '../hooks/useEventTypes';
+import { useRooms } from '../hooks/useRooms';
+import { useLevels } from '../hooks/useLevels';
 import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
@@ -11,6 +13,7 @@ import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
@@ -445,6 +448,227 @@ function DayGrid({
   );
 }
 
+// ── Festival info tab ─────────────────────────────────────────────────────────
+
+function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: () => void }) {
+  const { accessToken } = useAuth();
+  const { rooms, loading: loadingRooms } = useRooms(accessToken);
+  const { levels, loading: loadingLevels } = useLevels(accessToken);
+  const { artists, loading: loadingArtists } = useArtists(accessToken);
+  const { genres, loading: loadingGenres } = useGenres(accessToken);
+  const { styles, loading: loadingStyles } = useStyles(accessToken);
+
+  const [form, setForm] = useState({
+    name:            festival.name,
+    status:          festival.status,
+    type:            festival.type,
+    startDate:       festival.start_date.slice(0, 10),
+    startTime:       festival.start_date.slice(11, 16),
+    endDate:         festival.end_date.slice(0, 10),
+    endTime:         festival.end_date.slice(11, 16),
+    duration:        String(festival.duration),
+    capacity:        String(festival.capacity),
+    roomId:          String(festival.room.id),
+    levelId:         festival.level ? String(festival.level.id) : '',
+    info:            festival.info ?? '',
+    multi_events:    festival.multi_events,
+    selectedArtists: festival.artists.map(a => ({ id: a.id, name: a.full_name })),
+    selectedGenres:  festival.genres.map(g => ({ id: g.id, name: g.name })),
+    selectedStyles:  festival.styles.map(s => ({ id: s.id, name: s.name })),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+  const [saved, setSaved]   = useState(false);
+
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
+    setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accessToken) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const payload: EventPayload = {
+        name:           form.name,
+        status:         form.status,
+        event_type_id:  festival.event_type.id,
+        type:           form.type,
+        start_date:     `${form.startDate}T${form.startTime}:00`,
+        end_date:       `${form.endDate}T${form.endTime}:00`,
+        duration:       Number(form.duration),
+        room_id:        Number(form.roomId),
+        capacity:       Number(form.capacity),
+        level_id:       form.levelId ? Number(form.levelId) : null,
+        artist_ids:     form.selectedArtists.map(a => a.id),
+        genre_ids:      form.selectedGenres.map(g => g.id),
+        style_ids:      form.selectedStyles.map(s => s.id),
+        info:           form.info || null,
+        multi_events:   form.multi_events,
+      };
+      const res = await authFetch(`/api/events/events/${festival.id}/`, accessToken, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(JSON.stringify(body));
+      }
+      setSaved(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5 pt-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2 space-y-1.5">
+          <Label>Festival Name *</Label>
+          <Input value={form.name} onChange={e => set('name', e.target.value)} required />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Status</Label>
+          <Select value={form.status} onValueChange={v => set('status', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="published">Published</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Access</Label>
+          <Select value={form.type} onValueChange={v => set('type', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="free">Free</SelectItem>
+              <SelectItem value="members">Members</SelectItem>
+              <SelectItem value="collaboration">Collaboration</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="col-span-2 flex items-center gap-3">
+          <input
+            id="fi-multi"
+            type="checkbox"
+            checked={form.multi_events}
+            onChange={e => set('multi_events', e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+          />
+          <Label htmlFor="fi-multi" className="cursor-pointer">
+            Multi-events festival
+            <span className="ml-1.5 font-normal text-gray-400 text-xs">(status changes cascade to child events only)</span>
+          </Label>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Start date *</Label>
+          <Input type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Start time *</Label>
+          <Input type="time" value={form.startTime} onChange={e => set('startTime', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>End date *</Label>
+          <Input type="date" value={form.endDate} onChange={e => set('endDate', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>End time *</Label>
+          <Input type="time" value={form.endTime} onChange={e => set('endTime', e.target.value)} required />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Duration (minutes) *</Label>
+          <Input type="number" value={form.duration} onChange={e => set('duration', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Capacity *</Label>
+          <Input type="number" value={form.capacity} onChange={e => set('capacity', e.target.value)} required />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Main Venue *</Label>
+          <Select value={form.roomId} onValueChange={v => set('roomId', v)} disabled={loadingRooms}>
+            <SelectTrigger><SelectValue placeholder={loadingRooms ? 'Loading…' : 'Select room'} /></SelectTrigger>
+            <SelectContent>
+              {rooms.map(r => (
+                <SelectItem key={r.id} value={r.id.toString()}>{r.name} — {r.location.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Level</Label>
+          <Select value={form.levelId || 'none'} onValueChange={v => set('levelId', v === 'none' ? '' : v)} disabled={loadingLevels}>
+            <SelectTrigger><SelectValue placeholder={loadingLevels ? 'Loading…' : 'Select level'} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="col-span-2">
+          <MultiSearchSelect
+            label="Artists"
+            items={artists.map(a => ({ id: a.id, name: a.full_name }))}
+            selected={form.selectedArtists}
+            loading={loadingArtists}
+            placeholder="Search artist…"
+            onChange={v => set('selectedArtists', v)}
+          />
+        </div>
+        <div className="col-span-2">
+          <MultiSearchSelect
+            label="Genres"
+            items={genres}
+            selected={form.selectedGenres}
+            loading={loadingGenres}
+            placeholder="Search genre…"
+            onChange={v => set('selectedGenres', v)}
+          />
+        </div>
+        <div className="col-span-2">
+          <MultiSearchSelect
+            label="Styles"
+            items={styles}
+            selected={form.selectedStyles}
+            loading={loadingStyles}
+            placeholder="Search style…"
+            onChange={v => set('selectedStyles', v)}
+          />
+        </div>
+
+        <div className="col-span-2 space-y-1.5">
+          <Label>Info</Label>
+          <Textarea value={form.info} onChange={e => set('info', e.target.value)} rows={3} placeholder="Additional festival information…" />
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded">{error}</p>}
+      {saved && <p className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded">Saved.</p>}
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={saving}>
+          {saving ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Save className="size-4 mr-2" />}
+          Save Changes
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 // ── Main FestivalGrid ─────────────────────────────────────────────────────────
 
 export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack: () => void }) {
@@ -452,14 +676,16 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
   const { days, loading: loadingDays } = useFestivalDays(accessToken, festival.id);
   const { events: allEvents, refetch: refetchEvents } = useEvents(accessToken);
 
-  const [selectedDayId, setSelectedDayId] = useState<number | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'info' | number>('info');
   const [addingSlot, setAddingSlot] = useState<AddSlot | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
 
   // Keep festival in sync with the live events list so festival.events reflects newly added children
   const liveFestival = allEvents.find(e => e.id === festival.id) ?? festival;
 
-  const selectedDay = days.find(d => d.id === selectedDayId) ?? days[0] ?? null;
+  const selectedDay = typeof selectedTab === 'number'
+    ? (days.find(d => d.id === selectedTab) ?? days[0] ?? null)
+    : null;
 
   const formatDayLabel = (date: string) =>
     formatDate(date, { weekday: 'short', day: 'numeric', month: 'short' });
@@ -560,41 +786,60 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
         <Badge variant="outline">{liveFestival.status}</Badge>
       </div>
 
-      {/* Day tabs */}
-      {loadingDays ? (
-        <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-gray-400" /></div>
-      ) : days.length === 0 ? (
-        <div className="text-center py-12 text-gray-400 text-sm">No days configured for this festival.</div>
-      ) : (
-        <>
-          <div className="flex gap-1 border-b">
-            {days.map(day => (
-              <button
-                key={day.id}
-                onClick={() => setSelectedDayId(day.id)}
-                className={[
-                  'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                  (selectedDay?.id === day.id)
-                    ? 'border-[#e67e22] text-[#e67e22]'
-                    : 'border-transparent text-gray-500 hover:text-gray-800',
-                ].join(' ')}
-              >
-                {formatDayLabel(day.date)}
-              </button>
-            ))}
-          </div>
+      {/* Tabs: Info + one per day */}
+      <div className="flex gap-1 border-b">
+        <button
+          onClick={() => setSelectedTab('info')}
+          className={[
+            'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+            selectedTab === 'info'
+              ? 'border-[#e67e22] text-[#e67e22]'
+              : 'border-transparent text-gray-500 hover:text-gray-800',
+          ].join(' ')}
+        >
+          Info
+        </button>
+        {loadingDays ? (
+          <span className="px-4 py-2"><Loader2 className="size-4 animate-spin text-gray-400" /></span>
+        ) : (
+          days.map(day => (
+            <button
+              key={day.id}
+              onClick={() => setSelectedTab(day.id)}
+              className={[
+                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                selectedTab === day.id
+                  ? 'border-[#e67e22] text-[#e67e22]'
+                  : 'border-transparent text-gray-500 hover:text-gray-800',
+              ].join(' ')}
+            >
+              {formatDayLabel(day.date)}
+            </button>
+          ))
+        )}
+      </div>
 
-          {selectedDay && (
-            <DayGrid
-              day={selectedDay}
-              festival={liveFestival}
-              allEvents={allEvents}
-              onSlotClick={setAddingSlot}
-              onEventClick={setEditingEvent}
-              onEventDrop={handleEventDrop}
-            />
-          )}
-        </>
+      {selectedTab === 'info' && (
+        <FestivalInfoTab festival={liveFestival} onSaved={refetchEvents} />
+      )}
+
+      {selectedTab !== 'info' && (
+        selectedDay ? (
+          <DayGrid
+            day={selectedDay}
+            festival={liveFestival}
+            allEvents={allEvents}
+            onSlotClick={setAddingSlot}
+            onEventClick={setEditingEvent}
+            onEventDrop={handleEventDrop}
+          />
+        ) : (
+          !loadingDays && (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              No days configured for this festival.
+            </div>
+          )
+        )
       )}
 
       {/* Create event dialog */}
