@@ -24,7 +24,7 @@ import { authFetch } from '../../lib/api';
 const HOUR_HEIGHT = 64;            // px per hour
 const PIXELS_PER_MINUTE = HOUR_HEIGHT / 60;
 const DAY_START_HOUR = 8;
-const DAY_END_HOUR = 25;           // 01:00 next day
+const DAY_END_HOUR = 28;           // 04:00 next day
 const DAY_START_MIN = DAY_START_HOUR * 60;
 const DAY_END_MIN = DAY_END_HOUR * 60;
 const TOTAL_MINUTES = DAY_END_MIN - DAY_START_MIN;
@@ -55,6 +55,13 @@ function eventMinutes(iso: string) {
 function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions) {
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-GB', opts);
+}
+
+function addOneDay(dateStr: string): string {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const next = new Date(y, m - 1, d + 1);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
 }
 
 // ── Add-event mini form ───────────────────────────────────────────────────────
@@ -113,17 +120,22 @@ function EventSlotDialog({
   const roomId = editEvent ? editEvent.room.id : slot!.room.room.id;
   const roomName = editEvent ? editEvent.room.name : slot!.room.room.name;
 
-  const computeDuration = () => {
+  const computeTimings = () => {
     const [sh, sm] = startTime.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
-    return (eh * 60 + em) - (sh * 60 + sm);
+    const startMin = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+    const crossesMidnight = endMin < startMin;
+    const duration = crossesMidnight ? (24 * 60 - startMin) + endMin : endMin - startMin;
+    const endDate = crossesMidnight ? addOneDay(date) : date;
+    return { duration, endDate };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accessToken) return;
-    const duration = computeDuration();
-    if (duration <= 0) { setError('End time must be after start time.'); return; }
+    const { duration, endDate } = computeTimings();
+    if (duration <= 0) { setError('Start and end time cannot be the same.'); return; }
 
     setSaving(true);
     setError(null);
@@ -134,7 +146,7 @@ function EventSlotDialog({
         event_type_id: Number(eventTypeId),
         type: festival.type,
         start_date: `${date}T${startTime}:00`,
-        end_date: `${date}T${endTime}:00`,
+        end_date: `${endDate}T${endTime}:00`,
         duration,
         room_id: roomId,
         capacity: Number(capacity) || festival.capacity,
@@ -360,7 +372,9 @@ function RoomColumn({
       {/* Events */}
       {roomEvents.map(ev => {
         const startM = eventMinutes(ev.start_date);
-        const endM = eventMinutes(ev.end_date);
+        const rawEndM = eventMinutes(ev.end_date);
+        const crossesMidnight = ev.end_date.slice(0, 10) > ev.start_date.slice(0, 10);
+        const endM = crossesMidnight ? rawEndM + 24 * 60 : rawEndM;
         const top = minutesToTop(startM);
         const height = Math.max((endM - startM) * PIXELS_PER_MINUTE, 20);
         const isCopied = copiedEvent?.id === ev.id;
@@ -758,9 +772,10 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
     const startMin = parseInt(slot.startTime.slice(0, 2), 10) * 60 + parseInt(slot.startTime.slice(3, 5), 10);
     const endMin = startMin + copiedEvent.duration;
     const toISO = (totalMin: number) => {
+      const effectiveDate = totalMin >= 24 * 60 ? addOneDay(slot.date) : slot.date;
       const h = Math.floor(totalMin / 60) % 24;
       const m = totalMin % 60;
-      return `${slot.date}T${pad(h)}:${pad(m)}:00`;
+      return `${effectiveDate}T${pad(h)}:${pad(m)}:00`;
     };
     try {
       const res = await authFetch('/api/events/events/', accessToken, {
@@ -806,9 +821,10 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
 
     const pad = (n: number) => n.toString().padStart(2, '0');
     const toISO = (date: string, totalMin: number) => {
+      const effectiveDate = totalMin >= 24 * 60 ? addOneDay(date) : date;
       const h = Math.floor(totalMin / 60) % 24;
       const m = totalMin % 60;
-      return `${date}T${pad(h)}:${pad(m)}:00`;
+      return `${effectiveDate}T${pad(h)}:${pad(m)}:00`;
     };
 
     // All other festival events in the target room on the target date, sorted by start
