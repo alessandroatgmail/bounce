@@ -218,6 +218,7 @@ class EventSerializer(serializers.ModelSerializer):
     effective_image = serializers.SerializerMethodField()
     already_booked = serializers.SerializerMethodField()
     booked_by = serializers.SerializerMethodField()
+    children_levels = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -242,7 +243,17 @@ class EventSerializer(serializers.ModelSerializer):
             "multi_events",
             "free",
             "already_booked", "booked_by", "available_spot",
+            "children_levels",
         ]
+
+    def get_children_levels(self, obj):
+        qs = (
+            obj.events
+            .filter(level__isnull=False)
+            .values('level__id', 'level__name')
+            .distinct()
+        )
+        return [{'id': r['level__id'], 'name': r['level__name']} for r in qs]
 
     def get_effective_image(self, obj):
         img = obj.effective_image

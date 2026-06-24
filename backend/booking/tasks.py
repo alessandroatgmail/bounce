@@ -183,6 +183,11 @@ def notify_next_waiting(event_id: int, role_id: int = None) -> None:
     if waiting:
         waiting.status = ContributionStatus.ACCEPTED
         waiting.save(update_fields=['status'])
+        if event.multi_events and waiting.level_id:
+            children = event.events.filter(
+                Q(level=waiting.level) | Q(event_type__party=True)
+            )
+            waiting.events.add(*children)
         send_spot_available_email.delay(waiting.user.id, waiting.id)
 
 

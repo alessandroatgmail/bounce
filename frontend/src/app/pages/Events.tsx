@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck, UserCheck, UserX } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -47,12 +47,17 @@ export function EventsBrowser({
 
   const now = new Date();
 
+  const festivalChildIds = useMemo(
+    () => new Set(events.filter(e => e.multi_events).flatMap(e => e.events)),
+    [events],
+  );
+
   const upcoming = useMemo(
     () =>
       events
-        .filter(e => new Date(e.start_date) >= now)
+        .filter(e => new Date(e.start_date) >= now && !festivalChildIds.has(e.id))
         .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()),
-    [events],
+    [events, festivalChildIds],
   );
 
   const allTypes = useMemo(
@@ -224,8 +229,11 @@ function EventCard({
   const [partnerName, setPartnerName] = useState('');
   const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [joined, setJoined] = useState(false);
+  const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
 
   const hasRoles = event.event_type.partners > 0 && event.event_type.partner_roles.length > 0;
+  const hasLevelChoice = event.multi_events && !event.free && event.children_levels.length > 0;
+  const needsExtraStep = hasRoles || hasLevelChoice;
 
   useEffect(() => {
     const email = partnerEmail.trim();
@@ -265,6 +273,7 @@ function EventCard({
       const body: Record<string, unknown> = { membership_id: membershipId, event_id: event.id };
       if (hasRoles && selectedRoleId) body.role_id = selectedRoleId;
       if (partnerId) body.partner_id = partnerId;
+      if (selectedLevelId) body.level_id = selectedLevelId;
       const res = await fetch('/api/booking/my-memberships/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
@@ -283,7 +292,7 @@ function EventCard({
     if (!isAuthenticated) return;
     const next = !showPanel;
     setShowPanel(next);
-    if (next) setBookingStep(hasRoles ? 'role' : 'membership');
+    if (next) setBookingStep(needsExtraStep ? 'role' : 'membership');
   }
 
   const spotsLeft = event.available_spot;
@@ -391,65 +400,97 @@ function EventCard({
         {isAuthenticated && showPanel && !joined && (
           <div className="mt-3 border-t border-[#d4b896]/20 pt-3 space-y-3">
 
-            {/* Step 1: role + partner email */}
+            {/* Step 1: role + partner email + level */}
             {bookingStep === 'role' && (
               <>
-                <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
-                  {it ? 'Il tuo ruolo' : 'Your role'}
-                </p>
-                <Select
-                  value={selectedRoleId ? String(selectedRoleId) : ''}
-                  onValueChange={v => setSelectedRoleId(Number(v))}
-                >
-                  <SelectTrigger className="border-[#d4b896]">
-                    <SelectValue placeholder={it ? 'Seleziona un ruolo...' : 'Select a role...'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {event.event_type.partner_roles.map(r => (
-                      <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
-                  {it ? 'Email del partner (opzionale)' : 'Partner email (optional)'}
-                </p>
-                <div className="relative">
-                  <Input
-                    type="email"
-                    placeholder={it ? 'email@esempio.com' : 'email@example.com'}
-                    value={partnerEmail}
-                    onChange={e => setPartnerEmail(e.target.value)}
-                    className="border-[#d4b896] pr-8"
-                  />
-                  {partnerCheckStatus === 'checking' && (
-                    <Loader2 className="absolute right-2 top-2.5 size-4 animate-spin text-gray-400" />
-                  )}
-                  {partnerCheckStatus === 'found' && (
-                    <UserCheck className="absolute right-2 top-2.5 size-4 text-green-600" />
-                  )}
-                  {partnerCheckStatus === 'not_found' && (
-                    <UserX className="absolute right-2 top-2.5 size-4 text-red-400" />
-                  )}
-                </div>
-                {partnerCheckStatus === 'found' && partnerName && (
-                  <p className="text-xs text-green-700 flex items-center gap-1">
-                    <UserCheck className="size-3" />
-                    {partnerName}
-                  </p>
+                {hasRoles && (
+                  <>
+                    <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
+                      {it ? 'Il tuo ruolo' : 'Your role'}
+                    </p>
+                    <Select
+                      value={selectedRoleId ? String(selectedRoleId) : ''}
+                      onValueChange={v => setSelectedRoleId(Number(v))}
+                    >
+                      <SelectTrigger className="border-[#d4b896]">
+                        <SelectValue placeholder={it ? 'Seleziona un ruolo...' : 'Select a role...'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {event.event_type.partner_roles.map(r => (
+                          <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
                 )}
-                {partnerCheckStatus === 'not_found' && (
-                  <p className="text-xs text-amber-600">
-                    {it
-                      ? 'Utente non trovato. Potrai aggiungere il partner in seguito.'
-                      : "User not found. You can add a partner later."}
-                  </p>
+
+                {hasRoles && (
+                  <>
+                    <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
+                      {it ? 'Email del partner (opzionale)' : 'Partner email (optional)'}
+                    </p>
+                    <div className="relative">
+                      <Input
+                        type="email"
+                        placeholder={it ? 'email@esempio.com' : 'email@example.com'}
+                        value={partnerEmail}
+                        onChange={e => setPartnerEmail(e.target.value)}
+                        className="border-[#d4b896] pr-8"
+                      />
+                      {partnerCheckStatus === 'checking' && (
+                        <Loader2 className="absolute right-2 top-2.5 size-4 animate-spin text-gray-400" />
+                      )}
+                      {partnerCheckStatus === 'found' && (
+                        <UserCheck className="absolute right-2 top-2.5 size-4 text-green-600" />
+                      )}
+                      {partnerCheckStatus === 'not_found' && (
+                        <UserX className="absolute right-2 top-2.5 size-4 text-red-400" />
+                      )}
+                    </div>
+                    {partnerCheckStatus === 'found' && partnerName && (
+                      <p className="text-xs text-green-700 flex items-center gap-1">
+                        <UserCheck className="size-3" />
+                        {partnerName}
+                      </p>
+                    )}
+                    {partnerCheckStatus === 'not_found' && (
+                      <p className="text-xs text-amber-600">
+                        {it
+                          ? 'Utente non trovato. Potrai aggiungere il partner in seguito.'
+                          : "User not found. You can add a partner later."}
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {hasLevelChoice && (
+                  <>
+                    <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
+                      {it ? 'Il tuo livello' : 'Your level'}
+                    </p>
+                    <Select
+                      value={selectedLevelId ? String(selectedLevelId) : ''}
+                      onValueChange={v => setSelectedLevelId(Number(v))}
+                    >
+                      <SelectTrigger className="border-[#d4b896]">
+                        <SelectValue placeholder={it ? 'Seleziona un livello...' : 'Select a level...'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {event.children_levels.map(l => (
+                          <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
                 )}
 
                 <div className="flex justify-end">
                   <Button
                     size="sm"
-                    disabled={!selectedRoleId}
+                    disabled={
+                      (hasRoles && !selectedRoleId) ||
+                      (hasLevelChoice && !selectedLevelId)
+                    }
                     className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white disabled:opacity-50"
                     onClick={() => setBookingStep('membership')}
                   >
@@ -466,7 +507,7 @@ function EventCard({
                   <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
                     {it ? 'Scegli un abbonamento' : 'Choose a membership'}
                   </p>
-                  {hasRoles && (
+                  {needsExtraStep && (
                     <button
                       className="text-xs text-gray-400 hover:text-[#e67e22] underline"
                       onClick={() => setBookingStep('role')}

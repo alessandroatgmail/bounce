@@ -29,6 +29,7 @@ export interface EventItem {
   payment_days: number;
   multi_events: boolean;
   free: boolean;
+  children_levels: { id: number; name: string }[];
   already_booked: boolean;
   booked_by: string | null;
   available_spot: number;

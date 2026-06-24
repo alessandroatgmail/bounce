@@ -9,7 +9,8 @@ from django.utils import timezone
 from django.db.models import Count, Min, Q
 from rest_framework import serializers
 from config.models import SiteSettings
-from event.models import Event, PartnerRole
+from django.db.models import Q
+from event.models import Event, Level, PartnerRole
 from event.serializers import EventSerializer
 from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
@@ -179,6 +180,10 @@ class UserContributionSerializer(serializers.ModelSerializer):
     partner = serializers.StringRelatedField(read_only=True)
     role_id = serializers.PrimaryKeyRelatedField(write_only=True, required=False, queryset=PartnerRole.objects.all(), source='role')
     role = serializers.StringRelatedField(read_only=True)
+    level_id = serializers.PrimaryKeyRelatedField(
+        queryset=Level.objects.all(), source='level', write_only=True, required=False, allow_null=True,
+    )
+    level = serializers.StringRelatedField(read_only=True)
     discounts = DiscountSerializer(many=True, read_only=True)
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
@@ -189,6 +194,7 @@ class UserContributionSerializer(serializers.ModelSerializer):
             'amount', 'start_date', 'end_date', 'upgraded_from', 'original_contribution',
             'twin_contributions', 'partner_email',
             'partner_id', 'role_id', 'role', 'partner',
+            'level_id', 'level',
             'discounts', 'discounted_amount',
         ]
         read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',
@@ -263,55 +269,16 @@ class UserContributionSerializer(serializers.ModelSerializer):
             service._send_contribution_email(
                 contribution,
             )
-            accepted_roles = event.accepted_roles.all()
-            role_not_accepted = (
-                accepted_roles.exists()
-                and contribution.role is not None
-                and not accepted_roles.filter(pk=contribution.role.pk).exists()
-            )
-            at_max_capacity = event.available_spot < 1
-
-            role_imbalance = False
-            if contribution.role is not None and event.event_type.partners > 1:
-                role_counts = event.event_type.partner_roles.annotate(
-                    count=Count(
-                        'contribution',
-                        filter=Q(
-                            contribution__events=event,
-                            contribution__status=ContributionStatus.ACCEPTED,
-                        ),
-                        distinct=True,
-                    )
-                )
-                lower_count = role_counts.aggregate(min_count=Min('count'))['min_count'] or 0
-                new_role_count = (
-                    role_counts.filter(pk=contribution.role_id)
-                    .values_list('count', flat=True)
-                    .first() or 0
-                )
-                if new_role_count > lower_count + event.extras:
-                    role_imbalance = True
-
-            if role_not_accepted:
+            print ("------------- ENTERED IN SERIALIZERS CREATION ---------")
+            if service.waiting_list(contribution):
+                print ("--------- service waiting list is true")
                 contribution.status = ContributionStatus.WAITING
                 contribution.save()
-                from booking.tasks import send_waiting_list_for_role_email
-                send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
-            elif role_imbalance:
-                contribution.status = ContributionStatus.WAITING
-                contribution.save()
-                from booking.tasks import send_waiting_list_for_role_email
-                send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
-            elif at_max_capacity:
-                contribution.status = ContributionStatus.WAITING
-                contribution.save()
-                from booking.tasks import send_waiting_list_max_email
-                send_waiting_list_max_email.delay(contribution.user.id, contribution.id)
                 if contribution.partner:
                     partner_contribution.status = ContributionStatus.WAITING
                     partner_contribution.save()
-                    send_waiting_list_max_email.delay(partner_contribution.user.id, partner_contribution.id)
-            elif event.available_spot >= 1:
+            else:
+                print("--------- service waiting list is false ---------")
                 contribution.status = ContributionStatus.ACCEPTED
                 contribution.save()
                 service._dispatch_change_status_email(
@@ -321,7 +288,6 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     new_status=ContributionStatus.ACCEPTED,
                 )
                 if contribution.partner:
-
                     partner_contribution.status = ContributionStatus.ACCEPTED
                     partner_contribution.save()
                     service._dispatch_change_status_email(
@@ -332,6 +298,103 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     )
 
         return contribution
+
+    # def create(self, validated_data):
+    #     event = validated_data.pop('event_id', None)
+    #
+    #     membership = validated_data['membership']
+    #     validated_data['amount'] = Decimal(membership.contribution)
+    #     # update start date and end date
+    #     start_date, end_date = service._contribution_date_range(membership, event)
+    #     if start_date:
+    #         validated_data.update({"start_date": start_date})
+    #     if end_date:
+    #         validated_data.update({"end_date": end_date})
+    #     contribution = Contribution.objects.create(**validated_data)
+    #     # create partner contribution
+    #     if event:
+    #         contribution.events.add(event)
+    #         if contribution.partner:
+    #             partner_contribution = service._create_partner_contribution(contribution, contribution.partner)
+    #             service._apply_couple_discount(contribution, partner_contribution)
+    #             service._send_contribution_email(partner_contribution)
+    #         service._send_contribution_email(
+    #             contribution,
+    #         )
+    #         accepted_roles = event.accepted_roles.all()
+    #         role_not_accepted = (
+    #             accepted_roles.exists()
+    #             and contribution.role is not None
+    #             and not accepted_roles.filter(pk=contribution.role.pk).exists()
+    #         )
+    #         at_max_capacity = event.available_spot < 1
+    #
+    #         role_imbalance = False
+    #         if contribution.role is not None and event.event_type.partners > 1:
+    #             role_counts = event.event_type.partner_roles.annotate(
+    #                 count=Count(
+    #                     'contribution',
+    #                     filter=Q(
+    #                         contribution__events=event,
+    #                         contribution__status=ContributionStatus.ACCEPTED,
+    #                     ),
+    #                     distinct=True,
+    #                 )
+    #             )
+    #             lower_count = role_counts.aggregate(min_count=Min('count'))['min_count'] or 0
+    #             new_role_count = (
+    #                 role_counts.filter(pk=contribution.role_id)
+    #                 .values_list('count', flat=True)
+    #                 .first() or 0
+    #             )
+    #             if new_role_count > lower_count + event.extras:
+    #                 role_imbalance = True
+    #
+    #         if role_not_accepted:
+    #             contribution.status = ContributionStatus.WAITING
+    #             contribution.save()
+    #             from booking.tasks import send_waiting_list_for_role_email
+    #             send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
+    #         elif role_imbalance:
+    #             contribution.status = ContributionStatus.WAITING
+    #             contribution.save()
+    #             from booking.tasks import send_waiting_list_for_role_email
+    #             send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
+    #         elif at_max_capacity:
+    #             contribution.status = ContributionStatus.WAITING
+    #             contribution.save()
+    #             from booking.tasks import send_waiting_list_max_email
+    #             send_waiting_list_max_email.delay(contribution.user.id, contribution.id)
+    #             if contribution.partner:
+    #                 partner_contribution.status = ContributionStatus.WAITING
+    #                 partner_contribution.save()
+    #                 send_waiting_list_max_email.delay(partner_contribution.user.id, partner_contribution.id)
+    #         elif event.available_spot >= 1:
+    #             contribution.status = ContributionStatus.ACCEPTED
+    #             contribution.save()
+    #             if event.multi_events and contribution.level_id:
+    #                 children = event.events.filter(
+    #                     Q(level=contribution.level) | Q(event_type__party=True)
+    #                 )
+    #                 contribution.events.add(*children)
+    #             service._dispatch_change_status_email(
+    #                 contribution_id=contribution.id,
+    #                 user_id=contribution.user.id,
+    #                 old_status=ContributionStatus.RECEIVED,
+    #                 new_status=ContributionStatus.ACCEPTED,
+    #             )
+    #             if contribution.partner:
+    #
+    #                 partner_contribution.status = ContributionStatus.ACCEPTED
+    #                 partner_contribution.save()
+    #                 service._dispatch_change_status_email(
+    #                     contribution_id=partner_contribution.id,
+    #                     user_id=partner_contribution.user.id,
+    #                     old_status=ContributionStatus.RECEIVED,
+    #                     new_status=ContributionStatus.ACCEPTED,
+    #                 )
+    #
+    #     return contribution
 
     def update(self, instance, validated_data):
         old_status = instance.status

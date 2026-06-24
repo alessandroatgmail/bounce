@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
 from colorfield.fields import ColorField
 from users.models import City
@@ -28,6 +29,7 @@ class EventType(models.Model):
     frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.SINGLE)
     partners = models.IntegerField()
     partner_roles = models.ManyToManyField(PartnerRole, blank=True, null=True)
+    party = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
@@ -140,5 +142,19 @@ class Event(models.Model):
 
         return self.contributions.filter(status=CS.ACCEPTED).count()
 
+    @property
+    def role_count(self):
+        from booking.models import ContributionStatus as CS
+        from collections import Counter
+        print ("---------- entered in role count ----------")
+        roles = list(self.contributions.filter(status=CS.ACCEPTED).values("role__name"))
+        print (roles)
 
+        roles = dict(Counter([r["role__name"] for r in roles]))
+        print (roles)
+
+        for role in self.event_type.partner_roles.all():
+            if role.name not in roles:
+                roles[role.name] = 0
+        return roles
 

@@ -32,6 +32,7 @@ class Contribution(models.Model):
     partner_email = models.EmailField(null=True, blank=True,)
     partner = models.ForeignKey(get_user_model(), on_delete=models.PROTECT,
                                 null=True, blank=True, related_name='partner_contributions')
+    level = models.ForeignKey("event.level", on_delete=models.PROTECT, null=True, blank=True)
     original_contribution = models.ForeignKey(
             "self", on_delete=models.PROTECT,
             null=True, blank=True, related_name='twin_contributions'
