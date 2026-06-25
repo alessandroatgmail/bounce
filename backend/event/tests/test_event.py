@@ -2,13 +2,19 @@ import pytest
 from rest_framework import status as http_status
 
 from event.models import Event, EventType, Status, PartnerRole
+from membership.models import Membership
 from utils.mock_event import make_event_payload, make_event_payloads
+from utils.mock_membership import make_membership_payload
 
 LIST_URL = "/api/events/events/"
 
 
 def detail_url(pk):
     return f"{LIST_URL}{pk}/"
+
+
+def create_membership(**overrides):
+    return Membership.objects.create(**make_membership_payload(**overrides))
 
 
 def create_event(**overrides):
@@ -24,6 +30,7 @@ def create_event(**overrides):
         end_date=payload["end_date"],
         duration=payload["duration"],
         capacity=payload["capacity"],
+        multi_events=payload.get("multi_events", False),
     )
 
 
@@ -147,6 +154,7 @@ class TestEventStaffList:
             "accepted_roles", "warning_threshold", "extras", "payment_days",
             "multi_events", "free",
             "children_levels",
+            "memberships",
         }
         assert set(response.data[0].keys()) == expected
 
@@ -451,3 +459,75 @@ class TestEventNewFields:
         staff_client.patch(detail_url(event.pk), {"extras": 6}, format="json")
         event.refresh_from_db()
         assert event.extras == 6
+
+
+# ── memberships ───────────────────────────────────────────────────────────────
+
+class TestEventMemberships:
+
+    def test_memberships_default_empty_on_create(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert response.data["memberships"] == []
+
+    def test_admin_can_set_memberships_on_create(self, staff_client, world_data):
+        m = create_membership()
+        payload = make_event_payload(membership_ids=[m.pk])
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert len(response.data["memberships"]) == 1
+        assert response.data["memberships"][0]["id"] == m.pk
+
+    def test_memberships_response_shape(self, staff_client, world_data):
+        m = create_membership()
+        payload = make_event_payload(membership_ids=[m.pk])
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert set(response.data["memberships"][0].keys()) == {
+            "id", "name", "type", "contribution", "color", "max_events", "duration", "rules"
+        }
+
+    def test_admin_can_replace_memberships_via_put(self, staff_client, world_data):
+        m1 = create_membership()
+        m2 = create_membership()
+        event = create_event()
+        event.memberships.set([m1])
+        payload = make_event_payload(membership_ids=[m2.pk])
+        staff_client.put(detail_url(event.pk), payload, format="json")
+        event.refresh_from_db()
+        assert list(event.memberships.values_list("id", flat=True)) == [m2.pk]
+
+    def test_admin_can_patch_memberships(self, staff_client, world_data):
+        m = create_membership()
+        event = create_event()
+        staff_client.patch(detail_url(event.pk), {"membership_ids": [m.pk]}, format="json")
+        event.refresh_from_db()
+        assert list(event.memberships.values_list("id", flat=True)) == [m.pk]
+
+    def test_admin_can_clear_memberships(self, staff_client, world_data):
+        m = create_membership()
+        event = create_event()
+        event.memberships.set([m])
+        staff_client.patch(detail_url(event.pk), {"membership_ids": []}, format="json")
+        event.refresh_from_db()
+        assert event.memberships.count() == 0
+
+
+class TestEventMembershipsStudentAccess:
+
+    def test_student_sees_memberships_on_multi_events_festival(self, student_client, world_data):
+        m = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+        response = student_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK
+        assert len(response.data["memberships"]) == 1
+        assert response.data["memberships"][0]["id"] == m.pk
+
+    def test_student_gets_empty_memberships_on_non_multi_events(self, student_client, world_data):
+        m = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        event.memberships.set([m])
+        response = student_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data["memberships"] == []
+

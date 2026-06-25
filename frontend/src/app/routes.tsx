@@ -12,6 +12,7 @@ import { ResetPassword } from './pages/ResetPassword';
 import { Layout } from './components/Layout';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { PaymentSuccess } from './pages/PaymentSuccess';
+import { FestivalSchedulePage } from './pages/FestivalSchedulePage';
 
 export const router = createBrowserRouter([
   {
@@ -45,6 +46,10 @@ export const router = createBrowserRouter([
       {
         path: 'reset-password/:uid/:token',
         Component: ResetPassword,
+      },
+      {
+        path: 'festival/:id',
+        Component: FestivalSchedulePage,
       },
       {
         path: 'checkout',

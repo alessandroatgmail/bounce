@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from users.models import City
 from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole
+from membership.models import Membership
 
 
 class PartnerRoleSerializer(serializers.ModelSerializer):
@@ -215,6 +216,11 @@ class EventSerializer(serializers.ModelSerializer):
         many=True, write_only=True, source="accepted_roles",
         queryset=PartnerRole.objects.all(), required=False,
     )
+    memberships = serializers.SerializerMethodField()
+    membership_ids = serializers.PrimaryKeyRelatedField(
+        many=True, write_only=True, source="memberships",
+        queryset=Membership.objects.all(), required=False,
+    )
     effective_image = serializers.SerializerMethodField()
     already_booked = serializers.SerializerMethodField()
     booked_by = serializers.SerializerMethodField()
@@ -237,6 +243,7 @@ class EventSerializer(serializers.ModelSerializer):
             "info", "color",
             "image", "effective_image",
             "accepted_roles", "accepted_role_ids",
+            "memberships", "membership_ids",
             "warning_threshold",
             "extras",
             "payment_days",
@@ -245,6 +252,13 @@ class EventSerializer(serializers.ModelSerializer):
             "already_booked", "booked_by", "available_spot",
             "children_levels",
         ]
+
+    def get_memberships(self, obj):
+        from membership.serializers import MembershipSerializer
+        request = self.context.get("request")
+        if request and not request.user.is_staff and not obj.multi_events:
+            return []
+        return MembershipSerializer(obj.memberships.all(), many=True).data
 
     def get_children_levels(self, obj):
         qs = (
@@ -302,6 +316,7 @@ class EventSerializer(serializers.ModelSerializer):
         artists = validated_data.pop("artists", [])
         events = validated_data.pop("events", [])
         accepted_roles = validated_data.pop("accepted_roles", None)
+        memberships = validated_data.pop("memberships", [])
         event = Event.objects.create(**validated_data)
         event.styles.set(styles)
         event.genres.set(genres)
@@ -309,6 +324,7 @@ class EventSerializer(serializers.ModelSerializer):
         event.events.set(events)
         if accepted_roles is not None:
             event.accepted_roles.set(accepted_roles)
+        event.memberships.set(memberships)
         return event
 
     def update(self, instance, validated_data):
@@ -317,6 +333,7 @@ class EventSerializer(serializers.ModelSerializer):
         artists = validated_data.pop("artists", None)
         events = validated_data.pop("events", None)
         accepted_roles = validated_data.pop("accepted_roles", None)
+        memberships = validated_data.pop("memberships", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -330,4 +347,6 @@ class EventSerializer(serializers.ModelSerializer):
             instance.events.set(events)
         if accepted_roles is not None:
             instance.accepted_roles.set(accepted_roles)
+        if memberships is not None:
+            instance.memberships.set(memberships)
         return instance

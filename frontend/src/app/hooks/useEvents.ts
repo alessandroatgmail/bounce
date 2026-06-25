@@ -3,6 +3,16 @@ import { authFetch, authFetchFile, apiUrl } from '../../lib/api';
 
 const BASE = '/api/events/events/';
 
+export interface EventMembership {
+  id: number;
+  name: string;
+  type: string;
+  contribution: number;
+  color: string | null;
+  max_events: number;
+  duration: number;
+}
+
 export interface EventItem {
   id: number;
   name: string;
@@ -24,6 +34,7 @@ export interface EventItem {
   image: string | null;
   effective_image: string | null;
   accepted_roles: { id: number; name: string }[];
+  memberships: EventMembership[];
   warning_threshold: number;
   extras: number;
   payment_days: number;
@@ -55,6 +66,7 @@ export interface EventPayload {
   warning_threshold?: number;
   extras?: number;
   accepted_role_ids?: number[];
+  membership_ids?: number[];
   multi_events?: boolean;
   free?: boolean;
   event_ids?: number[];

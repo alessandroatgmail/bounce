@@ -9,6 +9,7 @@ import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
 import { useFestivalDays, type FestivalDay, type FestivalRoom } from '../hooks/useFestivalDays';
+import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -91,6 +92,7 @@ function EventSlotDialog({
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
+  const { memberships, loading: loadingMemberships } = useMemberships(accessToken);
 
   const isEdit = !!editEvent;
 
@@ -112,6 +114,9 @@ function EventSlotDialog({
   );
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(
     editEvent?.styles ?? []
+  );
+  const [selectedMemberships, setSelectedMemberships] = useState<{ id: number; name: string }[]>(
+    editEvent?.memberships?.map(m => ({ id: m.id, name: m.name })) ?? []
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -174,6 +179,7 @@ function EventSlotDialog({
         genre_ids: selectedGenres.map(g => g.id),
         style_ids: selectedStyles.map(s => s.id),
         color: color || null,
+        membership_ids: selectedMemberships.map(m => m.id),
       };
 
       if (isEdit) {
@@ -276,6 +282,7 @@ function EventSlotDialog({
           <MultiSearchSelect label="Artists" items={artists.map(a => ({ id: a.id, name: a.full_name }))} selected={selectedArtists} loading={loadingArtists} placeholder="Search artist…" onChange={setSelectedArtists} />
           <MultiSearchSelect label="Genres" items={genres} selected={selectedGenres} loading={loadingGenres} placeholder="Search genre…" onChange={setSelectedGenres} />
           <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style…" onChange={setSelectedStyles} />
+          <MultiSearchSelect label="Memberships" items={memberships.map(m => ({ id: m.id, name: m.name }))} selected={selectedMemberships} loading={loadingMemberships} placeholder="Search membership…" onChange={setSelectedMemberships} />
 
           <div className="space-y-1.5">
             <Label>Color</Label>
@@ -310,6 +317,43 @@ function EventSlotDialog({
             </div>
           </div>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Add-day dialog ────────────────────────────────────────────────────────────
+
+function AddDayDialog({
+  defaultDate,
+  onClose,
+  onAdd,
+}: {
+  defaultDate: string;
+  onClose: () => void;
+  onAdd: (date: string) => void;
+}) {
+  const [date, setDate] = useState(defaultDate);
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-xs">
+        <DialogHeader>
+          <DialogTitle>Add Day</DialogTitle>
+          <DialogDescription>Select a date for the new festival day.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 pt-1">
+          <div className="space-y-1.5">
+            <Label>Date *</Label>
+            <Input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button type="button" size="sm" disabled={!date} onClick={() => date && onAdd(date)}>
+              Add
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -564,8 +608,15 @@ function DayGrid({
 
   if (day.rooms.length === 0) {
     return (
-      <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
-        No rooms assigned to this day yet.
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 text-sm">
+        <span>No rooms assigned to this day yet.</span>
+        <button
+          onClick={onAddRoom}
+          className="flex items-center gap-1.5 text-gray-400 hover:text-[#e67e22] transition-colors"
+          title="Add room"
+        >
+          <Plus className="size-4" /> Add room
+        </button>
       </div>
     );
   }
@@ -884,6 +935,7 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
   const [copiedEvent, setCopiedEvent] = useState<EventItem | null>(null);
   const [addingDay, setAddingDay] = useState(false);
+  const [addDayDialogOpen, setAddDayDialogOpen] = useState(false);
   const [removingDayId, setRemovingDayId] = useState<number | null>(null);
   const [dayError, setDayError] = useState<string | null>(null);
   const [addRoomDay, setAddRoomDay] = useState<FestivalDay | null>(null);
@@ -952,15 +1004,14 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
     }
   };
 
-  const handleAddNextDay = async () => {
-    if (!accessToken || days.length === 0) return;
-    const lastDate = days[days.length - 1].date;
-    const nextDate = addOneDay(lastDate);
+  const handleAddDay = async (date: string) => {
+    if (!accessToken) return;
+    setAddDayDialogOpen(false);
     setAddingDay(true);
     try {
       const res = await authFetch('/api/festival/festival-days/', accessToken, {
         method: 'POST',
-        body: JSON.stringify({ event_id: festival.id, date: nextDate }),
+        body: JSON.stringify({ event_id: festival.id, date }),
       });
       if (res.ok) {
         const created = await res.json();
@@ -1153,10 +1204,10 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
             ))}
             {days.length > 0 && (
               <button
-                onClick={handleAddNextDay}
+                onClick={() => setAddDayDialogOpen(true)}
                 disabled={addingDay}
                 className="px-3 py-2 text-sm font-medium border-b-2 border-transparent -mb-px text-gray-400 hover:text-[#e67e22] transition-colors disabled:opacity-40"
-                title={days.length ? `Add ${formatDayLabel(addOneDay(days[days.length - 1].date))}` : 'Add day'}
+                title="Add day"
               >
                 {addingDay ? <Loader2 className="size-4 animate-spin" /> : '+'}
               </button>
@@ -1234,6 +1285,15 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
           festival={liveFestival}
           onClose={() => setEditingEvent(null)}
           onSaved={handleSaved}
+        />
+      )}
+
+      {/* Add day dialog */}
+      {addDayDialogOpen && (
+        <AddDayDialog
+          defaultDate={days.length > 0 ? addOneDay(days[days.length - 1].date) : ''}
+          onClose={() => setAddDayDialogOpen(false)}
+          onAdd={handleAddDay}
         />
       )}
 

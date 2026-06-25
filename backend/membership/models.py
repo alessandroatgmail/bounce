@@ -15,7 +15,6 @@ class Membership(models.Model):
     color = ColorField(format="hex", null=True, blank=True)
     max_events = models.IntegerField(default=1, null=True, blank=True)
     duration = models.IntegerField(default=0, verbose_name="duration (months)")
-    event = models.ForeignKey(Event, on_delete=models.PROTECT, null=True, blank=True)
 
     class Meta:
         verbose_name = "Pack"

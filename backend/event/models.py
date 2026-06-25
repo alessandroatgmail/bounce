@@ -111,6 +111,7 @@ class Event(models.Model):
     extras = models.IntegerField(default=0)
     multi_events = models.BooleanField(default=False)
     free = models.BooleanField(default=False)
+    memberships = models.ManyToManyField("membership.membership", blank=True, related_name="events")
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"
@@ -146,12 +147,8 @@ class Event(models.Model):
     def role_count(self):
         from booking.models import ContributionStatus as CS
         from collections import Counter
-        print ("---------- entered in role count ----------")
         roles = list(self.contributions.filter(status=CS.ACCEPTED).values("role__name"))
-        print (roles)
-
         roles = dict(Counter([r["role__name"] for r in roles]))
-        print (roles)
 
         for role in self.event_type.partner_roles.all():
             if role.name not in roles:

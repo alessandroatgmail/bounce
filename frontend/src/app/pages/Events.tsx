@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router';
 import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck, UserCheck, UserX } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -220,6 +221,7 @@ function EventCard({
   showAvailableSpots?: boolean;
 }) {
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const [showPanel, setShowPanel] = useState(false);
   const [bookingStep, setBookingStep] = useState<'role' | 'membership'>('membership');
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
@@ -290,6 +292,10 @@ function EventCard({
 
   function handleJoinClick() {
     if (!isAuthenticated) return;
+    if (event.multi_events && event.free) {
+      navigate(`/festival/${event.id}`);
+      return;
+    }
     const next = !showPanel;
     setShowPanel(next);
     if (next) setBookingStep(needsExtraStep ? 'role' : 'membership');
@@ -516,14 +522,14 @@ function EventCard({
                     </button>
                   )}
                 </div>
-                {membershipsLoading ? (
+                {!event.multi_events && membershipsLoading ? (
                   <div className="flex justify-center py-2">
                     <Loader2 className="size-4 animate-spin text-[#e67e22]" />
                   </div>
                 ) : (() => {
-                  const eligible = memberships.filter(m =>
-                    m.rules.some(r => r.event_type.id === event.event_type.id)
-                  );
+                  const eligible = event.multi_events
+                    ? event.memberships
+                    : memberships.filter(m => m.rules.some(r => r.event_type.id === event.event_type.id));
                   return eligible.length === 0 ? (
                     <p className="text-xs text-gray-500">
                       {it ? 'Nessun abbonamento disponibile per questo tipo di evento.' : 'No memberships available for this event type.'}

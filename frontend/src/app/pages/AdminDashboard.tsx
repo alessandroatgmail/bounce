@@ -45,6 +45,7 @@ import { useArtists } from '../hooks/useArtists';
 import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
 import { useEvents, type EventItem } from '../hooks/useEvents';
+import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from '../components/MultiSearchSelect';
 
 export function AdminDashboard() {
@@ -1026,6 +1027,10 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
     initialData?.accepted_roles ?? []
   );
   const { partnerRoles, loading: loadingRoles } = usePartnerRoles(accessToken);
+  const { memberships, loading: loadingMemberships } = useMemberships(accessToken);
+  const [selectedMemberships, setSelectedMemberships] = useState<{ id: number; name: string }[]>(
+    initialData?.memberships?.map(m => ({ id: m.id, name: m.name })) ?? []
+  );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialData?.effective_image ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1071,6 +1076,7 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
       warning_threshold: Number(warningThreshold),
       extras: Number(extras) || 0,
       accepted_role_ids: selectedRoles.map(r => r.id),
+      membership_ids: selectedMemberships.map(m => m.id),
     };
     try {
       if (isEdit) {
@@ -1218,6 +1224,16 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
             placeholder="Search role…"
             onChange={setSelectedRoles}
           />
+          <div className="mt-4">
+            <MultiSearchSelect
+              label="Memberships"
+              items={memberships.map(m => ({ id: m.id, name: m.name }))}
+              selected={selectedMemberships}
+              loading={loadingMemberships}
+              placeholder="Search membership…"
+              onChange={setSelectedMemberships}
+            />
+          </div>
         </div>
 
         <div className="col-span-2 space-y-2">
