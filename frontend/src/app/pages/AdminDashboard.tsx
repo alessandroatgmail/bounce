@@ -18,10 +18,10 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, Bell, Upload, X, Mail } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
 import { FestivalPanel } from '../components/FestivalPanel';
 import { WeeklyGrid } from '../components/WeeklyGrid';
@@ -44,7 +44,9 @@ import { useEventTypes } from '../hooks/useEventTypes';
 import { useArtists } from '../hooks/useArtists';
 import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
-import { useEvents, type EventItem } from '../hooks/useEvents';
+import { type EventItem, type EventPayload } from '../hooks/useEvents';
+import { authFetch, authFetchFile } from '../../lib/api';
+import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from '../components/MultiSearchSelect';
 
@@ -52,7 +54,7 @@ export function AdminDashboard() {
   const { user, setAdminViewMode, accessToken } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  const { events, loading: loadingEvents, refetch: refetchEvents, remove: removeEvent } = useEvents(accessToken);
+  const { count: upcomingCount } = useEventsPaginated(accessToken, { upcoming: true }, 1);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
   const [memberships, setMemberships] = useState(mockMemberships);
@@ -106,14 +108,9 @@ export function AdminDashboard() {
     return <Navigate to="/login" replace />;
   }
 
-  const totalRevenue = events.reduce(
-    (sum, event) => sum + event.currentEnrollment * event.price,
-    0
-  );
+  const totalRevenue = 0;
   const totalStudents = students.length;
-  const upcomingEvents = events.filter(
-    (event) => new Date(event.date) >= new Date()
-  ).length;
+  const upcomingEvents = upcomingCount;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -370,11 +367,11 @@ export function AdminDashboard() {
                 onRemove={removePartnerRole}
               />
             )}
-            {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel events={events} loading={loadingEvents} onRefetch={refetchEvents} onRemove={removeEvent} />}
+            {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel accessToken={accessToken} />}
           </TabsContent>
 
           <TabsContent value="regular-classes" className="mt-6">
-            <WeeklyGrid events={events} loading={loadingEvents} onRefetch={refetchEvents} />
+            <WeeklyGrid />
           </TabsContent>
 
           <TabsContent value="students" className="mt-6">
@@ -730,7 +727,7 @@ export function AdminDashboard() {
   );
 }
 
-function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventItem[]; loading: boolean; onRefetch: () => void; onRemove: (id: number) => Promise<void> }) {
+function EventsPanel({ accessToken }: { accessToken: string | null }) {
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
 
   const [filterName, setFilterName] = useState('');
@@ -742,34 +739,34 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [filterCityId, setFilterCityId] = useState<string>('');
 
-  const now = new Date();
+  const { styles } = useStyles(accessToken);
+  const { levels } = useLevels(accessToken);
+  const { rooms } = useRooms(accessToken);
+  const allCities = useMemo(
+    () => Array.from(new Map(rooms.map(r => r.location.city).map(c => [c.id, c])).values()).sort((a, b) => a.name.localeCompare(b.name)),
+    [rooms],
+  );
 
-  const allStyles = Array.from(
-    new Map(events.flatMap(e => e.styles).map(s => [s.id, s])).values()
-  ).sort((a, b) => a.name.localeCompare(b.name));
+  const { events: paginated, count, page, pageSize, loading, setPage, setFilters, refetch, remove: removeEvent } = useEventsPaginated(accessToken);
 
-  const allLevels = Array.from(
-    new Map(events.flatMap(e => e.level ? [e.level] : []).map(l => [l.id, l])).values()
-  ).sort((a, b) => a.name.localeCompare(b.name));
+  useEffect(() => {
+    setFilters({
+      name: filterName || undefined,
+      style_id: filterStyleId ? Number(filterStyleId) : undefined,
+      level_id: filterLevelId ? Number(filterLevelId) : undefined,
+      type: filterAccess || undefined,
+      status: filterStatus || undefined,
+      city_id: filterCityId ? Number(filterCityId) : undefined,
+      active: filterActive || undefined,
+      parent_only: filterParent || undefined,
+    });
+  }, [filterName, filterStyleId, filterLevelId, filterAccess, filterStatus, filterCityId, filterActive, filterParent, setFilters]);
 
-  const allCities = Array.from(
-    new Map(events.map(e => e.room.location.city).map(c => [c.id, c])).values()
-  ).sort((a, b) => a.name.localeCompare(b.name));
-
-  const filtered = events.filter(e => {
-    if (filterName && !e.name.toLowerCase().includes(filterName.toLowerCase())) return false;
-    if (filterParent && e.events.length === 0) return false;
-    if (filterActive && new Date(e.end_date) <= now) return false;
-    if (filterStyleId && !e.styles.some(s => s.id === Number(filterStyleId))) return false;
-    if (filterLevelId && e.level?.id !== Number(filterLevelId)) return false;
-    if (filterAccess && e.type !== filterAccess) return false;
-    if (filterStatus && e.status !== filterStatus) return false;
-    if (filterCityId && e.room.location.city.id !== Number(filterCityId)) return false;
-    return true;
-  });
+  const totalPages = Math.max(1, Math.ceil(count / pageSize));
 
   const handleDelete = async (id: number) => {
-    await onRemove(id);
+    await removeEvent(id);
+    refetch();
   };
 
   return (
@@ -780,7 +777,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
             <CardTitle>Events Management</CardTitle>
             <CardDescription>Create and manage dance classes and events</CardDescription>
           </div>
-          <EventFormDialog onSuccess={onRefetch} />
+          <EventFormDialog onSuccess={refetch} />
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -802,7 +799,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
               <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All styles" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All styles</SelectItem>
-                {allStyles.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                {styles.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -813,7 +810,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
               <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All levels" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All levels</SelectItem>
-                {allLevels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+                {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -895,6 +892,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
         {loading ? (
           <p className="text-sm text-gray-500 py-4">Loading events...</p>
         ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -909,12 +907,12 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 && (
+              {count === 0 && !loading && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-gray-400 py-8">No events match the current filters.</TableCell>
                 </TableRow>
               )}
-              {filtered.map((event) => (
+              {paginated.map((event) => (
                 <TableRow key={event.id}>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
@@ -947,6 +945,47 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
               ))}
             </TableBody>
           </Table>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-xs text-gray-500">
+                {count} events · page {page} of {totalPages}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline" size="sm"
+                  disabled={page === 1}
+                  onClick={() => setPage(page - 1)}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronLeft className="size-3" />
+                </Button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <Button
+                    key={p}
+                    variant={p === page ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPage(p)}
+                    className={[
+                      'h-7 w-7 p-0 text-xs',
+                      p === page ? 'bg-[#2b2b2b] text-white hover:bg-[#e67e22]' : '',
+                    ].join(' ')}
+                  >
+                    {p}
+                  </Button>
+                ))}
+                <Button
+                  variant="outline" size="sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage(page + 1)}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronRight className="size-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </CardContent>
 
@@ -959,7 +998,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
             </DialogHeader>
             <EventForm
               initialData={editingEvent}
-              onSuccess={() => { onRefetch(); setEditingEvent(null); }}
+              onSuccess={() => { refetch(); setEditingEvent(null); }}
             />
           </DialogContent>
         </Dialog>
@@ -994,7 +1033,23 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
-  const { create, update, uploadImage } = useEvents(accessToken);
+  const create = async (data: EventPayload): Promise<number> => {
+    if (!accessToken) throw new Error('Not authenticated');
+    const res = await authFetch('/api/events/events/', accessToken, { method: 'POST', body: JSON.stringify(data) });
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(JSON.stringify(body)); }
+    return (await res.json()).id;
+  };
+  const update = async (id: number, data: EventPayload): Promise<void> => {
+    if (!accessToken) return;
+    const res = await authFetch(`/api/events/events/${id}/`, accessToken, { method: 'PUT', body: JSON.stringify(data) });
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(JSON.stringify(body)); }
+  };
+  const uploadImage = async (id: number, file: File): Promise<void> => {
+    if (!accessToken) return;
+    const form = new FormData(); form.append('image', file);
+    const res = await authFetchFile(`/api/events/events/${id}/`, accessToken, form);
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(JSON.stringify(body)); }
+  };
 
   const parseDate = (iso: string) => iso ? iso.slice(0, 10) : '';
   const parseTime = (iso: string) => iso ? iso.slice(11, 16) : '';

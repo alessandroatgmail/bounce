@@ -33,6 +33,9 @@ django-post_office==3.11.2
 # CORS headers (needed for the React frontend)
 django-cors-headers==4.4.0
 
+# Filtering
+django-filter==25.2
+
 # JWT authentication
 djangorestframework-simplejwt==5.3.1
 

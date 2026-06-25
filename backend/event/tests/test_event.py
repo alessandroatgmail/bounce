@@ -46,7 +46,7 @@ class TestEventAuthentication:
         create_event(status=Status.DRAFT)
         response = client.get(LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert response.json() == []
+        assert response.json()['results'] == []
 
     def test_unauthenticated_retrieve_returns_200_for_published(self, client, world_data):
         event = create_event(status=Status.PUBLISHED)
@@ -90,17 +90,17 @@ class TestEventStudentVisibility:
         create_event(status=Status.PUBLISHED)
         response = student_client.get(LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert len(response.data) == 1
+        assert len(response.data['results']) == 1
 
     def test_student_cannot_see_draft_events_in_list(self, student_client, world_data):
         create_event(status=Status.DRAFT)
         response = student_client.get(LIST_URL)
-        assert response.data == []
+        assert response.data['results'] == []
 
     def test_student_cannot_see_confirmed_events_in_list(self, student_client, world_data):
         create_event(status=Status.CONFIRMED)
         response = student_client.get(LIST_URL)
-        assert response.data == []
+        assert response.data['results'] == []
 
     def test_student_list_returns_only_published_among_mixed(self, student_client, world_data):
         create_event(status=Status.DRAFT)
@@ -109,7 +109,7 @@ class TestEventStudentVisibility:
         create_event(status=Status.PUBLISHED)
 
         response = student_client.get(LIST_URL)
-        assert len(response.data) == 2
+        assert len(response.data['results']) == 2
 
     def test_student_can_retrieve_published_event(self, student_client, world_data):
         event = create_event(status=Status.PUBLISHED)
@@ -138,7 +138,7 @@ class TestEventStaffList:
 
         response = staff_client.get(LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert len(response.data) == 3
+        assert len(response.data['results']) == 3
 
     def test_list_returns_correct_fields(self, staff_client, world_data):
         create_event()
@@ -156,11 +156,11 @@ class TestEventStaffList:
             "children_levels",
             "memberships",
         }
-        assert set(response.data[0].keys()) == expected
+        assert set(response.data['results'][0].keys()) == expected
 
     def test_empty_list_returns_empty_array(self, staff_client, world_data):
         response = staff_client.get(LIST_URL)
-        assert response.data == []
+        assert response.data['results'] == []
 
 
 # ── Staff create ──────────────────────────────────────────────────────────────

@@ -86,7 +86,7 @@ class TestEventVisibilityIntegration:
 
         response = student_client.get(LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert len(response.data) == 2
+        assert response.data['count'] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ class TestEventCRUDIntegration:
         event = create_event(status=Status.PUBLISHED)
         staff_client.delete(detail_url(event.pk))
         response = staff_client.get(LIST_URL)
-        ids = [e["id"] for e in response.data]
+        ids = [e["id"] for e in response.data['results']]
         assert event.pk not in ids
 
 

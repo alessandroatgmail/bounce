@@ -740,10 +740,10 @@ class TestAutomaticAcceptance:
 
         response = student_client.get(EVENT_LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert len(response.data) == 1
-        assert response.data[0]['id'] == first_event.id
-        assert "already_booked" in response.data[0]
-        assert response.data[0]["already_booked"] is True
+        assert response.data['count'] == 1
+        assert response.data['results'][0]['id'] == first_event.id
+        assert "already_booked" in response.data['results'][0]
+        assert response.data['results'][0]["already_booked"] is True
 
     def test_retreve_event_booked_by_partner_shows_booker_name(self, world_data, student_client, student_user, partner_user, db):
         """
@@ -784,15 +784,15 @@ class TestAutomaticAcceptance:
         partner_api.force_authenticate(user=partner_user)
         response = partner_api.get(EVENT_LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert len(response.data) == 1
-        assert response.data[0]["already_booked"] is True
-        assert response.data[0]["booked_by"] == "Anna Rossi"
+        assert response.data['count'] == 1
+        assert response.data['results'][0]["already_booked"] is True
+        assert response.data['results'][0]["booked_by"] == "Anna Rossi"
 
         # The booker themselves gets no booked_by
         response = student_client.get(EVENT_LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert response.data[0]["already_booked"] is True
-        assert response.data[0]["booked_by"] is None
+        assert response.data['results'][0]["already_booked"] is True
+        assert response.data['results'][0]["booked_by"] is None
 
 class TestDoubleBokking:
     """

@@ -16,13 +16,13 @@ def detail_url(pk):
 
 class TestEventTypePermissions:
 
-    def test_unauthenticated_request_returns_401(self, client, db):
+    def test_unauthenticated_can_list_event_types(self, client, db):
         response = client.get(LIST_URL)
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == status.HTTP_200_OK
 
-    def test_student_cannot_list_event_types(self, student_client, db):
+    def test_student_can_list_event_types(self, student_client, db):
         response = student_client.get(LIST_URL)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
 
     def test_student_cannot_create_event_type(self, student_client, db):
         response = student_client.post(LIST_URL, make_event_type_payload(), format="json")

@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck, UserCheck, UserX } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck, UserCheck, UserX, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -10,7 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useEvents, type EventItem } from '../hooks/useEvents';
+import { type EventItem } from '../hooks/useEvents';
+import { useEventsPaginated } from '../hooks/useEventsPaginated';
+import { useEventTypes } from '../hooks/useEventTypes';
+import { useLevels } from '../hooks/useLevels';
 import { useMemberships, type Membership } from '../hooks/useMemberships';
 
 export function Events() {
@@ -39,168 +42,204 @@ export function EventsBrowser({
 }) {
   const { t, language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
-  const { events, loading } = useEvents(accessToken);
   const { memberships, loading: membershipsLoading } = useMemberships(isAuthenticated ? accessToken : null);
 
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [filterType, setFilterType] = useState<string>('all');
   const [filterLevel, setFilterLevel] = useState<string>('all');
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
 
-  const now = new Date();
+  const { eventTypes } = useEventTypes(accessToken);
+  const { levels } = useLevels(accessToken);
+  const allTypes = useMemo(() => eventTypes.map(et => et.name).sort(), [eventTypes]);
+  const allLevels = useMemo(() => levels.map(l => l.name).sort(), [levels]);
 
-  const festivalChildIds = useMemo(
-    () => new Set(events.filter(e => e.multi_events).flatMap(e => e.events)),
+  const { events, count, page, pageSize, loading, setPage, setFilters } = useEventsPaginated(
+    accessToken,
+    { upcoming: true, parent_only: true },
+  );
+
+  // Keep hook filters in sync with UI filter controls
+  useEffect(() => {
+    setFilters({
+      upcoming: true,
+      parent_only: true,
+      event_type: filterType !== 'all' ? filterType : undefined,
+      level: filterLevel !== 'all' ? filterLevel : undefined,
+    });
+  }, [filterType, filterLevel, setFilters]);
+
+  const filtered = filterMyBookings ? events.filter(e => e.already_booked) : events;
+
+  const eventDates = useMemo(
+    () => events.map(e => new Date(e.start_date.slice(0, 10) + 'T00:00:00')),
     [events],
   );
 
-  const upcoming = useMemo(
-    () =>
-      events
-        .filter(e => new Date(e.start_date) >= now && !festivalChildIds.has(e.id))
-        .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()),
-    [events, festivalChildIds],
-  );
-
-  const allTypes = useMemo(
-    () => Array.from(new Set(upcoming.map(e => e.event_type.name))).sort(),
-    [upcoming],
-  );
-
-  const allLevels = useMemo(
-    () => Array.from(new Set(upcoming.filter(e => e.level).map(e => e.level!.name))).sort(),
-    [upcoming],
-  );
-
-  const filtered = upcoming.filter(e => {
-    if (filterMyBookings && !e.already_booked) return false;
-    if (filterType !== 'all' && e.event_type.name !== filterType) return false;
-    if (filterLevel !== 'all' && e.level?.name !== filterLevel) return false;
-    return true;
-  });
-
-  const eventDates = useMemo(
-    () => upcoming.map(e => new Date(e.start_date.slice(0, 10) + 'T00:00:00')),
-    [upcoming],
-  );
-
   const eventsOnSelectedDate = selectedDate
-    ? filtered.filter(
-        e => e.start_date.slice(0, 10) === selectedDate.toLocaleDateString('sv') // YYYY-MM-DD
-      )
+    ? filtered.filter(e => e.start_date.slice(0, 10) === selectedDate.toLocaleDateString('sv'))
     : [];
+
+  const totalPages = Math.ceil(count / pageSize);
+  const it = language === 'it';
 
   return (
     <div className="container mx-auto px-4 py-8">
-        <div className="mb-6 flex gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Filter className="size-5 text-[#2b2b2b]" />
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="w-[180px] border-[#d4b896]">
-                <SelectValue placeholder={language === 'it' ? 'Tipo di Evento' : 'Event Type'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('events.filter.all')}</SelectItem>
-                {allTypes.map(type => (
-                  <SelectItem key={type} value={type}>{type}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Select value={filterLevel} onValueChange={setFilterLevel}>
+      <div className="mb-6 flex gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Filter className="size-5 text-[#2b2b2b]" />
+          <Select value={filterType} onValueChange={setFilterType}>
             <SelectTrigger className="w-[180px] border-[#d4b896]">
-              <SelectValue placeholder={language === 'it' ? 'Livello' : 'Level'} />
+              <SelectValue placeholder={it ? 'Tipo di Evento' : 'Event Type'} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{language === 'it' ? 'Tutti i Livelli' : 'All Levels'}</SelectItem>
-              {allLevels.map(level => (
-                <SelectItem key={level} value={level}>{level}</SelectItem>
+              <SelectItem value="all">{t('events.filter.all')}</SelectItem>
+              {allTypes.map(type => (
+                <SelectItem key={type} value={type}>{type}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-24">
-            <Loader2 className="size-6 animate-spin text-[#e67e22]" />
-          </div>
-        ) : (
-          <Tabs defaultValue="list" className="w-full">
-            <TabsList className="bg-[#2b2b2b]">
-              <TabsTrigger value="list" className="data-[state=active]:bg-[#d4b896] data-[state=active]:text-[#2b2b2b]">
-                {language === 'it' ? 'Vista Lista' : 'List View'}
-              </TabsTrigger>
-              <TabsTrigger value="calendar" className="data-[state=active]:bg-[#d4b896] data-[state=active]:text-[#2b2b2b]">
-                {language === 'it' ? 'Vista Calendario' : 'Calendar View'}
-              </TabsTrigger>
-            </TabsList>
+        <Select value={filterLevel} onValueChange={setFilterLevel}>
+          <SelectTrigger className="w-[180px] border-[#d4b896]">
+            <SelectValue placeholder={it ? 'Livello' : 'Level'} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{it ? 'Tutti i Livelli' : 'All Levels'}</SelectItem>
+            {allLevels.map(level => (
+              <SelectItem key={level} value={level}>{level}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-            <TabsContent value="list" className="mt-6">
-              {filtered.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-gray-500">{t('events.noEvents')}</p>
-                </div>
-              ) : (
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filtered.map(event => (
-                    <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
-                  ))}
-                </div>
-              )}
-            </TabsContent>
+      {loading ? (
+        <div className="flex justify-center py-24">
+          <Loader2 className="size-6 animate-spin text-[#e67e22]" />
+        </div>
+      ) : (
+        <Tabs defaultValue="list" className="w-full">
+          <TabsList className="bg-[#2b2b2b]">
+            <TabsTrigger value="list" className="data-[state=active]:bg-[#d4b896] data-[state=active]:text-[#2b2b2b]">
+              {it ? 'Vista Lista' : 'List View'}
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="data-[state=active]:bg-[#d4b896] data-[state=active]:text-[#2b2b2b]">
+              {it ? 'Vista Calendario' : 'Calendar View'}
+            </TabsTrigger>
+          </TabsList>
 
-            <TabsContent value="calendar" className="mt-6">
-              <div className="grid lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>{language === 'it' ? 'Seleziona una Data' : 'Select a Date'}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={setSelectedDate}
-                        className="rounded-md border"
-                        modifiers={{ hasEvent: eventDates }}
-                        modifiersClassNames={{ hasEvent: 'bg-red-100 text-red-900 font-bold' }}
-                      />
-                      <div className="mt-4 text-sm text-gray-600">
-                        <p className="flex items-center gap-2">
-                          <span className="size-4 rounded bg-red-100 border" />
-                          {language === 'it' ? 'Giorni con eventi' : 'Days with events'}
+          <TabsContent value="list" className="mt-6">
+            {filtered.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-500">{t('events.noEvents')}</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filtered.map(event => (
+                  <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
+                ))}
+              </div>
+            )}
+
+            {totalPages > 1 && (
+              <div className="mt-8 flex items-center justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 1}
+                  onClick={() => setPage(page - 1)}
+                  className="border-[#d4b896] disabled:opacity-40"
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <Button
+                    key={p}
+                    variant={p === page ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPage(p)}
+                    className={p === page
+                      ? 'bg-[#2b2b2b] text-white hover:bg-[#e67e22]'
+                      : 'border-[#d4b896] hover:bg-[#d4b896]/20'}
+                  >
+                    {p}
+                  </Button>
+                ))}
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage(page + 1)}
+                  className="border-[#d4b896] disabled:opacity-40"
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            )}
+
+            {totalPages > 1 && (
+              <p className="mt-3 text-center text-sm text-gray-500">
+                {it
+                  ? `Pagina ${page} di ${totalPages} · ${count} eventi totali`
+                  : `Page ${page} of ${totalPages} · ${count} events total`}
+              </p>
+            )}
+          </TabsContent>
+
+          <TabsContent value="calendar" className="mt-6">
+            <div className="grid lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{it ? 'Seleziona una Data' : 'Select a Date'}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Calendar
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={setSelectedDate}
+                      className="rounded-md border"
+                      modifiers={{ hasEvent: eventDates }}
+                      modifiersClassNames={{ hasEvent: 'bg-red-100 text-red-900 font-bold' }}
+                    />
+                    <div className="mt-4 text-sm text-gray-600">
+                      <p className="flex items-center gap-2">
+                        <span className="size-4 rounded bg-red-100 border" />
+                        {it ? 'Giorni con eventi' : 'Days with events'}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="lg:col-span-2">
+                <h3 className="text-xl font-bold mb-4">
+                  {selectedDate
+                    ? `${it ? 'Eventi del' : 'Events on'} ${selectedDate.toLocaleDateString(it ? 'it-IT' : 'en-GB', { weekday: 'long', month: 'long', day: 'numeric' })}`
+                    : it ? 'Seleziona una data per vedere gli eventi' : 'Select a date to view events'}
+                </h3>
+                <div className="space-y-4">
+                  {eventsOnSelectedDate.length > 0 ? (
+                    eventsOnSelectedDate.map(event => (
+                      <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
+                    ))
+                  ) : (
+                    <Card>
+                      <CardContent className="py-12 text-center">
+                        <p className="text-gray-500">
+                          {it ? 'Nessun evento in programma per questa data.' : 'No events scheduled for this date.'}
                         </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <div className="lg:col-span-2">
-                  <h3 className="text-xl font-bold mb-4">
-                    {selectedDate
-                      ? `${language === 'it' ? 'Eventi del' : 'Events on'} ${selectedDate.toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', { weekday: 'long', month: 'long', day: 'numeric' })}`
-                      : language === 'it' ? 'Seleziona una data per vedere gli eventi' : 'Select a date to view events'}
-                  </h3>
-                  <div className="space-y-4">
-                    {eventsOnSelectedDate.length > 0 ? (
-                      eventsOnSelectedDate.map(event => (
-                        <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
-                      ))
-                    ) : (
-                      <Card>
-                        <CardContent className="py-12 text-center">
-                          <p className="text-gray-500">
-                            {language === 'it' ? 'Nessun evento in programma per questa data.' : 'No events scheduled for this date.'}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    )}
-                  </div>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
-        )}
+            </div>
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }

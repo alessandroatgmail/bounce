@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useEvents, type EventItem, type EventPayload } from '../hooks/useEvents';
+import { type EventItem, type EventPayload } from '../hooks/useEvents';
+import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
@@ -373,9 +374,8 @@ function FestivalDaysStep({
 
 // ── Wizard wrapper ────────────────────────────────────────────────────────────
 
-function FestivalWizard({ onComplete, onCancel }: { onComplete: (festival: EventItem) => void; onCancel: () => void }) {
+function FestivalWizard({ onComplete, onCancel, onRefetch }: { onComplete: (festival: EventItem) => void; onCancel: () => void; onRefetch: () => void }) {
   const { accessToken } = useAuth();
-  const { refetch } = useEvents(accessToken);
   const { eventTypes } = useEventTypes(accessToken);
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -443,7 +443,7 @@ function FestivalWizard({ onComplete, onCancel }: { onComplete: (festival: Event
         }
       }
 
-      await refetch();
+      onRefetch();
       onComplete(createdEvent);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create festival.');
@@ -483,22 +483,20 @@ function FestivalWizard({ onComplete, onCancel }: { onComplete: (festival: Event
 export function FestivalPanel() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
-  const { events, loading, refetch, remove } = useEvents(accessToken);
+  const { events: festivals, loading, refetch, remove } = useEventsPaginated(accessToken, { multi_events: true });
 
   const [addOpen, setAddOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [selectedFestival, setSelectedFestival] = useState<EventItem | null>(null);
 
-  const festivals = events.filter(e => e.event_type.name === 'Festival');
-
   // Keep selectedFestival in sync if events reload
   const activeFestival = selectedFestival
-    ? (events.find(e => e.id === selectedFestival.id) ?? selectedFestival)
+    ? (festivals.find(e => e.id === selectedFestival.id) ?? selectedFestival)
     : null;
 
   const handleDelete = async (id: number) => {
     setDeletingId(id);
-    try { await remove(id); }
+    try { await remove(id); refetch(); }
     finally { setDeletingId(null); }
   };
 
@@ -531,6 +529,7 @@ export function FestivalPanel() {
               <FestivalWizard
                 onComplete={festival => { setAddOpen(false); setSelectedFestival(festival); }}
                 onCancel={() => setAddOpen(false)}
+                onRefetch={refetch}
               />
             </DialogContent>
           </Dialog>
@@ -557,7 +556,7 @@ export function FestivalPanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {festivals.length === 0 && (
+              {!loading && festivals.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-gray-400 py-8">
                     {language === 'it' ? 'Nessun festival.' : 'No festivals yet.'}

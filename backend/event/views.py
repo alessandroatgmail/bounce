@@ -2,6 +2,9 @@ from datetime import timedelta
 
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
+from django_filters.rest_framework import DjangoFilterBackend
+from .paginations import EventPagination
+from .filters import EventFilter
 
 from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole
 from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, PartnerRoleSerializer
@@ -64,6 +67,11 @@ class EventTypeViewSet(viewsets.ModelViewSet):
     serializer_class = EventTypeSerializer
     permission_classes = [IsAdminUser]
 
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
+        return [IsAdminUser()]
+
 
 class LocationViewSet(viewsets.ModelViewSet):
     queryset = Location.objects.all()
@@ -106,9 +114,17 @@ class LevelViewSet(viewsets.ModelViewSet):
     serializer_class = LevelSerializer
     permission_classes = [IsAdminUser]
 
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
+        return [IsAdminUser()]
+
 
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
+    pagination_class = EventPagination
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = EventFilter
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
@@ -116,9 +132,8 @@ class EventViewSet(viewsets.ModelViewSet):
         return [IsAdminUser()]
 
     def get_queryset(self):
-        if self.request.user.is_staff:
-            return Event.objects.all()
-        return Event.objects.filter(status=Status.PUBLISHED)
+        qs = Event.objects.all() if self.request.user.is_staff else Event.objects.filter(status=Status.PUBLISHED)
+        return qs.order_by('start_date')
 
     def perform_create(self, serializer):
         event = serializer.save()

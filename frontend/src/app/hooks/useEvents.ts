@@ -81,11 +81,25 @@ export function useEvents(token: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const res = token
-        ? await authFetch(BASE, token)
-        : await fetch(apiUrl(BASE), { headers: { 'Content-Type': 'application/json' } });
-      if (!res.ok) throw new Error(`${res.status}`);
-      setEvents(await res.json());
+      const accumulated: EventItem[] = [];
+      let url: string | null = BASE;
+      while (url) {
+        const res = token
+          ? await authFetch(url, token)
+          : await fetch(apiUrl(url), { headers: { 'Content-Type': 'application/json' } });
+        if (!res.ok) throw new Error(`${res.status}`);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          accumulated.push(...data);
+          url = null;
+        } else {
+          accumulated.push(...data.results);
+          url = data.next
+            ? new URL(data.next).pathname + new URL(data.next).search
+            : null;
+        }
+      }
+      setEvents(accumulated);
     } catch {
       setError('Failed to load events.');
     } finally {

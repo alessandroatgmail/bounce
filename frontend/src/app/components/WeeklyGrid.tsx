@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Plus, Loader2, AlertTriangle, Upload, X, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { type EventItem, type EventPayload } from '../hooks/useEvents';
+import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
@@ -597,11 +598,7 @@ function DayColumn({
 
 // ── Main WeeklyGrid ────────────────────────────────────────────────────────────
 
-export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
-  events: EventItem[];
-  loading: boolean;
-  onRefetch: () => void;
-}) {
+export function WeeklyGrid() {
   const { accessToken } = useAuth();
 
   const [minLanes, setMinLanes] = useState<Record<number, number>>({});
@@ -625,19 +622,27 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
   weekFriday.setDate(weekFriday.getDate() + 4);
   const weekLabel = `${weekMonday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${weekFriday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
-  // Weekly parent events only: weekly frequency + not a child of another event
-  const childIds = new Set(allEvents.flatMap(e => e.events));
-  const weeklyParents = allEvents.filter(e =>
-    e.event_type.frequency === 'weekly' && !childIds.has(e.id)
+  const { events: visibleEvents, loading, refetch: onRefetch, setFilters } = useEventsPaginated(
+    accessToken,
+    {
+      frequency: 'weekly',
+      exclude_children: true,
+      start_date_before: toDateStr(weekFriday),
+      end_date_after: toDateStr(weekMonday),
+    },
+    20,
   );
 
-  // Keep only events whose day in the selected week falls within [start_date, end_date]
-  const visibleEvents = weeklyParents.filter(ev => {
-    const dayIdx = getDayIndex(ev.start_date);
-    if (dayIdx < 0 || dayIdx > 4) return false;
-    const dayDateStr = weekDates[dayIdx];
-    return dayDateStr >= ev.start_date.slice(0, 10) && dayDateStr <= ev.end_date.slice(0, 10);
-  });
+  useEffect(() => {
+    const friday = new Date(weekMonday);
+    friday.setDate(friday.getDate() + 4);
+    setFilters({
+      frequency: 'weekly',
+      exclude_children: true,
+      start_date_before: toDateStr(friday),
+      end_date_after: toDateStr(weekMonday),
+    });
+  }, [weekMonday, setFilters]);
 
   // Group by day of week (0=Mon…4=Fri)
   const byDay: EventItem[][] = Array.from({ length: 5 }, () => []);
@@ -650,7 +655,7 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
 
   const handleEventDrop = async (draggedId: number, newDayIndex: number, newStartMin: number) => {
     if (!accessToken) return;
-    const ev = allEvents.find(e => e.id === draggedId);
+    const ev = visibleEvents.find(e => e.id === draggedId);
     if (!ev) return;
 
     const oldDayIndex = getDayIndex(ev.start_date);
