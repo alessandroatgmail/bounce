@@ -21,6 +21,15 @@ from .utils import sync_bookings
 
 def _validate_membership_events(membership, events, field='event_id'):
     """Raise ValidationError if events violate membership rules."""
+    # For a multi_events festival, only verify that the membership is linked to it.
+    if len(events) == 1 and events[0].multi_events:
+        festival = events[0]
+        if not festival.memberships.filter(pk=membership.pk).exists():
+            raise serializers.ValidationError({
+                field: f"Membership '{membership.name}' is not valid for this festival."
+            })
+        return
+
     rules = {
         rule.event_type_id: rule
         for rule in membership.membershiprule_set.select_related('event_type').all()

@@ -139,7 +139,7 @@ def waiting_list(contribution: Contribution) -> bool:
 def _check_need_role(contribution: Contribution) -> bool:
     event = contribution.events.first()
     if event.multi_events and not event.free:
-        event = event.events.filters(levels=contribution.levels).first()
+        event = event.events.filter(level=contribution.level).first()
     if event:
         if event.event_type.partner_roles.count() > 0:
             return True
@@ -148,7 +148,7 @@ def _check_need_role(contribution: Contribution) -> bool:
 def _check_role_accepted(contribution: Contribution) -> bool:
     event = contribution.events.first()
     if event.multi_events and not event.free:
-        event = event.events.filters (levels=contribution.levels).first()
+        event = event.events.filter(level=contribution.level).first()
     if event:
         if event.event_type.partner_roles.all().exists():
             if contribution.role:
@@ -183,6 +183,8 @@ def _check_extras(contribution: Contribution) -> bool:
             event = contribution.events.first()
         elif event.multi_events and not event.free:
             event = event.events.first().events.filter(levels=contribution.level).first()
+        elif event.multi_events and event.free:
+            event = event.events.first()
         else:
             event=None
 

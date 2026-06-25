@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { ArrowLeft, ChevronDown, ChevronUp, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { useEvents, type EventItem } from '../hooks/useEvents';
 import { useFestivalDays, type FestivalDay, type FestivalRoom } from '../hooks/useFestivalDays';
 import { Button } from '../components/ui/button';
@@ -14,9 +15,9 @@ const PIXELS_PER_MINUTE = HOUR_HEIGHT / 60;
 const TIME_COL_W = 52;
 const ROOM_COL_W = 160;
 
-function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions) {
+function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 'en-GB') {
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-GB', opts);
+  return new Date(y, m - 1, d).toLocaleDateString(locale, opts);
 }
 
 function eventMinutes(iso: string) {
@@ -57,6 +58,7 @@ function DayScheduleGrid({
   canSelectMore: boolean;
   onToggleEvent: (id: number) => void;
 }) {
+  const { t } = useLanguage();
   const { startHour, endHour } = computeDayBounds(dayEvents);
   const startMin = startHour * 60;
   const endMin = endHour * 60;
@@ -75,7 +77,7 @@ function DayScheduleGrid({
   const minutesToTop = (totalMinutes: number) => (totalMinutes - startMin) * PIXELS_PER_MINUTE;
 
   if (day.rooms.length === 0) {
-    return <p className="text-sm text-gray-400 py-8 text-center">No rooms assigned to this day.</p>;
+    return <p className="text-sm text-gray-400 py-8 text-center">{t('festival.schedule.noRooms')}</p>;
   }
 
   return (
@@ -186,6 +188,9 @@ function RegistrationPanel({
   onMembershipChange,
   selectedRoleId,
   onRoleChange,
+  maxEvents,
+  selectedCount,
+  onSuccess,
 }: {
   festival: EventItem;
   accessToken: string | null;
@@ -193,15 +198,23 @@ function RegistrationPanel({
   onMembershipChange: (v: string) => void;
   selectedRoleId: string;
   onRoleChange: (v: string) => void;
+  maxEvents: number | null;
+  selectedCount: number;
+  onSuccess: () => void;
 }) {
+  const { t, language } = useLanguage();
   const hasRoles = festival.event_type.partners > 0 && festival.event_type.partner_roles.length > 0;
   const hasMemberships = festival.memberships.length > 0;
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
+  const remaining = maxEvents !== null ? maxEvents - selectedCount : null;
+  const hasSelectedAll = maxEvents === null || selectedCount >= maxEvents;
+
   const canRegister =
     (!hasMemberships || !!selectedMembershipId) &&
-    (!hasRoles || !!selectedRoleId);
+    (!hasRoles || !!selectedRoleId) &&
+    hasSelectedAll;
 
   const handleRegister = async () => {
     if (!accessToken) return;
@@ -217,6 +230,7 @@ function RegistrationPanel({
       });
       if (!res.ok) throw new Error();
       setStatus('success');
+      onSuccess();
     } catch {
       setStatus('error');
     }
@@ -226,21 +240,21 @@ function RegistrationPanel({
     return (
       <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
         <CheckCircle className="size-4 text-green-600 flex-shrink-0" />
-        {festival.already_booked ? 'You are already registered for this festival.' : 'Successfully registered!'}
+        {festival.already_booked ? t('festival.registration.alreadyBooked') : t('festival.registration.success')}
       </div>
     );
   }
 
   return (
     <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
-      <h2 className="text-sm font-semibold text-[#2b2b2b] uppercase tracking-wide">Registration</h2>
+      <h2 className="text-sm font-semibold text-[#2b2b2b] uppercase tracking-wide">{t('festival.registration.title')}</h2>
       <div className="flex flex-wrap gap-3 items-end">
         {hasMemberships && (
           <div className="space-y-1.5">
-            <label className="text-xs text-gray-500">Membership</label>
+            <label className="text-xs text-gray-500">{t('festival.registration.membership')}</label>
             <Select value={selectedMembershipId} onValueChange={onMembershipChange}>
               <SelectTrigger className="min-w-48">
-                <SelectValue placeholder="Select membership…" />
+                <SelectValue placeholder={t('festival.registration.selectMembership')} />
               </SelectTrigger>
               <SelectContent>
                 {festival.memberships.map(m => (
@@ -254,10 +268,10 @@ function RegistrationPanel({
         )}
         {hasRoles && (
           <div className="space-y-1.5">
-            <label className="text-xs text-gray-500">Role</label>
+            <label className="text-xs text-gray-500">{t('festival.registration.role')}</label>
             <Select value={selectedRoleId} onValueChange={onRoleChange}>
               <SelectTrigger className="min-w-40">
-                <SelectValue placeholder="Select role…" />
+                <SelectValue placeholder={t('festival.registration.selectRole')} />
               </SelectTrigger>
               <SelectContent>
                 {festival.event_type.partner_roles.map(r => (
@@ -273,13 +287,20 @@ function RegistrationPanel({
           className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white disabled:opacity-50"
         >
           {status === 'loading' && <Loader2 className="size-4 animate-spin mr-2" />}
-          Register
+          {t('festival.registration.register')}
         </Button>
       </div>
       {status === 'error' && (
         <p className="text-sm text-red-600 flex items-center gap-1.5">
           <AlertCircle className="size-4 flex-shrink-0" />
-          Something went wrong. Please try again.
+          {t('festival.registration.error')}
+        </p>
+      )}
+      {!!selectedMembershipId && remaining !== null && remaining > 0 && (
+        <p className="text-xs text-amber-600">
+          {language === 'it'
+            ? `Seleziona ancora ${remaining} ${remaining === 1 ? 'lezione' : 'lezioni'} per iscriverti`
+            : `Select ${remaining} more ${remaining === 1 ? 'event' : 'events'} to register`}
         </p>
       )}
     </div>
@@ -292,6 +313,8 @@ export function FestivalSchedulePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { accessToken } = useAuth();
+  const { t, language } = useLanguage();
+  const locale = language === 'it' ? 'it-IT' : 'en-GB';
   const { events, loading: loadingEvents } = useEvents(accessToken);
 
   const festivalId = id ? Number(id) : null;
@@ -378,7 +401,7 @@ export function FestivalSchedulePage() {
   if (!festival) {
     return (
       <div className="container mx-auto px-4 py-12 text-center text-gray-500">
-        Festival not found.
+        {t('festival.schedule.notFound')}
       </div>
     );
   }
@@ -388,14 +411,14 @@ export function FestivalSchedulePage() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="size-4 mr-1" /> Back
+          <ArrowLeft className="size-4 mr-1" /> {t('festival.schedule.back')}
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-[#2b2b2b]">{festival.name}</h1>
           <p className="text-sm text-gray-500">
-            {formatDate(festival.start_date, { day: 'numeric', month: 'long', year: 'numeric' })}
+            {formatDate(festival.start_date, { day: 'numeric', month: 'long', year: 'numeric' }, locale)}
             {' – '}
-            {formatDate(festival.end_date, { day: 'numeric', month: 'long', year: 'numeric' })}
+            {formatDate(festival.end_date, { day: 'numeric', month: 'long', year: 'numeric' }, locale)}
           </p>
         </div>
       </div>
@@ -408,12 +431,15 @@ export function FestivalSchedulePage() {
         onMembershipChange={setSelectedMembershipId}
         selectedRoleId={selectedRoleId}
         onRoleChange={setSelectedRoleId}
+        maxEvents={maxEvents}
+        selectedCount={selectedEventIds.size}
+        onSuccess={() => navigate('/events')}
       />
 
       {/* Event selection counter */}
       {showCounter && maxEvents !== null && (
         <div className="flex items-center gap-3 px-4 py-3 border rounded-lg bg-white">
-          <span className="text-sm text-gray-600">Events selected:</span>
+          <span className="text-sm text-gray-600">{t('festival.schedule.eventsSelected')}</span>
           <span className="font-semibold text-[#2b2b2b]">
             {selectedEventIds.size} / {maxEvents}
           </span>
@@ -424,14 +450,14 @@ export function FestivalSchedulePage() {
             />
           </div>
           {remaining === 0 && (
-            <span className="text-xs text-amber-600 font-medium">Max reached — deselect to change</span>
+            <span className="text-xs text-amber-600 font-medium">{t('festival.schedule.maxReached')}</span>
           )}
         </div>
       )}
 
       {/* Days accordion */}
       {days.length === 0 ? (
-        <p className="text-center text-gray-400 py-12">No schedule available yet.</p>
+        <p className="text-center text-gray-400 py-12">{t('festival.schedule.noSchedule')}</p>
       ) : (
         <div className="space-y-3">
           {days.map(day => {
@@ -446,14 +472,14 @@ export function FestivalSchedulePage() {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-semibold text-[#2b2b2b]">
-                      {formatDate(day.date, { weekday: 'long', day: 'numeric', month: 'long' })}
+                      {formatDate(day.date, { weekday: 'long', day: 'numeric', month: 'long' }, locale)}
                     </span>
                     <span className="text-sm text-gray-400">
-                      {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
+                      {dayEvents.length} {dayEvents.length === 1 ? t('festival.schedule.event') : t('festival.schedule.events')}
                     </span>
                     {daySelected > 0 && (
                       <span className="text-xs font-medium text-[#e67e22]">
-                        {daySelected} selected
+                        {daySelected} {t('festival.schedule.selected')}
                       </span>
                     )}
                   </div>

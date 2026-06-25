@@ -1527,3 +1527,53 @@ class TestUserCancellation:
             c.status = ContributionStatus.CANCELLED
             c.save()
         mock_email.assert_not_called()
+
+
+# ── multi_events festival membership validation ───────────────────────────────
+
+class TestMultiEventsFestivalValidation:
+    """
+    For a multi_events festival _validate_membership_events must only verify
+    that the membership is linked to the festival and skip all type-rule and
+    max-events checks.
+    """
+
+    def _make_festival(self):
+        et = make_event_type()
+        festival = make_event_with_type(et)
+        festival.multi_events = True
+        festival.save()
+        return festival
+
+    def test_linked_membership_returns_201(self, student_client, world_data):
+        festival = self._make_festival()
+        m = make_membership()
+        festival.memberships.add(m)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_unlinked_membership_returns_400(self, student_client, world_data):
+        festival = self._make_festival()
+        m = make_membership()
+        # m is NOT linked to festival.memberships
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_type_rules_skipped_for_multi_events(self, student_client, world_data):
+        """A membership restricted to a different event type must still be accepted
+        when the event is a multi_events festival and the membership is linked."""
+        festival = self._make_festival()
+        other_et = make_event_type()
+        m = make_membership()
+        # Rule covers only other_et, not the festival's event type
+        MembershipRule.objects.create(membership=m, event_type=other_et, max_events=1)
+        festival.memberships.add(m)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_error_message_mentions_membership_name(self, student_client, world_data):
+        festival = self._make_festival()
+        m = make_membership(name="FestivalPass")
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert "FestivalPass" in str(res.data)
