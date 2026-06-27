@@ -31,3 +31,6 @@ memory/
 #Celery
 celerybeat-schedule*
 celerybeat-data/
+
+# API test scripts (local seeding / review-site helpers)
+api-tests/

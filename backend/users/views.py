@@ -395,6 +395,21 @@ class DeactivateView(APIView):
         return Response({'detail': 'Account deactivated.'}, status=status.HTTP_200_OK)
 
 
+class AdminActivateUserView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(responses={200: inline_serializer('AdminActivateResponse', {'detail': serializers.CharField()})})
+    def patch(self, request, user_id):
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+        return Response({'detail': 'User activated.'}, status=status.HTTP_200_OK)
+
+
 class QRCodeView(APIView):
     permission_classes = [IsAuthenticated]
 
