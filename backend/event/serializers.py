@@ -255,9 +255,6 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_memberships(self, obj):
         from membership.serializers import MembershipSerializer
-        request = self.context.get("request")
-        if request and not request.user.is_staff and not obj.multi_events:
-            return []
         return MembershipSerializer(obj.memberships.all(), many=True).data
 
     def get_children_levels(self, obj):

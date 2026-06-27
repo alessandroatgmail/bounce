@@ -2,7 +2,7 @@ import pytest
 from rest_framework import status as http_status
 
 from event.models import Event, EventType, Status, PartnerRole
-from membership.models import Membership
+from membership.models import Membership, MembershipRule, MembershipType
 from utils.mock_event import make_event_payload, make_event_payloads
 from utils.mock_membership import make_membership_payload
 
@@ -523,11 +523,77 @@ class TestEventMembershipsStudentAccess:
         assert len(response.data["memberships"]) == 1
         assert response.data["memberships"][0]["id"] == m.pk
 
-    def test_student_gets_empty_memberships_on_non_multi_events(self, student_client, world_data):
+    def test_student_sees_memberships_on_non_multi_events(self, student_client, world_data):
         m = create_membership()
         event = create_event(status=Status.PUBLISHED, multi_events=False)
         event.memberships.set([m])
         response = student_client.get(detail_url(event.pk))
         assert response.status_code == http_status.HTTP_200_OK
-        assert response.data["memberships"] == []
+        assert len(response.data["memberships"]) == 1
+        assert response.data["memberships"][0]["id"] == m.pk
+
+
+# ── Solo workshop (one-shot, no partner) ──────────────────────────────────────
+
+class TestStudentSeeOneShotEventAndMembership:
+
+    @pytest.fixture()
+    def solo_setup(self, world_data):
+        event_type = EventType.objects.create(
+            name="solo workshop",
+            frequency="single",
+            partners=0,
+        )
+        membership = Membership.objects.create(
+            name="Solo workshop",
+            type=MembershipType.SINGLE,
+            contribution=25,
+            max_events=1,
+            duration=0,
+        )
+        MembershipRule.objects.create(
+            membership=membership,
+            event_type=event_type,
+            max_events=1,
+        )
+        payload = make_event_payload(
+            name="Solo jazz",
+            status=Status.PUBLISHED,
+            event_type_id=event_type.pk,
+        )
+        event = Event.objects.create(
+            name=payload["name"],
+            status=payload["status"],
+            event_type_id=payload["event_type_id"],
+            type=payload["type"],
+            level_id=payload["level_id"],
+            room_id=payload["room_id"],
+            start_date=payload["start_date"],
+            end_date=payload["end_date"],
+            duration=payload["duration"],
+            capacity=payload["capacity"],
+        )
+        event.memberships.set([membership])
+        return event, membership
+
+    def test_student_can_see_solo_jazz_event(self, student_client, solo_setup):
+        event, _ = solo_setup
+        response = student_client.get(LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        ids = [e["id"] for e in response.data["results"]]
+        assert event.pk in ids
+
+    def test_student_sees_solo_workshop_membership_on_event(self, student_client, solo_setup):
+        event, membership = solo_setup
+        response = student_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK
+        memberships = response.data["memberships"]
+        assert len(memberships) == 1
+        m = memberships[0]
+        assert m["id"] == membership.pk
+        assert m["name"] == "Solo workshop"
+        assert m["type"] == MembershipType.SINGLE
+        assert m["contribution"] == 25
+        assert m["max_events"] == 1
+        assert m["duration"] == 0
 

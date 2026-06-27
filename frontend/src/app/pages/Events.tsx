@@ -55,14 +55,14 @@ export function EventsBrowser({
 
   const { events, count, page, pageSize, loading, setPage, setFilters } = useEventsPaginated(
     accessToken,
-    { upcoming: true, parent_only: true },
+    { upcoming: true, exclude_children: true },
   );
 
   // Keep hook filters in sync with UI filter controls
   useEffect(() => {
     setFilters({
       upcoming: true,
-      parent_only: true,
+      exclude_children: true,
       event_type: filterType !== 'all' ? filterType : undefined,
       level: filterLevel !== 'all' ? filterLevel : undefined,
     });
