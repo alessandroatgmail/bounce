@@ -736,6 +736,7 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
     levelId:         festival.level ? String(festival.level.id) : '',
     info:            festival.info ?? '',
     multi_events:    festival.multi_events,
+    free:            festival.free,
     selectedArtists: festival.artists.map(a => ({ id: a.id, name: a.full_name })),
     selectedGenres:  festival.genres.map(g => ({ id: g.id, name: g.name })),
     selectedStyles:  festival.styles.map(s => ({ id: s.id, name: s.name })),
@@ -770,6 +771,7 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
         style_ids:      form.selectedStyles.map(s => s.id),
         info:           form.info || null,
         multi_events:   form.multi_events,
+        free:           form.free,
       };
       const res = await authFetch(`/api/events/events/${festival.id}/`, accessToken, {
         method: 'PATCH',
@@ -831,6 +833,20 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
           <Label htmlFor="fi-multi" className="cursor-pointer">
             {t('festival.info.multiEvents')}
             <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.info.multiEventsNote')}</span>
+          </Label>
+        </div>
+
+        <div className="col-span-2 flex items-center gap-3">
+          <input
+            id="fi-free"
+            type="checkbox"
+            checked={form.free}
+            onChange={e => set('free', e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+          />
+          <Label htmlFor="fi-free" className="cursor-pointer">
+            {t('festival.info.freeChoice')}
+            <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.info.freeChoiceNote')}</span>
           </Label>
         </div>
 
