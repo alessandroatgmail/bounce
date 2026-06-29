@@ -71,7 +71,7 @@ def _contribution_date_range(membership: Membership, event: Event) -> tuple[date
 
 def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status: str, new_status: str) -> None:
     if new_status == ContributionStatus.ACCEPTED:
-        send_email_accept_email(user_id=user_id, contribution_id=contribution_id)
+        send_email_accept_email.delay(user_id=user_id, contribution_id=contribution_id)
 
 def _validate_double_registrations(user, event):
     print ("---------- ENTERED VALIDATE REGISTRATIONS ---------")
