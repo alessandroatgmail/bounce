@@ -255,7 +255,13 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_memberships(self, obj):
         from membership.serializers import MembershipSerializer
-        return MembershipSerializer(obj.memberships.all(), many=True).data
+        if obj.multi_events:
+            return MembershipSerializer(obj.memberships.all(), many=True).data
+        else:
+            return MembershipSerializer(
+                Membership.objects.filter(
+                    membershiprule__event_type=obj.event_type).all(), many=True
+            ).data
 
     def get_children_levels(self, obj):
         qs = (

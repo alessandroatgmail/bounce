@@ -473,6 +473,7 @@ class TestEventMemberships:
     def test_admin_can_set_memberships_on_create(self, staff_client, world_data):
         m = create_membership()
         payload = make_event_payload(membership_ids=[m.pk])
+        payload.update({"multi_events": True})
         response = staff_client.post(LIST_URL, payload, format="json")
         assert response.status_code == http_status.HTTP_201_CREATED
         assert len(response.data["memberships"]) == 1
@@ -481,6 +482,7 @@ class TestEventMemberships:
     def test_memberships_response_shape(self, staff_client, world_data):
         m = create_membership()
         payload = make_event_payload(membership_ids=[m.pk])
+        payload.update({"multi_events": True})
         response = staff_client.post(LIST_URL, payload, format="json")
         assert set(response.data["memberships"][0].keys()) == {
             "id", "name", "type", "contribution", "color", "max_events", "duration", "rules"
@@ -526,6 +528,10 @@ class TestEventMembershipsStudentAccess:
     def test_student_sees_memberships_on_non_multi_events(self, student_client, world_data):
         m = create_membership()
         event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(
+            event_type=event.event_type,
+            membership=m
+        )
         event.memberships.set([m])
         response = student_client.get(detail_url(event.pk))
         assert response.status_code == http_status.HTTP_200_OK
