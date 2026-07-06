@@ -133,7 +133,12 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Event.objects.all() if self.request.user.is_staff else Event.objects.filter(status=Status.PUBLISHED)
-        return qs.order_by('start_date')
+        return qs.select_related(
+            "event_type", "room", "level",
+        ).prefetch_related(
+            "events", "styles", "genres", "artists",
+            "accepted_roles", "memberships",
+        ).order_by('start_date')
 
     def perform_create(self, serializer):
         event = serializer.save()
