@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
@@ -132,13 +133,61 @@ class EventViewSet(viewsets.ModelViewSet):
         return [IsAdminUser()]
 
     def get_queryset(self):
-        qs = Event.objects.all() if self.request.user.is_staff else Event.objects.filter(status=Status.PUBLISHED)
-        return qs.select_related(
-            "event_type", "room", "level",
+        from booking.models import Contribution, ContributionStatus
+        from membership.models import Membership, MembershipRule
+
+        user = self.request.user
+        qs = Event.objects.all() if user.is_staff else Event.objects.filter(status=Status.PUBLISHED)
+
+        # MembershipSerializer nests rules -> event_type -> partner_roles
+        membership_qs = Membership.objects.prefetch_related(
+            Prefetch(
+                "membershiprule_set",
+                queryset=MembershipRule.objects.select_related("event_type")
+                .prefetch_related("event_type__partner_roles"),
+            )
+        )
+
+        qs = qs.select_related(
+            "event_type", "level", "room__location__city__country",
         ).prefetch_related(
-            "events", "styles", "genres", "artists",
-            "accepted_roles", "memberships",
+            "styles", "genres", "accepted_roles",
+            "event_type__partner_roles",
+            Prefetch(
+                "artists",
+                queryset=Artist.objects.select_related("user")
+                .prefetch_related("types", "styles", "genres"),
+            ),
+            Prefetch("events", queryset=Event.objects.select_related("level")),
+            Prefetch("memberships", queryset=membership_qs),
+            Prefetch(
+                "event_set",
+                queryset=Event.objects.only("id", "image"),
+                to_attr="prefetched_parents",
+            ),
+        ).annotate(
+            payed_count=Count(
+                "contributions",
+                filter=Q(contributions__status=ContributionStatus.PAYED),
+                distinct=True,
+            ),
         ).order_by('start_date')
+
+        if user.is_authenticated:
+            qs = qs.annotate(
+                user_has_booked=Exists(
+                    Contribution.objects.filter(events=OuterRef("pk"), user=user)
+                ),
+            ).prefetch_related(
+                Prefetch(
+                    "contributions",
+                    queryset=Contribution.objects.filter(
+                        user=user, original_contribution__isnull=False
+                    ).select_related("original_contribution__user"),
+                    to_attr="viewer_partner_contributions",
+                ),
+            )
+        return qs
 
     def perform_create(self, serializer):
         event = serializer.save()

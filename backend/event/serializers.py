@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Prefetch
 from rest_framework import serializers
 from users.models import City
 from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole
@@ -225,6 +226,7 @@ class EventSerializer(serializers.ModelSerializer):
     already_booked = serializers.SerializerMethodField()
     booked_by = serializers.SerializerMethodField()
     children_levels = serializers.SerializerMethodField()
+    available_spot = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -255,22 +257,38 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_memberships(self, obj):
         from membership.serializers import MembershipSerializer
+        from membership.models import MembershipRule
         if obj.multi_events:
             return MembershipSerializer(obj.memberships.all(), many=True).data
-        else:
-            return MembershipSerializer(
-                Membership.objects.filter(
-                    membershiprule__event_type=obj.event_type).all(), many=True
-            ).data
+        # One query per event_type on the page instead of one per event.
+        cache = self.context.setdefault("_memberships_by_event_type", {})
+        if obj.event_type_id not in cache:
+            memberships = Membership.objects.filter(
+                membershiprule__event_type_id=obj.event_type_id
+            ).prefetch_related(
+                Prefetch(
+                    "membershiprule_set",
+                    queryset=MembershipRule.objects.select_related("event_type")
+                    .prefetch_related("event_type__partner_roles"),
+                )
+            ).distinct()
+            cache[obj.event_type_id] = MembershipSerializer(memberships, many=True).data
+        return cache[obj.event_type_id]
 
     def get_children_levels(self, obj):
-        qs = (
-            obj.events
-            .filter(level__isnull=False)
-            .values('level__id', 'level__name')
-            .distinct()
-        )
-        return [{'id': r['level__id'], 'name': r['level__name']} for r in qs]
+        # Iterate the (possibly prefetched) children instead of issuing a
+        # fresh filtered query per event.
+        levels = {}
+        for child in obj.events.all():
+            if child.level_id is not None and child.level_id not in levels:
+                levels[child.level_id] = child.level.name
+        return [{'id': pk, 'name': name} for pk, name in levels.items()]
+
+    def get_available_spot(self, obj):
+        payed_count = getattr(obj, "payed_count", None)
+        if payed_count is None:
+            return obj.available_spot
+        return obj.capacity - payed_count
 
     def get_effective_image(self, obj):
         img = obj.effective_image
@@ -283,20 +301,27 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_already_booked(self, obj):
         request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.contributions.filter(user=request.user).exists()
-        return False
+        if not (request and request.user.is_authenticated):
+            return False
+        user_has_booked = getattr(obj, "user_has_booked", None)
+        if user_has_booked is not None:
+            return user_has_booked
+        return obj.contributions.filter(user=request.user).exists()
 
     def get_booked_by(self, obj):
         request = self.context.get("request")
         if not (request and request.user.is_authenticated):
             return None
-        contribution = (
-            obj.contributions
-            .filter(user=request.user, original_contribution__isnull=False)
-            .select_related("original_contribution__user")
-            .first()
-        )
+        contributions = getattr(obj, "viewer_partner_contributions", None)
+        if contributions is not None:
+            contribution = contributions[0] if contributions else None
+        else:
+            contribution = (
+                obj.contributions
+                .filter(user=request.user, original_contribution__isnull=False)
+                .select_related("original_contribution__user")
+                .first()
+            )
         if contribution:
             booker = contribution.original_contribution.user
             return f"{booker.first_name} {booker.last_name}"

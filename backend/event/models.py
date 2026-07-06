@@ -120,7 +120,11 @@ class Event(models.Model):
     def effective_image(self):
         if self.image:
             return self.image
-        parent = self.event_set.first()
+        parents = getattr(self, "prefetched_parents", None)
+        if parents is None:
+            parent = self.event_set.first()
+        else:
+            parent = parents[0] if parents else None
         if parent and parent.image:
             return parent.image
         return None
