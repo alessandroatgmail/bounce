@@ -13,6 +13,7 @@ import { Layout } from './components/Layout';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { PaymentSuccess } from './pages/PaymentSuccess';
 import { FestivalSchedulePage } from './pages/FestivalSchedulePage';
+import { EventRegisterPage } from './pages/EventRegisterPage';
 
 export const router = createBrowserRouter([
   {
@@ -62,6 +63,10 @@ export const router = createBrowserRouter([
       {
         path: 'admin',
         Component: AdminDashboard,
+      },
+      {
+        path: 'admin/events/:eventId/register',
+        Component: EventRegisterPage,
       },
       {
         path: 'student',

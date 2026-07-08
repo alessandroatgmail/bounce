@@ -18,7 +18,7 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
 import { useState, useRef, useMemo, useEffect } from 'react';
@@ -728,6 +728,7 @@ export function AdminDashboard() {
 }
 
 function EventsPanel({ accessToken }: { accessToken: string | null }) {
+  const navigate = useNavigate();
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
 
   const [filterName, setFilterName] = useState('');
@@ -913,7 +914,11 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                 </TableRow>
               )}
               {paginated.map((event) => (
-                <TableRow key={event.id}>
+                <TableRow
+                  key={event.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/admin/events/${event.id}/register`)}
+                >
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       {event.effective_image && (
@@ -933,10 +938,18 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                   <TableCell>{event.capacity}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setEditingEvent(event)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Register"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/events/${event.id}/register`); }}
+                      >
+                        <ClipboardList className="size-4" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEditingEvent(event); }}>
                         <Pencil className="size-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDelete(event.id)}>
+                      <Button size="sm" variant="ghost" className="text-red-600" onClick={(e) => { e.stopPropagation(); handleDelete(event.id); }}>
                         <Trash2 className="size-4" />
                       </Button>
                     </div>
