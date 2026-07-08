@@ -1,8 +1,12 @@
 from datetime import timedelta
+from itertools import zip_longest
 
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from .paginations import EventPagination
 from .filters import EventFilter
@@ -250,3 +254,98 @@ class EventViewSet(viewsets.ModelViewSet):
             child.artists.set(instance.artists.all())
             child.styles.set(instance.styles.all())
             child.genres.set(instance.genres.all())
+
+
+class EventRegisterView(APIView):
+    """
+    GET /api/events/register/<event_id>/
+
+    Attendee grid for an event: every user with a payed contribution,
+    arranged in rows by partner role. Couples (contributions linked via
+    original_contribution) share a row — a partner who has not payed is
+    included only while accepted or waiting, with its status exposed so
+    the frontend can highlight it; otherwise the payed member is treated
+    as single. Remaining singles are auto-paired across roles in
+    booking-date order.
+    """
+    permission_classes = [IsAdminUser]
+
+    @staticmethod
+    def _member_cell(contribution):
+        user = contribution.user
+        return {
+            "id": user.id,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "status": contribution.status,
+        }
+
+    def get(self, request, event_id):
+        from booking.models import Contribution, ContributionStatus
+
+        event = get_object_or_404(Event, pk=event_id)
+        roles = [r.name for r in event.event_type.partner_roles.all()]
+
+        contributions = list(
+            Contribution.objects.filter(events=event)
+            .select_related("user", "role")
+            .order_by("date", "id")
+        )
+        by_id = {c.id: c for c in contributions}
+
+        # Twin lookup in both directions (original -> twin and twin -> original)
+        twin_of = {}
+        for c in contributions:
+            original = by_id.get(c.original_contribution_id)
+            if original:
+                twin_of[c.id] = original
+                twin_of[original.id] = c
+
+        partner_visible_statuses = {
+            ContributionStatus.PAYED,
+            ContributionStatus.ACCEPTED,
+            ContributionStatus.WAITING,
+        }
+        couples, singles, consumed = [], [], set()
+        for c in contributions:
+            if c.status != ContributionStatus.PAYED or c.id in consumed:
+                continue
+            partner_c = twin_of.get(c.id)
+            if partner_c and partner_c.status in partner_visible_statuses \
+                    and partner_c.id not in consumed:
+                consumed.update((c.id, partner_c.id))
+                couples.append((c, partner_c))
+            else:
+                consumed.add(c.id)
+                singles.append(c)
+
+        # Extend the columns with any role seen on an included contribution
+        # but missing from the event type (defensive; also covers null roles).
+        included = [c for pair in couples for c in pair] + singles
+        for c in included:
+            role_name = c.role.name if c.role else "unknown"
+            if role_name not in roles:
+                roles.append(role_name)
+
+        def role_of(contribution):
+            return contribution.role.name if contribution.role else "unknown"
+
+        rows = []
+        for pair in couples:
+            members = {name: None for name in roles}
+            for c in pair:
+                members[role_of(c)] = self._member_cell(c)
+            rows.append({"couple": True, "members": members})
+
+        buckets = {name: [] for name in roles}
+        for c in singles:
+            buckets[role_of(c)].append(c)
+        for line in zip_longest(*(buckets[name] for name in roles)):
+            members = {
+                name: self._member_cell(c) if c else None
+                for name, c in zip(roles, line)
+            }
+            rows.append({"couple": False, "members": members})
+
+        return Response({"event_id": event.id, "roles": roles, "rows": rows})

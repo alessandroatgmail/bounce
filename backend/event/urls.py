@@ -1,5 +1,6 @@
+from django.urls import path
 from rest_framework.routers import SimpleRouter
-from .views import EventTypeViewSet, LocationViewSet, RoomViewSet, StyleViewSet, GenreViewSet, ArtistTypeViewSet, ArtistViewSet, LevelViewSet, EventViewSet, PartnerRoleViewSet
+from .views import EventTypeViewSet, LocationViewSet, RoomViewSet, StyleViewSet, GenreViewSet, ArtistTypeViewSet, ArtistViewSet, LevelViewSet, EventViewSet, PartnerRoleViewSet, EventRegisterView
 
 router = SimpleRouter()
 router.register("partner-roles", PartnerRoleViewSet, basename="partner-role")
@@ -13,4 +14,6 @@ router.register("artists", ArtistViewSet, basename="artist")
 router.register("levels", LevelViewSet, basename="level")
 router.register("events", EventViewSet, basename="event")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("register/<int:event_id>/", EventRegisterView.as_view(), name="event-register"),
+] + router.urls
