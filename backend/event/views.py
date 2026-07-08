@@ -265,8 +265,9 @@ class EventRegisterView(APIView):
     original_contribution) share a row — a partner who has not payed is
     included only while accepted or waiting, with its status exposed so
     the frontend can highlight it; otherwise the payed member is treated
-    as single. Remaining singles are auto-paired across roles in
-    booking-date order.
+    as single. A partner known only by email (no account, so no twin
+    contribution) is shown as an email-only cell. Remaining singles are
+    auto-paired across roles in booking-date order.
     """
     permission_classes = [IsAdminUser]
 
@@ -279,6 +280,18 @@ class EventRegisterView(APIView):
             "first_name": user.first_name,
             "last_name": user.last_name,
             "status": contribution.status,
+            "contribution_id": contribution.id,
+        }
+
+    @staticmethod
+    def _email_only_cell(email):
+        return {
+            "id": None,
+            "email": email,
+            "first_name": None,
+            "last_name": None,
+            "status": None,
+            "contribution_id": None,
         }
 
     def get(self, request, event_id):
@@ -307,7 +320,7 @@ class EventRegisterView(APIView):
             ContributionStatus.ACCEPTED,
             ContributionStatus.WAITING,
         }
-        couples, singles, consumed = [], [], set()
+        couples, email_couples, singles, consumed = [], [], [], set()
         for c in contributions:
             if c.status != ContributionStatus.PAYED or c.id in consumed:
                 continue
@@ -316,13 +329,17 @@ class EventRegisterView(APIView):
                     and partner_c.id not in consumed:
                 consumed.update((c.id, partner_c.id))
                 couples.append((c, partner_c))
+            elif c.partner_id is None and c.partner_email:
+                # Partner not in the system yet: only their email is known.
+                consumed.add(c.id)
+                email_couples.append(c)
             else:
                 consumed.add(c.id)
                 singles.append(c)
 
         # Extend the columns with any role seen on an included contribution
         # but missing from the event type (defensive; also covers null roles).
-        included = [c for pair in couples for c in pair] + singles
+        included = [c for pair in couples for c in pair] + email_couples + singles
         for c in included:
             role_name = c.role.name if c.role else "unknown"
             if role_name not in roles:
@@ -336,6 +353,14 @@ class EventRegisterView(APIView):
             members = {name: None for name in roles}
             for c in pair:
                 members[role_of(c)] = self._member_cell(c)
+            rows.append({"couple": True, "members": members})
+
+        for c in email_couples:
+            members = {name: None for name in roles}
+            members[role_of(c)] = self._member_cell(c)
+            partner_column = next((n for n in roles if members[n] is None), None)
+            if partner_column:
+                members[partner_column] = self._email_only_cell(c.partner_email)
             rows.append({"couple": True, "members": members})
 
         buckets = {name: [] for name in roles}

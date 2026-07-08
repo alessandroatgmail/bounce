@@ -8,6 +8,9 @@ rows by partner role:
     contribution is accepted or waiting — each member cell carries its
     contribution status so the frontend can highlight unpaid partners.
     With any other partner status the payed member is treated as single;
+  - a partner who is not in the system yet (contribution has partner_email
+    but no partner user and no twin contribution) is shown as an email-only
+    cell: every field null except the email;
   - remaining singles are auto-paired across roles in booking-date order;
   - a leftover single gets a row with null in the other role column.
 """
@@ -60,7 +63,7 @@ def make_user(email):
 
 
 def pay(user, event, role, status=ContributionStatus.PAYED,
-        partner=None, original=None, minutes=0):
+        partner=None, partner_email=None, original=None, minutes=0):
     """Create a contribution for `user` on `event` at now + `minutes`."""
     contribution = Contribution.objects.create(
         amount=10,
@@ -68,6 +71,7 @@ def pay(user, event, role, status=ContributionStatus.PAYED,
         status=status,
         role=role,
         partner=partner,
+        partner_email=partner_email,
         original_contribution=original,
         date=timezone.now() + timedelta(minutes=minutes),
     )
@@ -129,7 +133,7 @@ class TestEventRegisterShape:
     def test_member_cell_contains_user_fields(self, staff_client, world_data):
         event, (leader_role, _) = make_event_with_roles()
         user = make_user("alice@bounce.com")
-        pay(user, event, leader_role)
+        contribution = pay(user, event, leader_role)
 
         data = staff_client.get(register_url(event.pk)).json()
         cell = data["rows"][0]["members"]["Leader"]
@@ -139,6 +143,7 @@ class TestEventRegisterShape:
             "first_name": "Alice",
             "last_name": "Test",
             "status": "payed",
+            "contribution_id": contribution.pk,
         }
 
 
@@ -294,6 +299,40 @@ class TestEventRegisterPairing:
         assert row_emails(row, data["roles"]) == ("alice@bounce.com", "bob@bounce.com")
         assert row["members"]["Leader"]["status"] == "accepted"
         assert row["members"]["Follower"]["status"] == "payed"
+
+    def test_partner_not_in_system_shows_email_only(self, staff_client, world_data):
+        """A partner known only by email gets an email-only cell in the couple row."""
+        event, (leader_role, follower_role) = make_event_with_roles()
+        alice = make_user("alice@bounce.com")
+        pay(alice, event, leader_role, partner_email="ghost@bounce.com")
+
+        data = staff_client.get(register_url(event.pk)).json()
+        assert len(data["rows"]) == 1
+        row = data["rows"][0]
+        assert row["couple"] is True
+        assert row["members"]["Leader"]["email"] == "alice@bounce.com"
+        assert row["members"]["Follower"] == {
+            "id": None,
+            "email": "ghost@bounce.com",
+            "first_name": None,
+            "last_name": None,
+            "status": None,
+            "contribution_id": None,
+        }
+
+    def test_email_only_partner_keeps_payer_out_of_auto_pairing(self, staff_client, world_data):
+        """A payer with an email-only partner is not auto-paired with other singles."""
+        event, (leader_role, follower_role) = make_event_with_roles()
+        alice = make_user("alice@bounce.com")
+        pay(alice, event, leader_role, partner_email="ghost@bounce.com")
+        pay(make_user("carol@bounce.com"), event, follower_role, minutes=1)
+
+        data = staff_client.get(register_url(event.pk)).json()
+        assert len(data["rows"]) == 2
+        assert data["rows"][0]["couple"] is True
+        assert row_emails(data["rows"][0], data["roles"]) == ("alice@bounce.com", "ghost@bounce.com")
+        assert data["rows"][1]["couple"] is False
+        assert row_emails(data["rows"][1], data["roles"]) == (None, "carol@bounce.com")
 
     def test_couple_with_neither_payed_is_excluded(self, staff_client, world_data):
         """A couple where nobody payed does not appear at all."""
