@@ -42,9 +42,9 @@ def cancel_expired_contributions() -> None:
 
 @shared_task
 def consolidate_event_register(event_id: int) -> None:
-    """Build the register grid of a parent event from its contributions and
-    consolidate it into Booking rows: one set for the parent event itself,
-    replicated for each of its children event ids."""
+    """Build the register grid of a parent event from its bookings and
+    consolidate it back: pairings are persisted and replicated for each of
+    its children event ids."""
     from event.models import Event
     from booking.register import build_register, consolidate_register
 

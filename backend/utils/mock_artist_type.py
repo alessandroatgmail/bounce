@@ -9,15 +9,20 @@ Usage:
     payloads = make_artist_type_payloads(5)
 """
 
+import itertools
+
 from faker import Faker
 
 _fake = Faker()
+# Counter suffix instead of _fake.unique: the word pool is finite and gets
+# exhausted when the whole test suite runs in one process.
+_seq = itertools.count(1)
 
 
 def make_artist_type_payload(**overrides) -> dict:
     """Return a dict with all required ArtistType fields filled with fake data."""
     payload = {
-        "name": _fake.unique.word().capitalize(),
+        "name": f"{_fake.word().capitalize()} {next(_seq)}",
     }
     payload.update(overrides)
     return payload

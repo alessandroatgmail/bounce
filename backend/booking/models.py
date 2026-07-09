@@ -49,6 +49,10 @@ class Contribution(models.Model):
             self.status == ContributionStatus.CONFIRMED
             and self._previous_status != ContributionStatus.CONFIRMED
         )
+        is_payment = (
+            self.status == ContributionStatus.PAYED
+            and self._previous_status != ContributionStatus.PAYED
+        )
         was_accepted_now_cancelled = (
             self._previous_status == ContributionStatus.ACCEPTED
             and self.status == ContributionStatus.CANCELLED
@@ -58,6 +62,10 @@ class Contribution(models.Model):
         if is_confirmation:
             from booking.utils import sync_bookings
             sync_bookings(self.user, added_events=list(self.events.all()), removed_events=[])
+
+        if is_payment:
+            from booking.utils import add_payed_bookings
+            add_payed_bookings(self)
 
         if was_accepted_now_cancelled:
             event = self.events.first()
@@ -84,3 +92,7 @@ class Booking(models.Model):
     role = models.ForeignKey(PartnerRole, on_delete=models.PROTECT, null=True, blank=True)
     partner_email = models.EmailField(null=True, blank=True)
     attended = models.BooleanField(default=False)
+    # True when the pairing comes from a real couple booking (twin
+    # contributions): these pairs must never be split when re-arranging
+    # the register.
+    couple = models.BooleanField(default=False)

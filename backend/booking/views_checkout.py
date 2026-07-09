@@ -125,7 +125,11 @@ def stripe_webhook(request):
             contributions = Contribution.objects.filter(id__in=ids).select_related(
                 'user', 'membership'
             ).prefetch_related('events')
-            contributions.update(status=ContributionStatus.PAYED)
+            # Save one by one (not .update()) so the PAYED transition in
+            # Contribution.save() runs and books the payer on the events.
+            for contribution in contributions:
+                contribution.status = ContributionStatus.PAYED
+                contribution.save(update_fields=['status'])
             _send_payment_emails(contributions)
 
     return Response({'status': 'ok'})

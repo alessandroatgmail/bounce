@@ -1,12 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { AlertTriangle, ArrowLeft, ClipboardList, Link2, Loader2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowLeftRight,
+  ClipboardList,
+  Link2,
+  Loader2,
+  Lock,
+  Plus,
+  UserPlus,
+  X,
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { authFetch } from '../../lib/api';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -40,6 +58,19 @@ interface RegisterData {
   parent: boolean;
   /** True when the rows come from Booking records instead of contributions. */
   consolidated: boolean;
+}
+
+interface UserSearchResult {
+  id: number;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+}
+
+/** A cell position in the register grid. */
+interface CellRef {
+  row: number;
+  role: string;
 }
 
 function MemberCell({
@@ -108,6 +139,20 @@ export function EventRegisterPage() {
   const [consolidateError, setConsolidateError] = useState<string | null>(null);
   const [consolidateResult, setConsolidateResult] = useState<{ created: number; updated: number } | null>(null);
 
+  // Grid editing (parent events only): pick a member, then a destination
+  // cell to swap them; couples booked together stay locked on their row.
+  const [moveSource, setMoveSource] = useState<CellRef | null>(null);
+  const [addTarget, setAddTarget] = useState<CellRef | null>(null);
+  // Users removed from the grid: their bookings are deleted on consolidate.
+  // Only members without a payed contribution can be removed.
+  const [removedUserIds, setRemovedUserIds] = useState<number[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const canEdit = !!data?.parent;
+
   // Partners known only by email (no account) cannot be booked:
   // consolidation is blocked until they register or are removed.
   const hasUnregisteredPartner = useMemo(
@@ -117,6 +162,16 @@ export function EventRegisterPage() {
       ),
     [data],
   );
+
+  const userIdsInGrid = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of data?.rows ?? []) {
+      for (const member of Object.values(row.members)) {
+        if (member?.id != null) ids.add(member.id);
+      }
+    }
+    return ids;
+  }, [data]);
 
   const fetchRegister = useCallback(async () => {
     if (!accessToken || !eventId) return;
@@ -129,6 +184,9 @@ export function EventRegisterPage() {
       ]);
       if (!registerRes.ok) throw new Error(`${registerRes.status}`);
       setData(await registerRes.json());
+      setMoveSource(null);
+      setRemovedUserIds([]);
+      setDirty(false);
       if (eventRes.ok) {
         const event = await eventRes.json();
         setEventName(event.name ?? null);
@@ -147,15 +205,95 @@ export function EventRegisterPage() {
 
   useEffect(() => { fetchRegister(); }, [fetchRegister]);
 
+  // User search for the "add user to a cell" dialog.
+  useEffect(() => {
+    if (addTarget === null || !accessToken) return;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const response = await authFetch(
+          `/api/auth/users/?name=${encodeURIComponent(searchQuery)}&page_size=20`,
+          accessToken,
+        );
+        if (response.ok) {
+          const json = await response.json();
+          setSearchResults(json.results ?? []);
+        }
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [addTarget, searchQuery, accessToken]);
+
+  const withClonedRows = (mutate: (rows: RegisterRow[]) => void) => {
+    setData(prev => {
+      if (!prev) return prev;
+      const rows = prev.rows.map(row => ({ ...row, members: { ...row.members } }));
+      mutate(rows);
+      return { ...prev, rows };
+    });
+    setDirty(true);
+  };
+
+  const swapCells = (a: CellRef, b: CellRef) => {
+    withClonedRows(rows => {
+      const first = rows[a.row].members[a.role] ?? null;
+      rows[a.row].members[a.role] = rows[b.row].members[b.role] ?? null;
+      rows[b.row].members[b.role] = first;
+    });
+    setMoveSource(null);
+  };
+
+  const addRow = () => {
+    setData(prev => {
+      if (!prev) return prev;
+      const members = Object.fromEntries(prev.roles.map(role => [role, null]));
+      return { ...prev, rows: [...prev.rows, { couple: false, members }] };
+    });
+  };
+
+  const insertUser = (found: UserSearchResult) => {
+    if (!addTarget) return;
+    const target = addTarget;
+    withClonedRows(rows => {
+      rows[target.row].members[target.role] = {
+        id: found.id,
+        email: found.email,
+        first_name: found.first_name,
+        last_name: found.last_name,
+        status: null,
+        contribution_id: null,
+      };
+    });
+    setRemovedUserIds(prev => prev.filter(id => id !== found.id));
+    setAddTarget(null);
+    setSearchQuery('');
+  };
+
+  const removeMember = (cell: CellRef) => {
+    const member = data?.rows[cell.row]?.members[cell.role];
+    if (!member || member.id === null || member.status === 'payed') return;
+    const removedId = member.id;
+    withClonedRows(rows => {
+      rows[cell.row].members[cell.role] = null;
+    });
+    setRemovedUserIds(prev => (prev.includes(removedId) ? prev : [...prev, removedId]));
+    setMoveSource(null);
+  };
+
   const consolidate = async () => {
     if (!accessToken || !eventId || !data || hasUnregisteredPartner) return;
     setConsolidating(true);
     setConsolidateError(null);
     setConsolidateResult(null);
     try {
+      const rows = data.rows.filter(row => Object.values(row.members).some(Boolean));
       const response = await authFetch(`/api/events/register/${eventId}/`, accessToken, {
         method: 'POST',
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, rows, removed_user_ids: removedUserIds }),
       });
       if (!response.ok) throw new Error(`${response.status}`);
       const result = await response.json();
@@ -176,6 +314,9 @@ export function EventRegisterPage() {
   if (!user || user.role !== 'admin') {
     return <Navigate to="/login" replace />;
   }
+
+  const isSource = (cell: CellRef) =>
+    moveSource !== null && moveSource.row === cell.row && moveSource.role === cell.role;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -200,14 +341,23 @@ export function EventRegisterPage() {
             </div>
           </div>
           {data?.parent && (
-            <Button
-              className="bg-[#e67e22] hover:bg-[#d35400] text-white"
-              onClick={consolidate}
-              disabled={consolidating || loading || hasUnregisteredPartner}
-            >
-              {consolidating && <Loader2 className="size-4 animate-spin" />}
-              {language === 'it' ? 'Consolida' : 'Consolidate'}
-            </Button>
+            <div className="flex items-center gap-3">
+              {dirty && (
+                <span className="text-sm text-amber-700">
+                  {language === 'it'
+                    ? 'Modifiche non salvate — consolida per salvarle'
+                    : 'Unsaved changes — consolidate to save them'}
+                </span>
+              )}
+              <Button
+                className="bg-[#e67e22] hover:bg-[#d35400] text-white"
+                onClick={consolidate}
+                disabled={consolidating || loading || hasUnregisteredPartner}
+              >
+                {consolidating && <Loader2 className="size-4 animate-spin" />}
+                {language === 'it' ? 'Consolida' : 'Consolidate'}
+              </Button>
+            </div>
           )}
         </div>
 
@@ -248,54 +398,194 @@ export function EventRegisterPage() {
             {error && <p className="text-sm text-red-600 py-4">{error}</p>}
 
             {!loading && !error && data && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">
-                      <span className="sr-only">{language === 'it' ? 'Coppia' : 'Couple'}</span>
-                    </TableHead>
-                    {data.roles.map(role => (
-                      <TableHead key={role}>{role}</TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.rows.map((row, index) => (
-                    <TableRow key={index}>
-                      <TableCell>
-                        {row.couple && (
-                          <Link2
-                            className="size-4 text-[#e67e22]"
-                            aria-label={language === 'it' ? 'Coppia' : 'Couple'}
-                          />
-                        )}
-                      </TableCell>
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">
+                        <span className="sr-only">{language === 'it' ? 'Coppia' : 'Couple'}</span>
+                      </TableHead>
                       {data.roles.map(role => (
-                        <TableCell key={role} className="align-top">
-                          <MemberCell
-                            member={row.members[role] ?? null}
-                            language={language}
-                            showAttended={!data.parent && data.consolidated}
-                          />
-                        </TableCell>
+                        <TableHead key={role}>{role}</TableHead>
                       ))}
                     </TableRow>
-                  ))}
-                  {data.rows.length === 0 && (
-                    <TableRow>
-                      <TableCell
-                        colSpan={data.roles.length + 1}
-                        className="text-center text-muted-foreground py-8"
-                      >
-                        {language === 'it' ? 'Nessun partecipante.' : 'No attendees.'}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {data.rows.map((row, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          {row.couple && (
+                            <span className="flex items-center gap-1">
+                              <Link2
+                                className="size-4 text-[#e67e22]"
+                                aria-label={language === 'it' ? 'Coppia' : 'Couple'}
+                              />
+                              {canEdit && (
+                                <Lock
+                                  className="size-3 text-gray-400"
+                                  aria-label={
+                                    language === 'it'
+                                      ? 'Le coppie non possono essere separate'
+                                      : 'Couples cannot be split'
+                                  }
+                                />
+                              )}
+                            </span>
+                          )}
+                        </TableCell>
+                        {data.roles.map(role => {
+                          const cell: CellRef = { row: index, role };
+                          const member = row.members[role] ?? null;
+                          const editable = canEdit && !row.couple;
+                          return (
+                            <TableCell key={role} className="align-top">
+                              <div className="flex items-start justify-between gap-2">
+                                <MemberCell
+                                  member={member}
+                                  language={language}
+                                  showAttended={!data.parent && data.consolidated}
+                                />
+                                {editable && (
+                                  <div className="flex flex-col items-end gap-1 shrink-0">
+                                    {member && (
+                                      <div className="flex items-center gap-1">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className={
+                                            isSource(cell)
+                                              ? 'text-white bg-[#e67e22] hover:bg-[#d35400] hover:text-white'
+                                              : 'text-gray-400 hover:text-[#e67e22]'
+                                          }
+                                          title={language === 'it' ? 'Sposta' : 'Move'}
+                                          onClick={() =>
+                                            setMoveSource(isSource(cell) ? null : cell)
+                                          }
+                                        >
+                                          <ArrowLeftRight className="size-4" />
+                                        </Button>
+                                        {member.id !== null && member.status !== 'payed' && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-gray-400 hover:text-red-600"
+                                            title={language === 'it' ? 'Rimuovi' : 'Remove'}
+                                            onClick={() => removeMember(cell)}
+                                          >
+                                            <X className="size-4" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    )}
+                                    {moveSource && !isSource(cell) && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs"
+                                        onClick={() => swapCells(moveSource, cell)}
+                                      >
+                                        {member
+                                          ? language === 'it' ? 'Scambia' : 'Swap'
+                                          : language === 'it' ? 'Sposta qui' : 'Move here'}
+                                      </Button>
+                                    )}
+                                    {!member && !moveSource && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-gray-400 hover:text-[#e67e22]"
+                                        title={language === 'it' ? 'Aggiungi utente' : 'Add user'}
+                                        onClick={() => {
+                                          setSearchQuery('');
+                                          setSearchResults([]);
+                                          setAddTarget(cell);
+                                        }}
+                                      >
+                                        <UserPlus className="size-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                    {data.rows.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={data.roles.length + 1}
+                          className="text-center text-muted-foreground py-8"
+                        >
+                          {language === 'it' ? 'Nessun partecipante.' : 'No attendees.'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+                {canEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4 flex items-center gap-1"
+                    onClick={addRow}
+                  >
+                    <Plus className="size-4" />
+                    {language === 'it' ? 'Aggiungi riga' : 'Add row'}
+                  </Button>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
+
+        <Dialog
+          open={addTarget !== null}
+          onOpenChange={open => { if (!open) setAddTarget(null); }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {language === 'it' ? 'Aggiungi utente al registro' : 'Add user to the register'}
+              </DialogTitle>
+            </DialogHeader>
+            <Input
+              autoFocus
+              placeholder={language === 'it' ? 'Cerca per nome…' : 'Search by name…'}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            <div className="max-h-64 overflow-y-auto flex flex-col gap-1">
+              {searching && (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {!searching && searchResults.filter(u => !userIdsInGrid.has(u.id)).length === 0 && (
+                <p className="text-sm text-muted-foreground py-2">
+                  {language === 'it' ? 'Nessun utente trovato.' : 'No users found.'}
+                </p>
+              )}
+              {!searching &&
+                searchResults
+                  .filter(u => !userIdsInGrid.has(u.id))
+                  .map(found => (
+                    <button
+                      key={found.id}
+                      type="button"
+                      className="flex flex-col items-start rounded-md px-3 py-2 text-left hover:bg-gray-100"
+                      onClick={() => insertUser(found)}
+                    >
+                      <span className="text-sm font-medium">
+                        {found.first_name} {found.last_name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{found.email}</span>
+                    </button>
+                  ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

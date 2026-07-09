@@ -1,28 +1,23 @@
 """
-Tests for GET /api/events/register/<event_id>/ — the attendee grid endpoint.
+Tests for GET /api/events/register/<event_id>/ — the attendee grid
+endpoint.
 
-Returns every user with a payed contribution for the event, arranged in
-rows by partner role:
-  - couples (contributions linked via original_contribution) share a row
-    with couple=True; a partner who has not payed is shown only if their
-    contribution is accepted or waiting — each member cell carries its
-    contribution status so the frontend can highlight unpaid partners.
-    With any other partner status the payed member is treated as single;
-  - a partner who is not in the system yet (contribution has partner_email
-    but no partner user and no twin contribution) is shown as an email-only
-    cell: every field null except the email;
-  - remaining singles are auto-paired across roles in booking-date order;
-  - a leftover single gets a row with null in the other role column.
+The register is a view over the Booking model: bookings are created when
+a contribution becomes payed (or by consolidation), so an event without
+bookings has an empty register. The grid semantics — pairing, unpaid
+partners, couple flags, consolidation — are covered in
+booking/tests/test_consolidate_register.py; here we only check the
+endpoint itself: permissions and the response shape.
 """
 import pytest
-from datetime import timedelta
-from django.utils import timezone
 from rest_framework import status as http_status
 
-from booking.models import Contribution, ContributionStatus
+from booking.models import Booking
 from event.models import Event, PartnerRole, Status
 from users.models import User
 from utils.mock_event import make_event_payload
+
+pytestmark = pytest.mark.django_db
 
 
 def register_url(event_id):
@@ -62,39 +57,6 @@ def make_user(email):
     )
 
 
-def pay(user, event, role, status=ContributionStatus.PAYED,
-        partner=None, partner_email=None, original=None, minutes=0):
-    """Create a contribution for `user` on `event` at now + `minutes`."""
-    contribution = Contribution.objects.create(
-        amount=10,
-        user=user,
-        status=status,
-        role=role,
-        partner=partner,
-        partner_email=partner_email,
-        original_contribution=original,
-        date=timezone.now() + timedelta(minutes=minutes),
-    )
-    contribution.events.set([event])
-    return contribution
-
-
-def pay_couple(user, partner, event, user_role, partner_role, minutes=0):
-    """Create the two linked contributions of a couple booking."""
-    original = pay(user, event, user_role, partner=partner, minutes=minutes)
-    twin = pay(partner, event, partner_role, partner=user,
-               original=original, minutes=minutes)
-    return original, twin
-
-
-def row_emails(row, roles):
-    """Return the member emails of a row as a tuple following column order."""
-    return tuple(
-        member["email"] if (member := row["members"][role]) else None
-        for role in roles
-    )
-
-
 # ── Authentication / permissions ──────────────────────────────────────────────
 
 class TestEventRegisterAuth:
@@ -125,224 +87,32 @@ class TestEventRegisterShape:
         assert data["event_id"] == event.pk
         assert data["roles"] == ["Leader", "Follower"]
 
-    def test_no_contributions_gives_empty_rows(self, staff_client, world_data):
+    def test_no_bookings_gives_empty_unconsolidated_grid(self, staff_client, world_data):
         event, _ = make_event_with_roles()
         data = staff_client.get(register_url(event.pk)).json()
         assert data["rows"] == []
+        assert data["consolidated"] is False
+        assert data["parent"] is True
 
-    def test_member_cell_contains_user_fields(self, staff_client, world_data):
+    def test_booked_member_cell_contains_user_fields(self, staff_client, world_data):
         event, (leader_role, _) = make_event_with_roles()
-        user = make_user("alice@bounce.com")
-        contribution = pay(user, event, leader_role)
+        anna = make_user("anna@bounce.com")
+        Booking.objects.create(user=anna, event=event, role=leader_role)
 
         data = staff_client.get(register_url(event.pk)).json()
+
+        assert data["consolidated"] is True
         cell = data["rows"][0]["members"]["Leader"]
-        assert cell == {
-            "id": user.pk,
-            "email": "alice@bounce.com",
-            "first_name": "Alice",
-            "last_name": "Test",
-            "status": "payed",
-            "contribution_id": contribution.pk,
-        }
+        assert cell["id"] == anna.id
+        assert cell["email"] == anna.email
+        assert cell["first_name"] == "Anna"
+        assert cell["attended"] is False
 
+    def test_child_event_is_not_parent(self, staff_client, world_data):
+        parent, _ = make_event_with_roles()
+        child, _ = make_event_with_roles()
+        parent.events.set([child])
 
-# ── Filtering ─────────────────────────────────────────────────────────────────
+        data = staff_client.get(register_url(child.pk)).json()
 
-class TestEventRegisterFiltering:
-
-    def test_only_payed_contributions_are_included(self, staff_client, world_data):
-        event, (leader_role, _) = make_event_with_roles()
-        payed = make_user("payed@bounce.com")
-        pay(payed, event, leader_role)
-        for i, other_status in enumerate(s for s in ContributionStatus if s != ContributionStatus.PAYED):
-            pay(make_user(f"user{i}@bounce.com"), event, leader_role, status=other_status)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 1
-        assert data["rows"][0]["members"]["Leader"]["email"] == "payed@bounce.com"
-
-    def test_contributions_for_other_events_are_excluded(self, staff_client, world_data):
-        event, (leader_role, _) = make_event_with_roles()
-        other_event, _ = make_event_with_roles()
-        pay(make_user("other@bounce.com"), other_event, leader_role)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert data["rows"] == []
-
-
-# ── Pairing ───────────────────────────────────────────────────────────────────
-
-class TestEventRegisterPairing:
-
-    def test_couple_shares_a_row(self, staff_client, world_data):
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        bob = make_user("bob@bounce.com")
-        pay_couple(alice, bob, event, leader_role, follower_role)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 1
-        row = data["rows"][0]
-        assert row["couple"] is True
-        assert row_emails(row, data["roles"]) == ("alice@bounce.com", "bob@bounce.com")
-
-    def test_singles_are_auto_paired_in_booking_order(self, staff_client, world_data):
-        event, (leader_role, follower_role) = make_event_with_roles()
-        pay(make_user("leader1@bounce.com"), event, leader_role, minutes=0)
-        pay(make_user("follower1@bounce.com"), event, follower_role, minutes=1)
-        pay(make_user("leader2@bounce.com"), event, leader_role, minutes=2)
-        pay(make_user("follower2@bounce.com"), event, follower_role, minutes=3)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert [row["couple"] for row in data["rows"]] == [False, False]
-        assert row_emails(data["rows"][0], data["roles"]) == ("leader1@bounce.com", "follower1@bounce.com")
-        assert row_emails(data["rows"][1], data["roles"]) == ("leader2@bounce.com", "follower2@bounce.com")
-
-    def test_leftover_single_gets_null_partner(self, staff_client, world_data):
-        event, (leader_role, follower_role) = make_event_with_roles()
-        pay(make_user("leader1@bounce.com"), event, leader_role, minutes=0)
-        pay(make_user("leader2@bounce.com"), event, leader_role, minutes=1)
-        pay(make_user("follower1@bounce.com"), event, follower_role, minutes=2)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 2
-        assert row_emails(data["rows"][0], data["roles"]) == ("leader1@bounce.com", "follower1@bounce.com")
-        assert row_emails(data["rows"][1], data["roles"]) == ("leader2@bounce.com", None)
-
-    def test_couples_come_before_auto_paired_singles(self, staff_client, world_data):
-        event, (leader_role, follower_role) = make_event_with_roles()
-        pay(make_user("single-leader@bounce.com"), event, leader_role, minutes=0)
-        pay(make_user("single-follower@bounce.com"), event, follower_role, minutes=1)
-        alice = make_user("alice@bounce.com")
-        bob = make_user("bob@bounce.com")
-        pay_couple(alice, bob, event, leader_role, follower_role, minutes=2)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert [row["couple"] for row in data["rows"]] == [True, False]
-        assert row_emails(data["rows"][0], data["roles"]) == ("alice@bounce.com", "bob@bounce.com")
-        assert row_emails(data["rows"][1], data["roles"]) == ("single-leader@bounce.com", "single-follower@bounce.com")
-
-    @pytest.mark.parametrize("twin_status", [
-        ContributionStatus.ACCEPTED,
-        ContributionStatus.WAITING,
-    ])
-    def test_accepted_or_waiting_twin_is_shown_with_its_status(
-            self, staff_client, world_data, twin_status):
-        """An accepted/waiting partner appears in the couple row, flagged by status."""
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        bob = make_user("bob@bounce.com")
-        original = pay(alice, event, leader_role, partner=bob)
-        pay(bob, event, follower_role, partner=alice, original=original,
-            status=twin_status)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 1
-        row = data["rows"][0]
-        assert row["couple"] is True
-        assert row_emails(row, data["roles"]) == ("alice@bounce.com", "bob@bounce.com")
-        assert row["members"]["Leader"]["status"] == "payed"
-        assert row["members"]["Follower"]["status"] == twin_status
-
-    @pytest.mark.parametrize("twin_status", [
-        ContributionStatus.RECEIVED,
-        ContributionStatus.CONFIRMED,
-        ContributionStatus.CANCELLED,
-    ])
-    def test_other_twin_status_hides_partner(
-            self, staff_client, world_data, twin_status):
-        """A partner who is neither payed, accepted nor waiting is not shown."""
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        bob = make_user("bob@bounce.com")
-        original = pay(alice, event, leader_role, partner=bob)
-        pay(bob, event, follower_role, partner=alice, original=original,
-            status=twin_status)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 1
-        row = data["rows"][0]
-        assert row["couple"] is False
-        assert row_emails(row, data["roles"]) == ("alice@bounce.com", None)
-
-    def test_payed_member_with_hidden_partner_is_auto_paired(self, staff_client, world_data):
-        """When the partner is hidden the payed member rejoins the singles pool."""
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        bob = make_user("bob@bounce.com")
-        original = pay(alice, event, leader_role, partner=bob)
-        pay(bob, event, follower_role, partner=alice, original=original,
-            status=ContributionStatus.CANCELLED)
-        pay(make_user("carol@bounce.com"), event, follower_role, minutes=1)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 1
-        row = data["rows"][0]
-        assert row["couple"] is False
-        assert row_emails(row, data["roles"]) == ("alice@bounce.com", "carol@bounce.com")
-
-    def test_original_not_payed_is_still_shown_when_twin_is_payed(self, staff_client, world_data):
-        """Linkage works in both directions: a payed twin pulls in a not-payed original."""
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        bob = make_user("bob@bounce.com")
-        original = pay(alice, event, leader_role, partner=bob,
-                       status=ContributionStatus.ACCEPTED)
-        pay(bob, event, follower_role, partner=alice, original=original)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        print (data)
-        assert len(data["rows"]) == 1
-        row = data["rows"][0]
-        assert row["couple"] is True
-        assert row_emails(row, data["roles"]) == ("alice@bounce.com", "bob@bounce.com")
-        assert row["members"]["Leader"]["status"] == "accepted"
-        assert row["members"]["Follower"]["status"] == "payed"
-
-    def test_partner_not_in_system_shows_email_only(self, staff_client, world_data):
-        """A partner known only by email gets an email-only cell in the couple row."""
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        pay(alice, event, leader_role, partner_email="ghost@bounce.com")
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 1
-        row = data["rows"][0]
-        assert row["couple"] is True
-        assert row["members"]["Leader"]["email"] == "alice@bounce.com"
-        assert row["members"]["Follower"] == {
-            "id": None,
-            "email": "ghost@bounce.com",
-            "first_name": None,
-            "last_name": None,
-            "status": None,
-            "contribution_id": None,
-        }
-
-    def test_email_only_partner_keeps_payer_out_of_auto_pairing(self, staff_client, world_data):
-        """A payer with an email-only partner is not auto-paired with other singles."""
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        pay(alice, event, leader_role, partner_email="ghost@bounce.com")
-        pay(make_user("carol@bounce.com"), event, follower_role, minutes=1)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert len(data["rows"]) == 2
-        assert data["rows"][0]["couple"] is True
-        assert row_emails(data["rows"][0], data["roles"]) == ("alice@bounce.com", "ghost@bounce.com")
-        assert data["rows"][1]["couple"] is False
-        assert row_emails(data["rows"][1], data["roles"]) == (None, "carol@bounce.com")
-
-    def test_couple_with_neither_payed_is_excluded(self, staff_client, world_data):
-        """A couple where nobody payed does not appear at all."""
-        event, (leader_role, follower_role) = make_event_with_roles()
-        alice = make_user("alice@bounce.com")
-        bob = make_user("bob@bounce.com")
-        original = pay(alice, event, leader_role, partner=bob,
-                       status=ContributionStatus.RECEIVED)
-        pay(bob, event, follower_role, partner=alice, original=original,
-            status=ContributionStatus.RECEIVED)
-
-        data = staff_client.get(register_url(event.pk)).json()
-        assert data["rows"] == []
+        assert data["parent"] is False

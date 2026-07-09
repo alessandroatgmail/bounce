@@ -274,14 +274,23 @@ class EventRegisterView(APIView):
         return Response(build_register(event))
 
     def post(self, request, event_id):
-        from booking.register import consolidate_register
+        from booking.register import ConsolidateError, consolidate_register
 
         event = get_object_or_404(Event, pk=event_id)
-        rows = request.data.get("rows") if isinstance(request.data, dict) else request.data
+        if isinstance(request.data, dict):
+            rows = request.data.get("rows")
+            removed_user_ids = request.data.get("removed_user_ids") or []
+        else:
+            rows, removed_user_ids = request.data, []
         if not isinstance(rows, list):
             return Response(
                 {"rows": "Expected a list of register rows."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-        created, updated = consolidate_register(event, rows)
+        try:
+            created, updated = consolidate_register(
+                event, rows, removed_user_ids=removed_user_ids,
+            )
+        except ConsolidateError as exc:
+            return Response({"rows": str(exc)}, status=drf_status.HTTP_400_BAD_REQUEST)
         return Response({"event_id": event.id, "created": created, "updated": updated})
