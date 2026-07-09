@@ -1,9 +1,9 @@
 from datetime import timedelta
-from itertools import zip_longest
 
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework import status as drf_status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -258,119 +258,30 @@ class EventViewSet(viewsets.ModelViewSet):
 
 class EventRegisterView(APIView):
     """
-    GET /api/events/register/<event_id>/
-
-    Attendee grid for an event: every user with a payed contribution,
-    arranged in rows by partner role. Couples (contributions linked via
-    original_contribution) share a row — a partner who has not payed is
-    included only while accepted or waiting, with its status exposed so
-    the frontend can highlight it; otherwise the payed member is treated
-    as single. A partner known only by email (no account, so no twin
-    contribution) is shown as an email-only cell. Remaining singles are
-    auto-paired across roles in booking-date order.
+    GET  /api/events/register/<event_id>/ — attendee grid for an event
+         (see booking.register.build_register for the row semantics).
+    POST /api/events/register/<event_id>/ — consolidate a grid payload
+         into Booking rows for the event and all its children. Accepts
+         either a bare list of rows or the GET response shape posted back
+         ({"rows": [...]}).
     """
     permission_classes = [IsAdminUser]
 
-    @staticmethod
-    def _member_cell(contribution):
-        user = contribution.user
-        return {
-            "id": user.id,
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "status": contribution.status,
-            "contribution_id": contribution.id,
-        }
-
-    @staticmethod
-    def _email_only_cell(email):
-        return {
-            "id": None,
-            "email": email,
-            "first_name": None,
-            "last_name": None,
-            "status": None,
-            "contribution_id": None,
-        }
-
     def get(self, request, event_id):
-        from booking.models import Contribution, ContributionStatus
+        from booking.register import build_register
 
         event = get_object_or_404(Event, pk=event_id)
-        roles = [r.name for r in event.event_type.partner_roles.all()]
+        return Response(build_register(event))
 
-        contributions = list(
-            Contribution.objects.filter(events=event)
-            .select_related("user", "role")
-            .order_by("date", "id")
-        )
-        by_id = {c.id: c for c in contributions}
+    def post(self, request, event_id):
+        from booking.register import consolidate_register
 
-        # Twin lookup in both directions (original -> twin and twin -> original)
-        twin_of = {}
-        for c in contributions:
-            original = by_id.get(c.original_contribution_id)
-            if original:
-                twin_of[c.id] = original
-                twin_of[original.id] = c
-
-        partner_visible_statuses = {
-            ContributionStatus.PAYED,
-            ContributionStatus.ACCEPTED,
-            ContributionStatus.WAITING,
-        }
-        couples, email_couples, singles, consumed = [], [], [], set()
-        for c in contributions:
-            if c.status != ContributionStatus.PAYED or c.id in consumed:
-                continue
-            partner_c = twin_of.get(c.id)
-            if partner_c and partner_c.status in partner_visible_statuses \
-                    and partner_c.id not in consumed:
-                consumed.update((c.id, partner_c.id))
-                couples.append((c, partner_c))
-            elif c.partner_id is None and c.partner_email:
-                # Partner not in the system yet: only their email is known.
-                consumed.add(c.id)
-                email_couples.append(c)
-            else:
-                consumed.add(c.id)
-                singles.append(c)
-
-        # Extend the columns with any role seen on an included contribution
-        # but missing from the event type (defensive; also covers null roles).
-        included = [c for pair in couples for c in pair] + email_couples + singles
-        for c in included:
-            role_name = c.role.name if c.role else "unknown"
-            if role_name not in roles:
-                roles.append(role_name)
-
-        def role_of(contribution):
-            return contribution.role.name if contribution.role else "unknown"
-
-        rows = []
-        for pair in couples:
-            members = {name: None for name in roles}
-            for c in pair:
-                members[role_of(c)] = self._member_cell(c)
-            rows.append({"couple": True, "members": members})
-
-        for c in email_couples:
-            members = {name: None for name in roles}
-            members[role_of(c)] = self._member_cell(c)
-            partner_column = next((n for n in roles if members[n] is None), None)
-            if partner_column:
-                members[partner_column] = self._email_only_cell(c.partner_email)
-            rows.append({"couple": True, "members": members})
-
-        buckets = {name: [] for name in roles}
-        for c in singles:
-            buckets[role_of(c)].append(c)
-        for line in zip_longest(*(buckets[name] for name in roles)):
-            members = {
-                name: self._member_cell(c) if c else None
-                for name, c in zip(roles, line)
-            }
-            rows.append({"couple": False, "members": members})
-
-        return Response({"event_id": event.id, "roles": roles, "rows": rows})
+        event = get_object_or_404(Event, pk=event_id)
+        rows = request.data.get("rows") if isinstance(request.data, dict) else request.data
+        if not isinstance(rows, list):
+            return Response(
+                {"rows": "Expected a list of register rows."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+        created, updated = consolidate_register(event, rows)
+        return Response({"event_id": event.id, "created": created, "updated": updated})

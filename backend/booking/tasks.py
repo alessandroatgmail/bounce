@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Min, Q
 from django.utils import timezone
@@ -37,6 +38,48 @@ def cancel_expired_contributions() -> None:
             send_contribution_cancelled_email.delay(contribution.user.id, contribution.id)
         elif deadline == reminder_date:
             send_contribution_expiry_reminder_email.delay(contribution.user.id, contribution.id)
+
+
+@shared_task
+def consolidate_event_register(event_id: int) -> None:
+    """Build the register grid of a parent event from its contributions and
+    consolidate it into Booking rows: one set for the parent event itself,
+    replicated for each of its children event ids."""
+    from event.models import Event
+    from booking.register import build_register, consolidate_register
+
+    event = Event.objects.select_related('event_type').get(pk=event_id)
+    grid = build_register(event)
+    created, updated = consolidate_register(event, grid["rows"])
+    logger.info(
+        f"Consolidated register for event {event_id}: "
+        f"{created} bookings created, {updated} updated"
+    )
+
+
+@shared_task
+def consolidate_upcoming_parent_events() -> None:
+    """
+    Select every parent event (one that is not a child of another event)
+    starting within the next settings.CONSOLIDATE_TIME_HR hours and
+    consolidate its register — parent data replicated onto all its
+    children. Runs from Celery beat; consolidation is idempotent, so
+    being called repeatedly while an event sits inside the window is
+    harmless.
+    """
+    from event.models import Event
+
+    now = timezone.now()
+    window = timedelta(hours=settings.CONSOLIDATE_TIME_HR)
+    child_ids = Event.events.through.objects.values('to_event_id')
+    event_ids = (
+        Event.objects
+        .filter(start_date__gt=now, start_date__lte=now + window)
+        .exclude(pk__in=child_ids)
+        .values_list('id', flat=True)
+    )
+    for event_id in event_ids:
+        consolidate_event_register.delay(event_id)
 
 
 @shared_task

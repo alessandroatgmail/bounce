@@ -78,8 +78,9 @@ class Contribution(models.Model):
         return new_amount
 
 
-
-
 class Booking(models.Model):
     user = models.ForeignKey(get_user_model(), on_delete=models.PROTECT)
     event = models.ForeignKey(Event, on_delete=models.PROTECT)
+    role = models.ForeignKey(PartnerRole, on_delete=models.PROTECT, null=True, blank=True)
+    partner_email = models.EmailField(null=True, blank=True)
+    attended = models.BooleanField(default=False)

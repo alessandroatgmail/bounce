@@ -160,11 +160,19 @@ POST_OFFICE = {
 
 CELERY_TIMEZONE = 'Europe/Rome'
 
+# Hours before an event's start date when its register is automatically
+# consolidated into Booking rows (parent event + all its children).
+CONSOLIDATE_TIME_HR = env.int("CONSOLIDATE_TIME_HR", default=1)
+
 # ── Celery Beat ────────────────────────────────────────────────────────────────
 CELERY_BEAT_SCHEDULE = {
     'cancel-expired-contributions-daily': {
         'task': 'booking.tasks.cancel_expired_contributions',
         'schedule': crontab(hour=0, minute=5),
+    },
+    'consolidate-upcoming-parent-events': {
+        'task': 'booking.tasks.consolidate_upcoming_parent_events',
+        'schedule': crontab(minute='*/10'),
     },
     # 'warning-expired-contributions-daily': {
     #     'task': 'booking.tasks.send_contribution_expiry_reminder_email',
