@@ -46,7 +46,7 @@ import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
 import { type EventItem, type EventPayload } from '../hooks/useEvents';
 import { authFetch, authFetchFile } from '../../lib/api';
-import { useEventsPaginated } from '../hooks/useEventsPaginated';
+import { useAdminEventsPaginated } from '../hooks/useAdminEventsPaginated';
 import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from '../components/MultiSearchSelect';
 
@@ -54,7 +54,7 @@ export function AdminDashboard() {
   const { user, setAdminViewMode, accessToken } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  const { count: upcomingCount } = useEventsPaginated(accessToken, { upcoming: true }, 1);
+  const { count: upcomingCount } = useAdminEventsPaginated(accessToken, { upcoming: true }, 1);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
   const [memberships, setMemberships] = useState(mockMemberships);
@@ -748,7 +748,14 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
     [rooms],
   );
 
-  const { events: paginated, count, page, pageSize, loading, setPage, setFilters, refetch, remove: removeEvent } = useEventsPaginated(accessToken);
+  const { events: paginated, count, page, pageSize, loading, setPage, setFilters, refetch, remove: removeEvent } = useAdminEventsPaginated(accessToken);
+
+  // The admin list is flat; the edit form needs the full nested event.
+  const openEdit = async (id: number) => {
+    if (!accessToken) return;
+    const res = await authFetch(`/api/events/events/${id}/`, accessToken);
+    if (res.ok) setEditingEvent(await res.json());
+  };
 
   useEffect(() => {
     setFilters({
@@ -904,13 +911,14 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                 <TableHead>Room</TableHead>
                 <TableHead>Artists</TableHead>
                 <TableHead>Capacity</TableHead>
+                <TableHead>Available</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {count === 0 && !loading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-gray-400 py-8">No events match the current filters.</TableCell>
+                  <TableCell colSpan={9} className="text-center text-gray-400 py-8">No events match the current filters.</TableCell>
                 </TableRow>
               )}
               {paginated.map((event) => (
@@ -919,23 +927,14 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                   className="cursor-pointer"
                   onClick={() => navigate(`/admin/events/${event.id}/register`)}
                 >
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {event.effective_image && (
-                        <img src={event.effective_image} alt="" className="size-8 rounded object-cover shrink-0" />
-                      )}
-                      {event.name}
-                      {event.events.length > 0 && (
-                        <Badge variant="outline" className="text-xs">{event.events.length} children</Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell><Badge variant="outline">{event.event_type.name}</Badge></TableCell>
+                  <TableCell className="font-medium">{event.name}</TableCell>
+                  <TableCell><Badge variant="outline">{event.event_type_name}</Badge></TableCell>
                   <TableCell><Badge variant="outline">{event.status}</Badge></TableCell>
                   <TableCell>{new Date(event.start_date).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })}</TableCell>
-                  <TableCell>{event.room.name}</TableCell>
-                  <TableCell>{event.artists.map(a => a.full_name).join(', ') || '—'}</TableCell>
+                  <TableCell>{event.room}</TableCell>
+                  <TableCell>{event.artists.join(', ') || '—'}</TableCell>
                   <TableCell>{event.capacity}</TableCell>
+                  <TableCell>{event.available_spot}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       <Button
@@ -946,7 +945,7 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                       >
                         <ClipboardList className="size-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEditingEvent(event); }}>
+                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEdit(event.id); }}>
                         <Pencil className="size-4" />
                       </Button>
                       <Button size="sm" variant="ghost" className="text-red-600" onClick={(e) => { e.stopPropagation(); handleDelete(event.id); }}>

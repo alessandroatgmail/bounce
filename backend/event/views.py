@@ -4,6 +4,7 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework import status as drf_status
+from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,7 +13,7 @@ from .paginations import EventPagination
 from .filters import EventFilter
 
 from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, PartnerRoleSerializer
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventAdminListSerializer, PartnerRoleSerializer
 import logging
 logger = logging.getLogger('event view')
 logger.setLevel(logging.INFO)
@@ -254,6 +255,40 @@ class EventViewSet(viewsets.ModelViewSet):
             child.artists.set(instance.artists.all())
             child.styles.set(instance.styles.all())
             child.genres.set(instance.genres.all())
+
+
+class EventAdminListView(ListAPIView):
+    """
+    GET /api/events/admin/ — flat, read-only event list for the admin table.
+
+    Unlike EventViewSet.list, this skips every nested relation (memberships,
+    styles, genres, children, viewer bookings) and serves only the columns
+    the table shows, so a full page costs a handful of queries.
+    """
+    serializer_class = EventAdminListSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = EventPagination
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = EventFilter
+
+    def get_queryset(self):
+        from booking.models import ContributionStatus
+
+        return (
+            Event.objects
+            .select_related("event_type", "room__location")
+            .prefetch_related(
+                Prefetch("artists", queryset=Artist.objects.select_related("user")),
+            )
+            .annotate(
+                payed_count=Count(
+                    "contributions",
+                    filter=Q(contributions__status=ContributionStatus.PAYED),
+                    distinct=True,
+                ),
+            )
+            .order_by("start_date")
+        )
 
 
 class EventRegisterView(APIView):

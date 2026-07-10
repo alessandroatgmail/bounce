@@ -182,6 +182,27 @@ class ArtistSerializer(serializers.ModelSerializer):
         return instance
 
 
+class EventAdminListSerializer(serializers.ModelSerializer):
+    """Flat, read-only shape for the admin events table: no nested relations."""
+    event_type_name = serializers.CharField(source="event_type.name", read_only=True)
+    room = serializers.StringRelatedField(read_only=True)
+    artists = serializers.SerializerMethodField()
+    available_spot = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = [
+            "id", "name", "status", "event_type_name", "start_date",
+            "room", "artists", "capacity", "available_spot",
+        ]
+
+    def get_artists(self, obj):
+        return [str(artist) for artist in obj.artists.all()]
+
+    def get_available_spot(self, obj):
+        return obj.capacity - obj.payed_count
+
+
 class EventSerializer(serializers.ModelSerializer):
     event_type = EventTypeSerializer(read_only=True)
     event_type_id = serializers.PrimaryKeyRelatedField(
