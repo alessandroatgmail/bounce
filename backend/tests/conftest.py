@@ -102,3 +102,11 @@ async def events_ws():
     assert connected, "WebSocket failed to connect"
     yield communicator
     await communicator.disconnect()
+
+@pytest.fixture
+def create_world():
+    from utils.mock_Event import make_event_payload
+    EVENT_URL = "/api/events/events/"
+    sc = staff_client()
+    response = sc.post(EVENT_URL, make_event_payload(), format="json")
+

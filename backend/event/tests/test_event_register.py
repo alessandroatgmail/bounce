@@ -100,7 +100,6 @@ class TestEventRegisterShape:
         Booking.objects.create(user=anna, event=event, role=leader_role)
 
         data = staff_client.get(register_url(event.pk)).json()
-
         assert data["consolidated"] is True
         cell = data["rows"][0]["members"]["Leader"]
         assert cell["id"] == anna.id

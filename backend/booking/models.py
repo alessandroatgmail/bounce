@@ -87,10 +87,17 @@ class Contribution(models.Model):
 
 
 class Booking(models.Model):
-    user = models.ForeignKey(get_user_model(), on_delete=models.PROTECT)
+    user = models.ForeignKey(get_user_model(), on_delete=models.PROTECT,
+                             related_name="bookings")
     event = models.ForeignKey(Event, on_delete=models.PROTECT)
     role = models.ForeignKey(PartnerRole, on_delete=models.PROTECT, null=True, blank=True)
+    partner = models.ForeignKey(get_user_model(), on_delete=models.PROTECT, null=True, blank=True)
+    contribution = models.ForeignKey(Contribution, on_delete=models.PROTECT, null=True, blank=True,
+                                     related_name="partner_contribution")
     partner_email = models.EmailField(null=True, blank=True)
+    partner_role = models.ForeignKey(PartnerRole,
+                                     on_delete=models.PROTECT,
+                                     null=True, blank=True, related_name='partner_role')
     attended = models.BooleanField(default=False)
     # True when the pairing comes from a real couple booking (twin
     # contributions): these pairs must never be split when re-arranging

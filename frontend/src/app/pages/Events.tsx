@@ -313,7 +313,14 @@ function EventCard({
     try {
       const body: Record<string, unknown> = { membership_id: membershipId, event_id: event.id };
       if (hasRoles && selectedRoleId) body.role_id = selectedRoleId;
-      if (partnerId) body.partner_id = partnerId;
+      const trimmedPartnerEmail = partnerEmail.trim();
+      if (partnerId) {
+        body.partner_id = partnerId;
+      } else if (hasRoles && trimmedPartnerEmail.includes('@')) {
+        // Partner has no account (or the lookup failed): keep the email
+        // anyway so the couple is stored on the contribution.
+        body.partner_email = trimmedPartnerEmail;
+      }
       if (selectedLevelId) body.level_id = selectedLevelId;
       const res = await fetch('/api/booking/my-memberships/', {
         method: 'POST',

@@ -11,10 +11,12 @@ all its children — either from a payload posted by the frontend or
 automatically before the event starts (see
 booking.tasks.consolidate_upcoming_parent_events).
 """
+from typing import TypedDict
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
-from event.models import PartnerRole
+from event.models import PartnerRole, Event
 from .models import Booking, Contribution, ContributionStatus
 
 
@@ -66,6 +68,33 @@ def _booking_cell(booking, payed_user_ids):
         "contribution_id": None,
         "attended": booking.attended,
     }
+
+class Student(TypedDict):
+    """Represents a single member of the couple."""
+    id: int
+    email: str
+    first_name: str
+    last_name: str
+    status: str | None            # can be "payed" or None
+    contribution_id: int | None   # currently None, presumably an int when set
+    attended: bool
+
+class RegisterStudents(TypedDict):
+    couple: bool
+    members: dict[str, Student]
+
+class RegisterDict(TypedDict):
+    consolidated: bool
+    event_id: int
+    parent: bool
+    roles: list[str]
+    rows: list[RegisterStudents]
+
+
+
+def rows_from_bookings(event: Event) -> RegisterDict:
+    """
+    """
 
 
 def _rows_from_bookings(event, bookings, roles):
@@ -177,9 +206,20 @@ def build_register(event):
     return {
         "event_id": event.id,
         "roles": roles,
-        "rows": _rows_from_bookings(event, bookings, roles),
+        # "rows": _rows_from_bookings(event, bookings, roles),
+        "rows": _get_rows_by_sql(event.id),
         "parent": is_parent,
         "consolidated": bool(bookings),
+    }
+
+def register(event):
+    roles = event.event_type.partner_roles.all().values_list("name", flat=True)
+    return {
+        "event_id": event.id,
+        "roles": roles,
+        "rows": [],
+        "parent": None,
+        "consolidated": None,
     }
 
 
@@ -219,6 +259,12 @@ def consolidate_register(event, rows, removed_user_ids=None):
     dropped and the member is treated as single (no partner_email). Real
     couples must stay on the same row (CoupleSplitError otherwise).
 
+    Members holding a pending (not payed, not cancelled) contribution for
+    the event and no booking yet are skipped: paying is what books them
+    in, so re-consolidating a grid never books an unpaid partner. Members
+    with no contribution at all (hand-placed by an admin) and members
+    already booked are still written.
+
     ``removed_user_ids`` lists users whose bookings must be deleted from
     the event and its children — allowed only for users without a payed
     contribution for the event (PayedMemberRemovalError otherwise); ids
@@ -255,6 +301,29 @@ def consolidate_register(event, rows, removed_user_ids=None):
             event__in=events,
             user_id__in=removed_user_ids - ids_in_rows,
         ).delete()
+    member_ids = {
+        member["id"]
+        for grid_row in rows
+        for member in (grid_row.get("members") or {}).values()
+        if member and member.get("id") is not None
+    }
+    payed_member_ids = set(
+        Contribution.objects.filter(
+            events=event, user_id__in=member_ids,
+            status=ContributionStatus.PAYED,
+        ).values_list("user_id", flat=True)
+    )
+    booked_member_ids = set(
+        Booking.objects.filter(
+            event=event, user_id__in=member_ids,
+        ).values_list("user_id", flat=True)
+    )
+    skipped_member_ids = set(
+        Contribution.objects.filter(events=event, user_id__in=member_ids)
+        .exclude(status__in=[ContributionStatus.PAYED, ContributionStatus.CANCELLED])
+        .values_list("user_id", flat=True)
+    ) - payed_member_ids - booked_member_ids
+
     role_cache = {}
 
     def role_named(name):
@@ -268,6 +337,8 @@ def consolidate_register(event, rows, removed_user_ids=None):
             members = row.get("members") or {}
             for role_name, member in members.items():
                 if not member or member.get("id") is None:
+                    continue
+                if member["id"] in skipped_member_ids:
                     continue
                 partner_email = next(
                     (mate["email"] for name, mate in members.items()
@@ -290,3 +361,126 @@ def consolidate_register(event, rows, removed_user_ids=None):
                     else:
                         updated += 1
     return created, updated
+
+def _get_rows_by_sql(event_id):
+    from django.db import connection
+    import json
+    import psycopg2.extras
+
+    query = """
+    WITH couples AS (
+        SELECT
+            bb.id  AS booking_id,
+            bb.couple,
+            bb.event_id,
+            bb.attended,
+            bb.user_id,
+            bb.role_id,
+            bb.partner_id,
+            bb.partner_email,
+            bb.partner_role_id,
+            bb2.id      AS partner_booking_id,
+            bb2.role_id AS partner_actual_role_id,
+            bb.attended as partner_attended
+        FROM booking_booking bb
+        LEFT JOIN booking_booking bb2
+            ON bb.partner_id = bb2.user_id
+            AND bb2.event_id = bb.event_id
+        WHERE bb.event_id = %(event_id)s
+          AND (
+              bb.partner_id IS NULL
+              OR bb.user_id < bb.partner_id
+              OR bb2.id IS NULL
+          )
+    )
+    SELECT
+        c.couple,
+        jsonb_build_object(
+            COALESCE(r1.name, 'unknown_role'),
+            jsonb_build_object(
+                'id',                  u1.id,
+                'email',               u1.email,
+                'first_name',          u1.first_name,
+                'last_name',           u1.last_name,
+                'contribution_id',     co1.id,
+                'attended',             c.attended,
+                'status',              co1.status
+            )
+        )
+        ||
+        CASE
+            WHEN c.partner_id IS NULL AND NULLIF(c.partner_email, '') IS NULL
+                THEN jsonb_build_object(
+            -- Partner role unknown: infer it as the opposite of the main role.
+            -- Roles are guaranteed to be either 'Leader' or 'Follower'.
+            COALESCE(
+                r2.name,                          -- use the real role if we have it
+                CASE r1.name
+                    WHEN 'Leader'   THEN 'Follower'
+                    WHEN 'Follower' THEN 'Leader'
+                    ELSE 'unknown_role'           -- safety net: r1.name NULL or unexpected
+                END
+            ),
+            NULL
+        )
+            ELSE jsonb_build_object(
+                    COALESCE(
+                    r2.name,                          -- use the real role if we have it
+                    CASE r1.name
+                        WHEN 'Leader'   THEN 'Follower'
+                        WHEN 'Follower' THEN 'Leader'
+                        ELSE 'unknown_role'           -- safety net: r1.name NULL or unexpected
+                    END
+                ),
+                jsonb_build_object(
+                    'id',                  u2.id,
+                    'email',         	   coalesce(u2.email, c.partner_email),
+                    'first_name',          u2.first_name,
+                    'last_name',           u2.last_name,
+                    'status',              co2.status,
+                    'contribution_id',     co2.id,
+                    'attended',             c.partner_attended
+                )
+            )
+        END AS members
+    FROM couples c
+    LEFT JOIN users_user u1
+        ON u1.id = c.user_id
+    LEFT JOIN event_partnerrole r1
+        ON r1.id = c.role_id
+    LEFT JOIN LATERAL (
+        SELECT bc.id, bc.status
+        FROM booking_contribution bc
+        JOIN booking_contribution_events bce
+            ON bce.contribution_id = bc.id
+        WHERE bce.event_id = c.event_id
+          AND bc.user_id = c.user_id
+        ORDER BY (bc.status = 'payed') DESC
+        LIMIT 1
+    ) co1 ON true
+    LEFT JOIN users_user u2
+        ON u2.id = c.partner_id
+    LEFT JOIN event_partnerrole r2
+        ON r2.id = COALESCE(c.partner_actual_role_id, c.partner_role_id)
+    LEFT JOIN LATERAL (
+        SELECT bc.id, bc.status
+        FROM booking_contribution bc
+        JOIN booking_contribution_events bce
+            ON bce.contribution_id = bc.id
+        WHERE bce.event_id = c.event_id
+          AND bc.user_id = c.partner_id
+        ORDER BY (bc.status = 'payed') DESC
+        LIMIT 1
+    ) co2 ON true;
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(query, {"event_id": event_id})
+        psycopg2.extras.register_default_jsonb(
+            conn_or_curs=cursor.cursor,  # the underlying psycopg2 cursor
+            loads=json.loads,
+        )
+        cursor.execute(query, {"event_id": event_id})
+        columns = [col[0] for col in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return rows

@@ -305,7 +305,6 @@ class TestUserContributionEndDate:
         print (f"Event end date: {e.end_date}")
         res = student_client.post(LIST_URL,
                                   {"membership_id": m.pk, "event_id":e.pk}, format="json")
-        print (res.data)
         assert res.status_code == http_status.HTTP_201_CREATED
 
         c = Contribution.objects.get(pk=res.data["id"])
@@ -561,6 +560,35 @@ class TestPartner:
         # (optional, symmetric check) the partner's email body mentions the registrant
         assert student_user.first_name in partner_email.body
 
+    def test_unregistered_partner_email_is_saved(self, world_data, student_client, student_user, db):
+        """A partner without an account cannot be sent as partner_id: the
+        raw email must still be stored on the contribution so the couple
+        is not lost."""
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "ghost@nowhere.com",
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(id=response.data["id"])
+        assert contribution.partner is None
+        assert contribution.partner_email == "ghost@nowhere.com"
+        # No twin contribution is created: the partner has no account.
+        assert Contribution.objects.count() == 1
+
     def test_create_contribution_without_role_400(self, world_data, student_client, student_user, partner_user, db):
         et = make_event_type()
         et.partners = 2
@@ -580,7 +608,6 @@ class TestPartner:
         }
 
         response = student_client.post(LIST_URL, payload, format="json")
-        print (response.data)
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
         partner_contribution = Contribution.objects.filter(user=partner_user).first()
         assert partner_contribution is None
@@ -606,7 +633,6 @@ class TestPartner:
         }
 
         response = student_client.post(LIST_URL, payload, format="json")
-        print (response.data)
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
         partner_contribution = Contribution.objects.filter(user=partner_user).first()
         assert partner_contribution is None

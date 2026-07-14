@@ -21,6 +21,7 @@ def add_payed_bookings(contribution):
         contribution.original_contribution_id is not None
         or contribution.twin_contributions.exists()
     )
+
     for event in contribution.events.all():
         for target in [event, *event.events.all()]:
             booking, _ = Booking.objects.get_or_create(
@@ -29,6 +30,9 @@ def add_payed_bookings(contribution):
                 defaults={
                     "role": contribution.role,
                     "partner_email": partner_email,
+                    "partner": contribution.partner,
+                    "partner_role": contribution.events.first().event_type.partner_roles.all().exclude(pk=contribution.role.pk).first() if partner_email else None,
+                    "contribution": contribution,
                     "couple": couple,
                 },
             )
@@ -46,9 +50,14 @@ def add_payed_bookings(contribution):
             )
             if free_partner:
                 booking.partner_email = free_partner.user.email
-                booking.save(update_fields=['partner_email'])
+                booking.partner = free_partner.user
+                booking.contribution = contribution
+                booking.partner_role = free_partner.role
+                booking.save(update_fields=['partner_email', 'partner', 'contribution', 'partner_role'])
                 free_partner.partner_email = booking.user.email
-                free_partner.save(update_fields=['partner_email'])
+                free_partner.partner = booking.user
+                free_partner.partner_role = booking.role
+                free_partner.save(update_fields=['partner_email', 'partner', 'partner_role'])
 
 
 def sync_bookings(user, added_events, removed_events):

@@ -50,6 +50,7 @@ def consolidate_event_register(event_id: int) -> None:
 
     event = Event.objects.select_related('event_type').get(pk=event_id)
     grid = build_register(event)
+    print (grid)
     created, updated = consolidate_register(event, grid["rows"])
     logger.info(
         f"Consolidated register for event {event_id}: "

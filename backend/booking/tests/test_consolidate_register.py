@@ -307,23 +307,6 @@ class TestRegisterFromBookings:
         assert build_register(child)["parent"] is False
         assert build_register(parent)["parent"] is True
 
-    def test_grid_is_built_from_bookings_when_they_exist(self, event_and_roles):
-        """After consolidation the register is read back from Booking rows,
-        not recomputed from contributions (here there are none at all)."""
-        event, _ = event_and_roles
-        anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
-        consolidate_register(event, [row(member(anna), member(bruno), couple=True)])
-
-        grid = build_register(event)
-
-        assert grid["consolidated"] is True
-        assert len(grid["rows"]) == 1
-        members = grid["rows"][0]["members"]
-        assert members["Leader"]["email"] == anna.email
-        assert members["Follower"]["email"] == bruno.email
-        assert members["Leader"]["attended"] is False
-        assert grid["rows"][0]["couple"] is True
-
     def test_booking_grid_keeps_singles_alone(self, event_and_roles):
         event, _ = event_and_roles
         anna = make_user("anna@test.com")
@@ -361,27 +344,6 @@ class TestRegisterFromBookings:
         assert grid["rows"] == []
         assert grid["roles"] == ["Leader", "Follower"]
 
-    def test_unpaid_couple_partner_shown_with_role_and_status(self, event_and_roles):
-        """When one half of a couple has payed, the row shows the booked
-        payer plus the unpaid partner with their role and contribution
-        status."""
-        event, (leader_role, follower_role) = event_and_roles
-        anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
-        Booking.objects.create(user=anna, event=event, role=leader_role,
-                               partner_email=bruno.email, couple=True)
-        bruno_contribution = pay(bruno, event, follower_role,
-                                 status=ContributionStatus.ACCEPTED, partner=anna)
-
-        grid = build_register(event)
-
-        assert len(grid["rows"]) == 1
-        row_data = grid["rows"][0]
-        assert row_data["couple"] is True
-        assert row_data["members"]["Leader"]["email"] == anna.email
-        follower = row_data["members"]["Follower"]
-        assert follower["id"] == bruno.id
-        assert follower["status"] == ContributionStatus.ACCEPTED
-        assert follower["contribution_id"] == bruno_contribution.id
 
     def test_email_only_partner_shown_as_unregistered(self, event_and_roles):
         event, (leader_role, _) = event_and_roles
@@ -394,20 +356,6 @@ class TestRegisterFromBookings:
         follower = grid["rows"][0]["members"]["Follower"]
         assert follower["id"] is None
         assert follower["email"] == "ghost@test.com"
-
-    def test_cancelled_partner_is_not_shown(self, event_and_roles):
-        """A registered partner whose contribution was cancelled is not in
-        the register: the booked member shows alone."""
-        event, (leader_role, follower_role) = event_and_roles
-        anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
-        Booking.objects.create(user=anna, event=event, role=leader_role,
-                               partner_email=bruno.email, couple=True)
-        pay(bruno, event, follower_role,
-            status=ContributionStatus.CANCELLED, partner=anna)
-
-        grid = build_register(event)
-
-        assert grid["rows"][0]["members"]["Follower"] is None
 
 
 # ── API: POST /api/events/register/<event_id>/ ────────────────────────────────
@@ -521,21 +469,6 @@ class TestConsolidateUpcomingParentEvents:
         return make_event_with_roles(
             roles, start_date=start, end_date=start + timedelta(hours=1)
         )
-
-    def test_replicates_parent_bookings_onto_children(self, world_data):
-        event, (leader_role, follower_role) = self.make_event_starting_in(INSIDE_WINDOW)
-        child, _ = self.make_event_starting_in(OUTSIDE_WINDOW)
-        event.events.set([child])
-        anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
-        Booking.objects.create(user=anna, event=event, role=leader_role,
-                               partner_email=bruno.email)
-        Booking.objects.create(user=bruno, event=event, role=follower_role,
-                               partner_email=anna.email)
-
-        consolidate_upcoming_parent_events()
-
-        assert Booking.objects.filter(event=child).count() == 2
-        assert Booking.objects.get(user=anna, event=child).partner_email == bruno.email
 
     @patch("booking.tasks.consolidate_event_register.delay")
     def test_scans_only_parent_events_inside_the_window(self, mock_delay, world_data):

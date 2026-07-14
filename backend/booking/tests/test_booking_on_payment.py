@@ -91,6 +91,7 @@ class TestBookingOnPayment:
             assert booking.role == leader_role
             assert booking.couple is False
             assert booking.partner_email is None
+            assert booking.contribution == contribution
 
     def test_couple_payment_sets_couple_and_partner_email(self, parent_with_children):
         parent, children, (leader_role, follower_role) = parent_with_children
@@ -106,6 +107,7 @@ class TestBookingOnPayment:
         booking = Booking.objects.get(user=anna, event=parent)
         assert booking.couple is True
         assert booking.partner_email == bruno.email
+        assert booking.partner==bruno
         # Only the payer gets bookings.
         assert not Booking.objects.filter(user=bruno).exists()
 
@@ -135,6 +137,7 @@ class TestBookingOnPayment:
         assert not Booking.objects.exists()
 
     def test_repaying_does_not_duplicate_bookings(self, parent_with_children):
+
         parent, children, (leader_role, _) = parent_with_children
         anna = make_user("anna@test.com")
         contribution = accepted_contribution(anna, parent, role=leader_role)
@@ -162,13 +165,17 @@ class TestAutoPartnerOnPayment:
         anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
 
         self._pay(accepted_contribution(anna, parent, role=leader_role))
+        print (Contribution.objects.filter(user=anna, events=parent).values())
+        print (Booking.objects.filter(user=anna, event=parent).values())
         assert Booking.objects.get(user=anna, event=parent).partner_email is None
 
         self._pay(accepted_contribution(bruno, parent, role=follower_role))
 
+
         for target in [parent, *children]:
             assert Booking.objects.get(user=bruno, event=target).partner_email == anna.email
-            assert Booking.objects.get(user=anna, event=target).partner_email == bruno.email
+            assert Booking.objects.get(user=bruno, event=target).partner == anna
+            assert Booking.objects.get(user=anna, event=target).partner == bruno
 
     def test_pairs_with_the_first_unpartnered(self, parent_with_children):
         parent, _, (leader_role, follower_role) = parent_with_children
@@ -192,6 +199,8 @@ class TestAutoPartnerOnPayment:
 
         assert Booking.objects.get(user=anna, event=parent).partner_email is None
         assert Booking.objects.get(user=carla, event=parent).partner_email is None
+        assert Booking.objects.get(user=anna, event=parent).partner is None
+        assert Booking.objects.get(user=carla, event=parent).partner is None
 
     def test_couple_payer_keeps_their_partner(self, parent_with_children):
         """A payer who booked as a couple never auto-pairs with a single."""
@@ -206,6 +215,7 @@ class TestAutoPartnerOnPayment:
         self._pay(original)
 
         assert Booking.objects.get(user=anna, event=parent).partner_email == bruno.email
+        assert Booking.objects.get(user=anna, event=parent).partner == bruno
         assert Booking.objects.get(user=dario, event=parent).partner_email is None
 
     def test_paired_singles_share_a_row_in_the_register(self, parent_with_children):
@@ -217,11 +227,96 @@ class TestAutoPartnerOnPayment:
         self._pay(accepted_contribution(bruno, parent, role=follower_role))
 
         grid = build_register(parent)
+        print (grid)
 
         assert len(grid["rows"]) == 1
         assert grid["rows"][0]["members"]["Leader"]["email"] == anna.email
         assert grid["rows"][0]["members"]["Follower"]["email"] == bruno.email
         assert grid["rows"][0]["couple"] is False
+
+
+class TestPartnerRoleAutoAssigned:
+    """partner_role is set automatically on every event that has
+    partner_roles: it is always the role the user did NOT choose
+    (currently two roles, Leader and Follower)."""
+
+    def _pay(self, contribution):
+        contribution.status = ContributionStatus.PAYED
+        contribution.save(update_fields=["status"])
+
+    def test_leader_couple_payer_gets_follower_partner_role(self, parent_with_children):
+        parent, children, (leader_role, follower_role) = parent_with_children
+        anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
+        original = accepted_contribution(anna, parent, role=leader_role, partner=bruno)
+        accepted_contribution(bruno, parent, role=follower_role, partner=anna,
+                              original=original)
+
+        self._pay(original)
+
+        for target in [parent, *children]:
+            booking = Booking.objects.get(user=anna, event=target)
+            assert booking.role == leader_role
+            assert booking.partner_role == follower_role
+
+    def test_follower_couple_payer_gets_leader_partner_role(self, parent_with_children):
+        parent, children, (leader_role, follower_role) = parent_with_children
+        anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
+        original = accepted_contribution(bruno, parent, role=follower_role, partner=anna)
+        accepted_contribution(anna, parent, role=leader_role, partner=bruno,
+                              original=original)
+
+        self._pay(original)
+
+        for target in [parent, *children]:
+            booking = Booking.objects.get(user=bruno, event=target)
+            assert booking.role == follower_role
+            assert booking.partner_role == leader_role
+
+    def test_partner_email_only_still_gets_opposite_partner_role(self, parent_with_children):
+        """A payer whose partner is not a registered user yet (only an
+        email) still gets the not-chosen role as partner_role."""
+        parent, children, (leader_role, follower_role) = parent_with_children
+        anna = make_user("anna@test.com")
+        contribution = accepted_contribution(
+            anna, parent, role=leader_role, partner_email="guest@test.com",
+        )
+
+        self._pay(contribution)
+
+        for target in [parent, *children]:
+            booking = Booking.objects.get(user=anna, event=target)
+            assert booking.partner_email == "guest@test.com"
+            assert booking.partner_role == follower_role
+
+    def test_auto_paired_singles_get_mutual_partner_roles(self, parent_with_children):
+        parent, children, (leader_role, follower_role) = parent_with_children
+        anna, bruno = make_user("anna@test.com"), make_user("bruno@test.com")
+
+        self._pay(accepted_contribution(anna, parent, role=leader_role))
+        self._pay(accepted_contribution(bruno, parent, role=follower_role))
+
+        for target in [parent, *children]:
+            assert Booking.objects.get(user=anna, event=target).partner_role == follower_role
+            assert Booking.objects.get(user=bruno, event=target).partner_role == leader_role
+
+    def test_unpaired_single_has_no_partner_role(self, parent_with_children):
+        parent, children, (leader_role, _) = parent_with_children
+        anna = make_user("anna@test.com")
+
+        self._pay(accepted_contribution(anna, parent, role=leader_role))
+
+        for target in [parent, *children]:
+            assert Booking.objects.get(user=anna, event=target).partner_role is None
+
+    def test_same_role_singles_get_no_partner_role(self, parent_with_children):
+        parent, _, (leader_role, _) = parent_with_children
+        anna, carla = make_user("anna@test.com"), make_user("carla@test.com")
+
+        self._pay(accepted_contribution(anna, parent, role=leader_role))
+        self._pay(accepted_contribution(carla, parent, role=leader_role))
+
+        assert Booking.objects.get(user=anna, event=parent).partner_role is None
+        assert Booking.objects.get(user=carla, event=parent).partner_role is None
 
 
 # ── Stripe webhook path ───────────────────────────────────────────────────────
