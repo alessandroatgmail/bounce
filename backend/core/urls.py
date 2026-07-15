@@ -9,7 +9,9 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # Mounted at d-admin/ so it can't collide with the frontend's /admin
+    # SPA route (nginx proxies /d-admin/ here).
+    path('d-admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
     path('api/events/', include('event.urls')),
     path('api/membership/', include('membership.urls')),
