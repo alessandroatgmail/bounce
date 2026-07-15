@@ -135,6 +135,12 @@ class ActivateView(APIView):
 
         user.is_active = True
         user.save(update_fields=["is_active"])
+
+        # Bookings that named this email as partner before the account
+        # existed: mirror their contributions onto the new user.
+        from booking.service import create_partner_contributions_for_user
+        create_partner_contributions_for_user(user)
+
         return Response({"detail": "Account activated successfully."}, status=status.HTTP_200_OK)
 
 
@@ -407,6 +413,11 @@ class AdminActivateUserView(APIView):
             return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
         user.is_active = True
         user.save(update_fields=['is_active'])
+
+        # Same activation hook as the self-service link (idempotent).
+        from booking.service import create_partner_contributions_for_user
+        create_partner_contributions_for_user(user)
+
         return Response({'detail': 'User activated.'}, status=status.HTTP_200_OK)
 
 

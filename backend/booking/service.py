@@ -33,6 +33,58 @@ def _create_partner_contribution(original: Contribution, partner: get_user_model
         partner_contribution.events.set(original.events.all())
     return partner_contribution
 
+def create_partner_contributions_for_user(user) -> list[Contribution]:
+    """
+    Activation hook: mirror onto a freshly activated user every
+    contribution that named their email as partner while they had no
+    account yet.
+
+    Each mirrored contribution carries the booker as partner, the
+    opposite role, the same events/membership and the booker's status —
+    except payed, which maps to accepted (the new partner still has to
+    pay). Cancelled contributions are ignored. Contributions that
+    already have a partner or a twin are skipped, so the hook is
+    idempotent.
+    """
+    originals = (
+        Contribution.objects
+        .filter(partner_email__iexact=user.email, partner__isnull=True)
+        .exclude(status=ContributionStatus.CANCELLED)
+        .filter(twin_contributions__isnull=True)
+        .select_related("role")
+    )
+    mirrored = []
+    for original in originals:
+        if original.role_id is None or not original.events.exists():
+            continue
+        contribution = _create_partner_contribution(original, user)
+        contribution.status = (
+            ContributionStatus.ACCEPTED
+            if original.status == ContributionStatus.PAYED
+            else original.status
+        )
+        contribution.save(update_fields=["status"])
+        mirrored.append(contribution)
+
+    if mirrored:
+        from django.conf import settings
+        event_names = []
+        for contribution in mirrored:
+            for event in contribution.events.all():
+                if event.name not in event_names:
+                    event_names.append(event.name)
+        send_email.delay(
+            user.id,
+            template='partner_events_booked_email',
+            context={
+                'first_name': user.first_name,
+                'events': event_names,
+                'url': settings.FRONTEND_URL + '/student',
+            },
+        )
+    return mirrored
+
+
 def _send_contribution_email(contribution: Contribution)->None:
 
     if contribution.events.exists():
