@@ -67,6 +67,17 @@ class UserBookingSerializer(serializers.ModelSerializer):
         fields = ['id', 'event']
 
 
+class BookingSerializer(serializers.ModelSerializer):
+    """Staff-only serializer exposing every Booking field for full CRUD."""
+
+    class Meta:
+        model = Booking
+        fields = [
+            'id', 'user', 'event', 'role', 'partner', 'contribution',
+            'partner_email', 'partner_role', 'attended', 'couple',
+        ]
+
+
 class ContributionSerializer(serializers.ModelSerializer):
     events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(

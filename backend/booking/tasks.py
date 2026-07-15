@@ -42,19 +42,16 @@ def cancel_expired_contributions() -> None:
 
 @shared_task
 def consolidate_event_register(event_id: int) -> None:
-    """Build the register grid of a parent event from its bookings and
-    consolidate it back: pairings are persisted and replicated for each of
-    its children event ids."""
+    """Replicate a parent event's bookings onto all its children: their
+    previous bookings are deleted and recreated from the parent's."""
     from event.models import Event
-    from booking.register import build_register, consolidate_register
+    from booking.register import consolidate_register
 
-    event = Event.objects.select_related('event_type').get(pk=event_id)
-    grid = build_register(event)
-    print (grid)
-    created, updated = consolidate_register(event, grid["rows"])
+    event = Event.objects.get(pk=event_id)
+    created, deleted = consolidate_register(event)
     logger.info(
         f"Consolidated register for event {event_id}: "
-        f"{created} bookings created, {updated} updated"
+        f"{created} bookings created, {deleted} deleted"
     )
 
 

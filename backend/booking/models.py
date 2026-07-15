@@ -103,3 +103,11 @@ class Booking(models.Model):
     # contributions): these pairs must never be split when re-arranging
     # the register.
     couple = models.BooleanField(default=False)
+
+    class Meta:
+        # A user can never hold two bookings for the same event.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "event"], name="unique_booking_user_event"
+            ),
+        ]

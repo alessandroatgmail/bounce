@@ -10,7 +10,9 @@ public API wherever an endpoint exists:
 4.  Staff flips the booker's contribution to payed via
     PATCH /api/booking/contributions/<pk>/ → a Booking record appears
     for the payer only.
-5.  GET /api/events/register/<event_pk>/ shows the couple on ONE row.
+5.  GET /api/events/register/<event_pk>/ shows the couple on ONE row —
+    Leader and Follower cells each carrying their own contribution
+    status and contribution id.
 6.  Re-consolidating that very grid (consolidate_register) must change
     nothing: the register still has one row and the Booking model still
     holds only the payer's record.
@@ -128,11 +130,26 @@ class TestWeeklyPartnerEventRegisterFlow:
         assert booking.partner == bruno
         assert booking.partner_email == bruno.email
 
-        # ── 5. The register shows the couple on a single row ─────────────────
+        # ── 5. The register shows the couple on a single row, both roles
+        # carrying their own contribution info (status + contribution id) ─────
         response = admin_client.get(register_url(event_id))
         assert response.status_code == http_status.HTTP_200_OK
         grid = response.json()
         assert len(grid["rows"]) == 1
+        members = grid["rows"][0]["members"]
+        assert set(members) == {"Leader", "Follower"}
+
+        leader_cell = members["Leader"]
+        assert leader_cell["id"] == anna.id
+        assert leader_cell["status"] == ContributionStatus.PAYED
+        assert leader_cell["contribution_id"] == anna_contribution.id
+
+        bruno_contribution.refresh_from_db()
+        follower_cell = members["Follower"]
+        assert follower_cell["id"] == bruno.id
+        assert follower_cell["email"] == bruno.email
+        assert follower_cell["status"] == bruno_contribution.status
+        assert follower_cell["contribution_id"] == bruno_contribution.id
 
         # ── 6. Consolidating the very grid the API returned changes nothing ──
         event = Event.objects.get(pk=event_id)

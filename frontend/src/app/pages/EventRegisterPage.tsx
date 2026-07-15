@@ -137,15 +137,18 @@ export function EventRegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [consolidating, setConsolidating] = useState(false);
   const [consolidateError, setConsolidateError] = useState<string | null>(null);
-  const [consolidateResult, setConsolidateResult] = useState<{ created: number; updated: number } | null>(null);
+  const [consolidateResult, setConsolidateResult] = useState<{ created: number; deleted: number } | null>(null);
 
   // Grid editing (parent events only): pick a member, then a destination
   // cell to swap them; couples booked together stay locked on their row.
   const [moveSource, setMoveSource] = useState<CellRef | null>(null);
   const [addTarget, setAddTarget] = useState<CellRef | null>(null);
-  // Users removed from the grid: their bookings are deleted on consolidate.
-  // Only members without a payed contribution can be removed.
-  const [removedUserIds, setRemovedUserIds] = useState<number[]>([]);
+  // Adds/removes are persisted immediately through the staff bookings
+  // API; only swaps/moves still need a consolidate to be saved.
+  const [mutating, setMutating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  // PartnerRole name → pk, needed to write the Booking role FKs.
+  const [partnerRoleIds, setPartnerRoleIds] = useState<Record<string, number>>({});
   const [dirty, setDirty] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
@@ -185,7 +188,6 @@ export function EventRegisterPage() {
       if (!registerRes.ok) throw new Error(`${registerRes.status}`);
       setData(await registerRes.json());
       setMoveSource(null);
-      setRemovedUserIds([]);
       setDirty(false);
       if (eventRes.ok) {
         const event = await eventRes.json();
@@ -204,6 +206,22 @@ export function EventRegisterPage() {
   }, [accessToken, eventId, language]);
 
   useEffect(() => { fetchRegister(); }, [fetchRegister]);
+
+  // Partner role ids, needed when writing bookings (role/partner_role FKs).
+  useEffect(() => {
+    if (!accessToken) return;
+    (async () => {
+      try {
+        const response = await authFetch('/api/events/partner-roles/', accessToken);
+        if (!response.ok) return;
+        const json = await response.json();
+        const roles: { id: number; name: string }[] = json.results ?? json;
+        setPartnerRoleIds(Object.fromEntries(roles.map(role => [role.name, role.id])));
+      } catch {
+        // Bookings will be written without a role.
+      }
+    })();
+  }, [accessToken]);
 
   // User search for the "add user to a cell" dialog.
   useEffect(() => {
@@ -228,14 +246,32 @@ export function EventRegisterPage() {
     return () => clearTimeout(timer);
   }, [addTarget, searchQuery, accessToken]);
 
-  const withClonedRows = (mutate: (rows: RegisterRow[]) => void) => {
+  // markDirty=false for edits already persisted through the bookings API.
+  const withClonedRows = (mutate: (rows: RegisterRow[]) => void, markDirty = true) => {
     setData(prev => {
       if (!prev) return prev;
       const rows = prev.rows.map(row => ({ ...row, members: { ...row.members } }));
       mutate(rows);
       return { ...prev, rows };
     });
-    setDirty(true);
+    if (markDirty) setDirty(true);
+  };
+
+  /** The other occupied cell of a row: [roleName, member] or null. */
+  const mateOf = (row: RegisterRow | undefined, role: string) =>
+    Object.entries(row?.members ?? {}).find(
+      ([mateRole, member]) => mateRole !== role && member !== null,
+    ) ?? null;
+
+  /** Resolve a user's Booking for this event through the staff bookings API. */
+  const findBooking = async (userId: number): Promise<{ id: number } | null> => {
+    const response = await authFetch(
+      `/api/booking/bookings/?user=${userId}&event=${eventId}`,
+      accessToken!,
+    );
+    if (!response.ok) throw new Error(`${response.status}`);
+    const bookings = await response.json();
+    return bookings[0] ?? null;
   };
 
   const swapCells = (a: CellRef, b: CellRef) => {
@@ -255,33 +291,127 @@ export function EventRegisterPage() {
     });
   };
 
-  const insertUser = (found: UserSearchResult) => {
-    if (!addTarget) return;
+  // Adding a user (no contribution needed) books them directly through
+  // the staff bookings API. When the row already holds a mate (e.g. a
+  // follower waiting for a leader), the new booking carries the mate as
+  // partner AND the mate's booking is updated to point back at the new
+  // user.
+  const insertUser = async (found: UserSearchResult) => {
+    if (!addTarget || !accessToken || !eventId || !data || mutating) return;
     const target = addTarget;
-    withClonedRows(rows => {
-      rows[target.row].members[target.role] = {
-        id: found.id,
-        email: found.email,
-        first_name: found.first_name,
-        last_name: found.last_name,
-        status: null,
-        contribution_id: null,
-      };
-    });
-    setRemovedUserIds(prev => prev.filter(id => id !== found.id));
-    setAddTarget(null);
-    setSearchQuery('');
+    const [mateRole, mate] = mateOf(data.rows[target.row], target.role) ?? [null, null];
+
+    setMutating(true);
+    setActionError(null);
+    try {
+      const createRes = await authFetch('/api/booking/bookings/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          user: found.id,
+          event: Number(eventId),
+          role: partnerRoleIds[target.role] ?? null,
+          partner: mate?.id ?? null,
+          partner_email: mate?.email ?? null,
+          partner_role: mateRole ? partnerRoleIds[mateRole] ?? null : null,
+        }),
+      });
+      if (!createRes.ok) throw new Error(`${createRes.status}`);
+
+      if (mate?.id != null) {
+        const mateBooking = await findBooking(mate.id);
+        if (mateBooking) {
+          const patchRes = await authFetch(
+            `/api/booking/bookings/${mateBooking.id}/`,
+            accessToken,
+            {
+              method: 'PATCH',
+              body: JSON.stringify({
+                partner: found.id,
+                partner_email: found.email,
+                partner_role: partnerRoleIds[target.role] ?? null,
+              }),
+            },
+          );
+          if (!patchRes.ok) throw new Error(`${patchRes.status}`);
+        }
+      }
+
+      withClonedRows(rows => {
+        rows[target.row].members[target.role] = {
+          id: found.id,
+          email: found.email,
+          first_name: found.first_name,
+          last_name: found.last_name,
+          status: null,
+          contribution_id: null,
+        };
+      }, false);
+      setAddTarget(null);
+      setSearchQuery('');
+    } catch {
+      setActionError(
+        language === 'it'
+          ? "Errore durante l'aggiunta dell'utente al registro."
+          : 'Failed to add the user to the register.',
+      );
+      await fetchRegister();
+    } finally {
+      setMutating(false);
+    }
   };
 
-  const removeMember = (cell: CellRef) => {
-    const member = data?.rows[cell.row]?.members[cell.role];
+  // Removing a member deletes their booking; the row mate keeps theirs
+  // but no longer points at the removed user.
+  const removeMember = async (cell: CellRef) => {
+    if (!accessToken || !eventId || !data || mutating) return;
+    const member = data.rows[cell.row]?.members[cell.role];
     if (!member || member.id === null || member.status === 'payed') return;
-    const removedId = member.id;
-    withClonedRows(rows => {
-      rows[cell.row].members[cell.role] = null;
-    });
-    setRemovedUserIds(prev => (prev.includes(removedId) ? prev : [...prev, removedId]));
-    setMoveSource(null);
+    const [, mate] = mateOf(data.rows[cell.row], cell.role) ?? [null, null];
+
+    setMutating(true);
+    setActionError(null);
+    try {
+      const booking = await findBooking(member.id);
+      if (booking) {
+        const deleteRes = await authFetch(
+          `/api/booking/bookings/${booking.id}/`,
+          accessToken,
+          { method: 'DELETE' },
+        );
+        if (!deleteRes.ok) throw new Error(`${deleteRes.status}`);
+      }
+      if (mate?.id != null) {
+        const mateBooking = await findBooking(mate.id);
+        if (mateBooking) {
+          const patchRes = await authFetch(
+            `/api/booking/bookings/${mateBooking.id}/`,
+            accessToken,
+            {
+              method: 'PATCH',
+              body: JSON.stringify({
+                partner: null,
+                partner_email: null,
+                partner_role: null,
+              }),
+            },
+          );
+          if (!patchRes.ok) throw new Error(`${patchRes.status}`);
+        }
+      }
+      withClonedRows(rows => {
+        rows[cell.row].members[cell.role] = null;
+      }, false);
+      setMoveSource(null);
+    } catch {
+      setActionError(
+        language === 'it'
+          ? "Errore durante la rimozione dell'utente dal registro."
+          : 'Failed to remove the user from the register.',
+      );
+      await fetchRegister();
+    } finally {
+      setMutating(false);
+    }
   };
 
   const consolidate = async () => {
@@ -290,14 +420,15 @@ export function EventRegisterPage() {
     setConsolidateError(null);
     setConsolidateResult(null);
     try {
-      const rows = data.rows.filter(row => Object.values(row.members).some(Boolean));
+      // Consolidation rebuilds the children events' bookings from the
+      // parent's (always up-to-date) bookings; no payload needed.
       const response = await authFetch(`/api/events/register/${eventId}/`, accessToken, {
         method: 'POST',
-        body: JSON.stringify({ ...data, rows, removed_user_ids: removedUserIds }),
+        body: JSON.stringify({}),
       });
       if (!response.ok) throw new Error(`${response.status}`);
       const result = await response.json();
-      setConsolidateResult({ created: result.created, updated: result.updated });
+      setConsolidateResult({ created: result.created, deleted: result.deleted });
       // Reload: from now on the grid comes from the Booking records.
       await fetchRegister();
     } catch {
@@ -379,11 +510,15 @@ export function EventRegisterPage() {
           <p role="alert" className="text-sm text-red-600 mb-6">{consolidateError}</p>
         )}
 
+        {actionError && (
+          <p role="alert" className="text-sm text-red-600 mb-6">{actionError}</p>
+        )}
+
         {consolidateResult && (
           <p className="text-sm text-green-700 mb-6">
             {language === 'it'
-              ? `Registro consolidato: ${consolidateResult.created} presenze create, ${consolidateResult.updated} aggiornate.`
-              : `Register consolidated: ${consolidateResult.created} bookings created, ${consolidateResult.updated} updated.`}
+              ? `Registro consolidato: ${consolidateResult.created} presenze create sui sotto-eventi, ${consolidateResult.deleted} precedenti eliminate.`
+              : `Register consolidated: ${consolidateResult.created} bookings created on the children events, ${consolidateResult.deleted} previous ones deleted.`}
           </p>
         )}
 
@@ -470,6 +605,7 @@ export function EventRegisterPage() {
                                             size="sm"
                                             className="text-gray-400 hover:text-red-600"
                                             title={language === 'it' ? 'Rimuovi' : 'Remove'}
+                                            disabled={mutating}
                                             onClick={() => removeMember(cell)}
                                           >
                                             <X className="size-4" />
@@ -574,7 +710,8 @@ export function EventRegisterPage() {
                     <button
                       key={found.id}
                       type="button"
-                      className="flex flex-col items-start rounded-md px-3 py-2 text-left hover:bg-gray-100"
+                      className="flex flex-col items-start rounded-md px-3 py-2 text-left hover:bg-gray-100 disabled:opacity-50"
+                      disabled={mutating}
                       onClick={() => insertUser(found)}
                     >
                       <span className="text-sm font-medium">

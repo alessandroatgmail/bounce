@@ -295,10 +295,10 @@ class EventRegisterView(APIView):
     """
     GET  /api/events/register/<event_id>/ — attendee grid for an event
          (see booking.register.build_register for the row semantics).
-    POST /api/events/register/<event_id>/ — consolidate a grid payload
-         into Booking rows for the event and all its children. Accepts
-         either a bare list of rows or the GET response shape posted back
-         ({"rows": [...]}).
+    POST /api/events/register/<event_id>/ — consolidate the event: its
+         bookings (always up to date) are replicated onto all its
+         children, whose previous bookings are deleted first. Any
+         request body is ignored.
     """
     permission_classes = [IsAdminUser]
 
@@ -309,23 +309,8 @@ class EventRegisterView(APIView):
         return Response(build_register(event))
 
     def post(self, request, event_id):
-        from booking.register import ConsolidateError, consolidate_register
+        from booking.register import consolidate_register
 
         event = get_object_or_404(Event, pk=event_id)
-        if isinstance(request.data, dict):
-            rows = request.data.get("rows")
-            removed_user_ids = request.data.get("removed_user_ids") or []
-        else:
-            rows, removed_user_ids = request.data, []
-        if not isinstance(rows, list):
-            return Response(
-                {"rows": "Expected a list of register rows."},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            created, updated = consolidate_register(
-                event, rows, removed_user_ids=removed_user_ids,
-            )
-        except ConsolidateError as exc:
-            return Response({"rows": str(exc)}, status=drf_status.HTTP_400_BAD_REQUEST)
-        return Response({"event_id": event.id, "created": created, "updated": updated})
+        created, deleted = consolidate_register(event)
+        return Response({"event_id": event.id, "created": created, "deleted": deleted})

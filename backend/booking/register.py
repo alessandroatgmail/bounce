@@ -4,10 +4,11 @@ into Booking rows.
 
 The grid (build_register) is a view over the Booking model: bookings are
 created automatically when a contribution becomes payed (see
-booking.utils.add_payed_bookings), so the register fills up as people
-pay. It powers GET /api/events/register/. Consolidation
-(consolidate_register) writes a grid back into Booking for the event and
-all its children — either from a payload posted by the frontend or
+booking.utils.add_payed_bookings) and written directly by the admin
+register page through the staff bookings API, so the parent event's
+bookings are always up to date. It powers GET /api/events/register/.
+Consolidation (consolidate_register) replicates the parent's bookings
+onto all its children — triggered from the register page or
 automatically before the event starts (see
 booking.tasks.consolidate_upcoming_parent_events).
 """
@@ -16,7 +17,7 @@ from typing import TypedDict
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
-from event.models import PartnerRole, Event
+from event.models import Event
 from .models import Booking, Contribution, ContributionStatus
 
 
@@ -223,144 +224,47 @@ def register(event):
     }
 
 
-def _validate_couples_not_split(event, rows):
-    """Raise CoupleSplitError when two users who booked together as a
-    couple (contributions linked via original_contribution) appear in
-    different rows of the payload."""
-    twin_pairs = Contribution.objects.filter(
-        events=event, original_contribution__isnull=False,
-    ).values_list("user_id", "original_contribution__user_id")
-
-    row_of = {
-        member["id"]: index
-        for index, row in enumerate(rows)
-        for member in (row.get("members") or {}).values()
-        if member and member.get("id") is not None
-    }
-    for user_id, twin_user_id in twin_pairs:
-        if (
-            user_id in row_of and twin_user_id in row_of
-            and row_of[user_id] != row_of[twin_user_id]
-        ):
-            raise CoupleSplitError(
-                f"Users {user_id} and {twin_user_id} booked as a couple "
-                "and cannot be placed in different rows."
-            )
-
-
-def consolidate_register(event, rows, removed_user_ids=None):
+def consolidate_register(event, rows=None, removed_user_ids=None):
     """
-    Insert the register grid into Booking, for the event and all its
-    children.
+    Replicate the parent event's bookings onto all its children.
 
-    Every member with a user id gets a Booking carrying its partner role,
-    the email of the row mate and the row's ``couple`` flag. A mate
-    without an account (id null, email-only) cannot be booked: it is
-    dropped and the member is treated as single (no partner_email). Real
-    couples must stay on the same row (CoupleSplitError otherwise).
+    The parent's Booking rows are the always-up-to-date source of truth:
+    paying creates them (booking.utils.add_payed_bookings) and the admin
+    register page writes them directly through the staff bookings API.
+    Consolidation is therefore a plain rebuild — every booking of every
+    child event is deleted, then recreated as a copy of a parent booking
+    (user, role, partner, partner_email, partner_role, contribution and
+    couple flag).
 
-    Members holding a pending (not payed, not cancelled) contribution for
-    the event and no booking yet are skipped: paying is what books them
-    in, so re-consolidating a grid never books an unpaid partner. Members
-    with no contribution at all (hand-placed by an admin) and members
-    already booked are still written.
+    ``rows`` and ``removed_user_ids`` are accepted for backward
+    compatibility with older callers and ignored: the grid payload no
+    longer drives consolidation.
 
-    ``removed_user_ids`` lists users whose bookings must be deleted from
-    the event and its children — allowed only for users without a payed
-    contribution for the event (PayedMemberRemovalError otherwise); ids
-    still present in the rows are kept.
-
-    Idempotent: re-running updates role/partner_email/couple but never
-    touches ``attended``.
-
-    Returns (created, updated) counts.
+    Returns (created, deleted) counts.
     """
-    _validate_couples_not_split(event, rows)
+    children = list(event.events.all())
+    if not children:
+        return 0, 0
 
-    events = [event, *event.events.all()]
-
-    removed_user_ids = set(removed_user_ids or [])
-    if removed_user_ids:
-        payed_removed = Contribution.objects.filter(
-            events=event,
-            status=ContributionStatus.PAYED,
-            user_id__in=removed_user_ids,
-        ).values_list("user_id", flat=True)
-        if payed_removed:
-            raise PayedMemberRemovalError(
-                f"Users {sorted(payed_removed)} have a payed contribution "
-                "and cannot be removed from the register."
-            )
-        ids_in_rows = {
-            member["id"]
-            for grid_row in rows
-            for member in (grid_row.get("members") or {}).values()
-            if member and member.get("id") is not None
-        }
-        Booking.objects.filter(
-            event__in=events,
-            user_id__in=removed_user_ids - ids_in_rows,
-        ).delete()
-    member_ids = {
-        member["id"]
-        for grid_row in rows
-        for member in (grid_row.get("members") or {}).values()
-        if member and member.get("id") is not None
-    }
-    payed_member_ids = set(
-        Contribution.objects.filter(
-            events=event, user_id__in=member_ids,
-            status=ContributionStatus.PAYED,
-        ).values_list("user_id", flat=True)
-    )
-    booked_member_ids = set(
-        Booking.objects.filter(
-            event=event, user_id__in=member_ids,
-        ).values_list("user_id", flat=True)
-    )
-    skipped_member_ids = set(
-        Contribution.objects.filter(events=event, user_id__in=member_ids)
-        .exclude(status__in=[ContributionStatus.PAYED, ContributionStatus.CANCELLED])
-        .values_list("user_id", flat=True)
-    ) - payed_member_ids - booked_member_ids
-
-    role_cache = {}
-
-    def role_named(name):
-        if name not in role_cache:
-            role_cache[name] = PartnerRole.objects.filter(name=name).first()
-        return role_cache[name]
-
-    created = updated = 0
+    parent_bookings = list(Booking.objects.filter(event=event))
     with transaction.atomic():
-        for row in rows:
-            members = row.get("members") or {}
-            for role_name, member in members.items():
-                if not member or member.get("id") is None:
-                    continue
-                if member["id"] in skipped_member_ids:
-                    continue
-                partner_email = next(
-                    (mate["email"] for name, mate in members.items()
-                     if name != role_name and mate
-                     and mate.get("id") is not None and mate.get("email")),
-                    None,
-                )
-                for target in events:
-                    _, was_created = Booking.objects.update_or_create(
-                        user_id=member["id"],
-                        event=target,
-                        defaults={
-                            "role": role_named(role_name),
-                            "partner_email": partner_email,
-                            "couple": bool(row.get("couple")),
-                        },
-                    )
-                    if was_created:
-                        created += 1
-                    else:
-                        updated += 1
-    return created, updated
+        deleted, _ = Booking.objects.filter(event__in=children).delete()
+        copies = [
+            Booking(
+                user_id=booking.user_id,
+                event=child,
+                role_id=booking.role_id,
+                partner_id=booking.partner_id,
+                partner_email=booking.partner_email,
+                partner_role_id=booking.partner_role_id,
+                contribution_id=booking.contribution_id,
+                couple=booking.couple,
+            )
+            for child in children
+            for booking in parent_bookings
+        ]
+        Booking.objects.bulk_create(copies)
+    return len(copies), deleted
 
 def _get_rows_by_sql(event_id):
     from django.db import connection

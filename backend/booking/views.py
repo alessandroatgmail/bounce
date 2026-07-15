@@ -12,7 +12,7 @@ from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from .models import Booking, Contribution, ContributionStatus
-from .serializers import ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
+from .serializers import BookingSerializer, ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
 from utils.tasks import send_email
 
@@ -32,6 +32,23 @@ class UserBookingViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             .prefetch_related('event__styles', 'event__genres', 'event__artists', 'event__events')
             .order_by('event__start_date')
         )
+
+
+class BookingViewSet(viewsets.ModelViewSet):
+    serializer_class = BookingSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = Booking.objects.select_related(
+            'user', 'event', 'role', 'partner', 'partner_role', 'contribution',
+        )
+        user_id = self.request.query_params.get('user')
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        event_id = self.request.query_params.get('event')
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+        return qs
 
 
 class ContributionViewSet(viewsets.ModelViewSet):
