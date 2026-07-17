@@ -4,6 +4,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowLeftRight,
+  ChevronDown,
+  ChevronUp,
   ClipboardList,
   Link2,
   Loader2,
@@ -73,6 +75,21 @@ interface CellRef {
   role: string;
 }
 
+interface OverviewUser {
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+}
+
+interface ContributionOverview {
+  id: number;
+  status: string;
+  date: string;
+  role: string | null;
+  user: OverviewUser;
+  twin_contribution: Omit<ContributionOverview, 'twin_contribution'> | null;
+}
+
 function MemberCell({
   member,
   language,
@@ -125,6 +142,105 @@ function MemberCell({
   );
 }
 
+function ContributionPersonCell({
+  user: person,
+  status,
+}: {
+  user: OverviewUser;
+  status: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-sm font-medium">
+        {person.first_name} {person.last_name}
+      </span>
+      <span className="text-xs text-muted-foreground">{person.email}</span>
+      <Badge variant="outline" className="w-fit text-amber-700 border-amber-300 bg-amber-50">
+        {status}
+      </Badge>
+    </div>
+  );
+}
+
+function ContributionList({
+  title,
+  items,
+  language,
+}: {
+  title: string;
+  items: ContributionOverview[];
+  language: string;
+}) {
+  const formatDate = (date: string) =>
+    new Date(date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-US', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+  return (
+    <Card className="mt-4">
+      <CardContent className="pt-6">
+        <h3 className="text-lg font-semibold text-[#2b2b2b] mb-4">
+          {title} ({items.length})
+        </h3>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{language === 'it' ? 'Partecipante' : 'Participant'}</TableHead>
+              <TableHead>{language === 'it' ? 'Ruolo' : 'Role'}</TableHead>
+              <TableHead>{language === 'it' ? 'Data' : 'Date'}</TableHead>
+              <TableHead>{language === 'it' ? 'Partner' : 'Partner'}</TableHead>
+              <TableHead>{language === 'it' ? 'Ruolo partner' : 'Partner role'}</TableHead>
+              <TableHead>{language === 'it' ? 'Data partner' : 'Partner date'}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map(item => (
+              <TableRow key={item.id}>
+                <TableCell className="align-top">
+                  <ContributionPersonCell user={item.user} status={item.status} />
+                </TableCell>
+                <TableCell className="align-top">
+                  {item.role ?? <span className="text-muted-foreground">—</span>}
+                </TableCell>
+                <TableCell className="align-top text-sm">{formatDate(item.date)}</TableCell>
+                <TableCell className="align-top">
+                  {item.twin_contribution ? (
+                    <ContributionPersonCell
+                      user={item.twin_contribution.user}
+                      status={item.twin_contribution.status}
+                    />
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="align-top">
+                  {item.twin_contribution?.role ?? <span className="text-muted-foreground">—</span>}
+                </TableCell>
+                <TableCell className="align-top text-sm">
+                  {item.twin_contribution
+                    ? formatDate(item.twin_contribution.date)
+                    : <span className="text-muted-foreground">—</span>}
+                </TableCell>
+              </TableRow>
+            ))}
+            {items.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  {language === 'it' ? 'Nessun contributo.' : 'No contributions.'}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function EventRegisterPage() {
   const { user, accessToken } = useAuth();
   const { language } = useLanguage();
@@ -153,6 +269,12 @@ export function EventRegisterPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+
+  // Accepted / waiting contribution lists shown below the register.
+  const [acceptedContributions, setAcceptedContributions] = useState<ContributionOverview[]>([]);
+  const [waitingContributions, setWaitingContributions] = useState<ContributionOverview[]>([]);
+  const [contributionsError, setContributionsError] = useState<string | null>(null);
+  const [showContributions, setShowContributions] = useState(true);
 
   const canEdit = !!data?.parent;
 
@@ -206,6 +328,38 @@ export function EventRegisterPage() {
   }, [accessToken, eventId, language]);
 
   useEffect(() => { fetchRegister(); }, [fetchRegister]);
+
+  // Accepted and waiting contributions for this event, oldest first.
+  useEffect(() => {
+    if (!accessToken || !eventId) return;
+    (async () => {
+      setContributionsError(null);
+      try {
+        const fetchList = async (status: string) => {
+          const response = await authFetch(
+            `/api/booking/contributions-overview/?event=${eventId}&status=${status}`,
+            accessToken,
+          );
+          if (!response.ok) throw new Error(`${response.status}`);
+          const json = await response.json();
+          const list: ContributionOverview[] = json.results ?? json;
+          return list.sort((a, b) => a.date.localeCompare(b.date));
+        };
+        const [accepted, waiting] = await Promise.all([
+          fetchList('accepted'),
+          fetchList('waiting'),
+        ]);
+        setAcceptedContributions(accepted);
+        setWaitingContributions(waiting);
+      } catch {
+        setContributionsError(
+          language === 'it'
+            ? 'Errore nel caricamento dei contributi.'
+            : 'Failed to load the contributions.',
+        );
+      }
+    })();
+  }, [accessToken, eventId, language]);
 
   // Partner role ids, needed when writing bookings (role/partner_role FKs).
   useEffect(() => {
@@ -675,6 +829,45 @@ export function EventRegisterPage() {
             )}
           </CardContent>
         </Card>
+
+        <div className="flex items-center justify-between mt-8">
+          <h2 className="text-xl font-bold text-[#2b2b2b]">
+            {language === 'it' ? 'Coda' : 'Queue'}
+          </h2>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-1"
+            onClick={() => setShowContributions(prev => !prev)}
+          >
+            {showContributions ? (
+              <ChevronUp className="size-4" />
+            ) : (
+              <ChevronDown className="size-4" />
+            )}
+            {showContributions
+              ? language === 'it' ? 'Nascondi' : 'Hide'
+              : language === 'it' ? 'Mostra' : 'Show'}
+          </Button>
+        </div>
+
+        {showContributions && (
+          <>
+            {contributionsError && (
+              <p role="alert" className="text-sm text-red-600 mt-4">{contributionsError}</p>
+            )}
+            <ContributionList
+              title={language === 'it' ? 'Accettati' : 'Accepted'}
+              items={acceptedContributions}
+              language={language}
+            />
+            <ContributionList
+              title={language === 'it' ? "Lista d'attesa" : 'Waiting list'}
+              items={waitingContributions}
+              language={language}
+            />
+          </>
+        )}
 
         <Dialog
           open={addTarget !== null}

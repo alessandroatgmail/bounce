@@ -153,19 +153,14 @@ def _apply_couple_discount(*contributions: Contribution) -> None:
 def waiting_list(contribution: Contribution) -> bool:
     from booking.tasks import send_waiting_list_for_role_email, send_waiting_list_max_email
     partner_contribution = contribution.twin_contributions.first()
-    print ("------------ WAITING LIST +----------")
-    print (contribution.events.exists())
     if contribution.events.exists():
         if not _check_max_capacity(contribution):
-            print (f" Check Max capacity for {contribution.user.email}: {_check_max_capacity}")
             send_waiting_list_max_email.delay(contribution.user.id, contribution.id)
             if partner_contribution:
                 send_waiting_list_max_email.delay(partner_contribution.user.id, partner_contribution.id)
             return True
         if _check_need_role(contribution):
-            print(f" Check need role for {contribution.user.email}: {_check_need_role}")
             if not _check_role_accepted(contribution):
-                print(f" Check need role accepted for {contribution.user.email}: {_check_role_accepted}")
                 send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
                 if partner_contribution:
                     send_waiting_list_for_role_email.delay(partner_contribution.user.id, partner_contribution.id)
@@ -173,8 +168,6 @@ def waiting_list(contribution: Contribution) -> bool:
 
 
             if not _check_extras(contribution):
-                print(f" Check extras for {contribution.user.email}: {_check_extras}")
-
                 send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)
                 if partner_contribution:
                     send_waiting_list_for_role_email.delay(partner_contribution.user.id, partner_contribution.id)
@@ -241,25 +234,18 @@ def _check_extras(contribution: Contribution) -> bool:
             event=None
 
         roles = event.role_count
-        print (" ------------- EXTRAS ----------")
-        print (roles)
-        print (contribution.role.name)
-        print (Contribution.objects.filter(events=event).count())
-        print(Contribution.objects.filter(events=event).values("user__email", "role__name", "status"))
-        if contribution.role.name not in roles.keys():
 
-            print ("----------- role not in roles -------")
-            print (roles.keys())
+        if contribution.role.name not in roles.keys():
             return True
         else:
             min_key = min(roles, key=roles.get)
             max_key = max(roles, key=roles.get)
-            # if min_key == max_key:
-            print (min_key)
-            if contribution.role.name == min_key:
+            # A role tied with the minimum IS a minority role: joining it
+            # never widens the gap between the roles.
+            if roles[contribution.role.name] == roles[min_key]:
                 return True
             else:
-                if roles[max_key] <= roles[min_key] + event.extras:
+                if roles[max_key] < roles[min_key] + event.extras:
                     return True
     return False
 

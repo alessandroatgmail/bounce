@@ -192,13 +192,13 @@ def notify_next_waiting(event_id: int, role_id: int = None) -> None:
                 'contribution',
                 filter=Q(
                     contribution__events=event,
-                    contribution__status=ContributionStatus.ACCEPTED,
+                    contribution__status__in=[ContributionStatus.ACCEPTED, ContributionStatus.PAYED],
                 ),
                 distinct=True,
             )
         )
         lower_count = role_counts.aggregate(min_count=Min('count'))['min_count'] or 0
-        if role_counts.filter(count__gt=lower_count + event.extras).exists():
+        if role_counts.filter(count__gte=lower_count + event.extras).exists():
             role_imbalance = True
             lower_role_id = role_counts.order_by('count').values_list('id', flat=True).first()
 

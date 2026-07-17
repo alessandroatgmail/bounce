@@ -1178,8 +1178,9 @@ class TestWaitingListMaxCapacity:
 
 class TestRoleImbalance:
     """
-    When one role already has more than lower_count + event.extras ACCEPTED
-    contributions, the new contribution for that role goes to WAITING.
+    When one role already has lower_count + event.extras (or more) unmatched
+    ACCEPTED/PAYED contributions, the quota is full: the new contribution for
+    that role goes to WAITING.
     """
 
     def _make_couple_event(self, capacity=20, extras=0):
@@ -1230,10 +1231,10 @@ class TestRoleImbalance:
         assert response.status_code == http_status.HTTP_201_CREATED
         assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.WAITING
 
-    def test_at_extras_boundary_is_accepted(
+    def test_at_extras_boundary_goes_to_waiting(
         self, world_data, student_client, student_user, db
     ):
-        """2 leaders ACCEPTED, 0 followers, extras=2 → new leader: 2 > 0+2 is False → ACCEPTED."""
+        """2 leaders ACCEPTED, 0 followers, extras=2 → quota full: new leader → WAITING."""
         event, leader, _ = self._make_couple_event(extras=2)
         m = make_membership()
         for i in range(2):
@@ -1244,7 +1245,7 @@ class TestRoleImbalance:
             format="json",
         )
         assert response.status_code == http_status.HTTP_201_CREATED
-        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.WAITING
 
     def test_beyond_extras_boundary_goes_to_waiting(
         self, world_data, student_client, student_user, db
@@ -1473,34 +1474,51 @@ class TestSpotAvailableNotification:
         promoted = Contribution.objects.filter(user=student_user, events=event).first()
         assert promoted.status == ContributionStatus.ACCEPTED
 
-    def test_balanced_event_notifies_oldest_waiting_overall(
-        self, world_data, student_user, subject_user, db
-    ):
+    def test_freed_spot_promotes_oldest_waiting(self, world_data, db):
         """
-        After cancellation roles are balanced → notify oldest WAITING regardless of role.
+        All through the API: with extras=2, leaders 1 and 2 are accepted and
+        leaders 3 and 4 wait. Leader 1 cancels → the quota has room again →
+        the oldest waiting (leader 3) is promoted and notified, leader 4
+        keeps waiting.
         """
         from django.core import mail
         from datetime import timedelta
+        from rest_framework.test import APIClient
 
-        event, leader, follower = self._make_couple_event(capacity=20, extras=1)
-        other = User.objects.create_user(email="other@test.com", password="pass", is_active=True)
-        newer_user = User.objects.create_user(email="newer@test.com", password="pass", is_active=True)
+        event, leader, _ = self._make_couple_event(capacity=20, extras=2)
+        m = make_membership()
 
-        accepted_leader = self._contribution(subject_user, event, ContributionStatus.ACCEPTED, role=leader)
-        self._contribution(other, event, ContributionStatus.ACCEPTED, role=follower)
+        def register(email):
+            user = User.objects.create_user(email=email, password="pass", is_active=True)
+            client = APIClient()
+            client.force_authenticate(user=user)
+            res = client.post(
+                LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+                format="json",
+            )
+            assert res.status_code == http_status.HTTP_201_CREATED
+            return user, client, Contribution.objects.get(pk=res.data["id"])
 
-        older_waiting = self._contribution(student_user, event, ContributionStatus.WAITING)
-        self._contribution(newer_user, event, ContributionStatus.WAITING)
-        Contribution.objects.filter(pk=older_waiting.pk).update(date=older_waiting.date - timedelta(hours=1))
+        _, l1_client, l1 = register("l1@test.com")
+        _, _, l2 = register("l2@test.com")
+        l3_user, _, l3 = register("l3@test.com")
+        _, _, l4 = register("l4@test.com")
 
-        accepted_leader.status = ContributionStatus.CANCELLED
-        accepted_leader.save()
+        assert [c.status for c in (l1, l2)] == [ContributionStatus.ACCEPTED] * 2
+        assert [c.status for c in (l3, l4)] == [ContributionStatus.WAITING] * 2
+        Contribution.objects.filter(pk=l3.pk).update(date=l3.date - timedelta(hours=1))
 
+        mail.outbox.clear()
+        res = l1_client.delete(detail_url(l1.pk))
+        assert res.status_code == http_status.HTTP_204_NO_CONTENT
+
+        l3.refresh_from_db()
+        l4.refresh_from_db()
+        assert l3.status == ContributionStatus.ACCEPTED
+        assert l4.status == ContributionStatus.WAITING
         spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
         assert len(spot_emails) == 1
-        assert student_user.email in spot_emails[0].to
-        older_waiting.refresh_from_db()
-        assert older_waiting.status == ContributionStatus.ACCEPTED
+        assert l3_user.email in spot_emails[0].to
 
 
 # ── User-triggered cancellation ───────────────────────────────────────────────

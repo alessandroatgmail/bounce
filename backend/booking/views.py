@@ -1,6 +1,7 @@
 import datetime
 
 from dateutil.relativedelta import relativedelta
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -12,7 +13,7 @@ from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from .models import Booking, Contribution, ContributionStatus
-from .serializers import BookingSerializer, ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
+from .serializers import BookingSerializer, ContributionOverviewSerializer, ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
 from utils.tasks import send_email
 
@@ -60,6 +61,28 @@ class ContributionViewSet(viewsets.ModelViewSet):
         user_id = self.request.query_params.get('user')
         if user_id:
             qs = qs.filter(user_id=user_id)
+        return qs
+
+
+class ContributionOverviewViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = ContributionOverviewSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = (
+            Contribution.objects
+            .select_related('user', 'role', 'original_contribution__user', 'original_contribution__role')
+            .prefetch_related(
+                Prefetch('twin_contributions', queryset=Contribution.objects.select_related('user', 'role')),
+            )
+            .order_by('-date')
+        )
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+        event_id = self.request.query_params.get('event')
+        if event_id:
+            qs = qs.filter(events=event_id)
         return qs
 
 
