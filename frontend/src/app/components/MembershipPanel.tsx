@@ -26,7 +26,21 @@ const EMPTY_PAYLOAD: MembershipPayload = {
   color: null,
   max_events: 0,
   duration: 1,
+  start_date: null,
+  end_date: null,
 };
+
+// ISO (with timezone) ⇄ datetime-local input value ("YYYY-MM-DDTHH:mm")
+const isoToLocalInput = (iso: string | null): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const localInputToIso = (value: string): string | null =>
+  value ? new Date(value).toISOString() : null;
 
 interface FormProps {
   initial?: MembershipPayload;
@@ -123,6 +137,46 @@ function MembershipForm({ initial = EMPTY_PAYLOAD, initialRules = [], eventTypeO
             value={form.duration}
             onChange={e => set('duration', parseInt(e.target.value) || 0)}
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="m-start-date">
+            {language === 'it' ? 'Prenotabile dal' : 'Bookable from'}
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              id="m-start-date"
+              type="datetime-local"
+              value={isoToLocalInput(form.start_date)}
+              onChange={e => set('start_date', localInputToIso(e.target.value))}
+              className="flex-1"
+            />
+            {form.start_date && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => set('start_date', null)}>
+                {language === 'it' ? 'Rimuovi' : 'Clear'}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="m-end-date">
+            {language === 'it' ? 'Prenotabile fino al' : 'Bookable until'}
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              id="m-end-date"
+              type="datetime-local"
+              value={isoToLocalInput(form.end_date)}
+              onChange={e => set('end_date', localInputToIso(e.target.value))}
+              className="flex-1"
+            />
+            {form.end_date && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => set('end_date', null)}>
+                {language === 'it' ? 'Rimuovi' : 'Clear'}
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="col-span-2 space-y-2">
@@ -270,7 +324,22 @@ export function MembershipPanel() {
     color: m.color,
     max_events: m.max_events,
     duration: m.duration,
+    start_date: m.start_date,
+    end_date: m.end_date,
   });
+
+  const formatDateTime = (iso: string): string =>
+    new Date(iso).toLocaleString(language === 'it' ? 'it-IT' : 'en-GB', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+
+  const availabilityStatus = (m: Membership): 'expired' | 'scheduled' | 'active' => {
+    const now = Date.now();
+    if (m.end_date && new Date(m.end_date).getTime() < now) return 'expired';
+    if (m.start_date && new Date(m.start_date).getTime() > now) return 'scheduled';
+    return 'active';
+  };
 
   const toRuleDrafts = (rules: MembershipRule[]): RuleDraft[] =>
     rules.map(r => ({ id: r.id, event_type_id: r.event_type.id, max_events: r.max_events }));
@@ -327,6 +396,7 @@ export function MembershipPanel() {
                 <TableHead>{language === 'it' ? 'Quota' : 'Contribution'}</TableHead>
                 <TableHead>{language === 'it' ? 'Max eventi' : 'Max events'}</TableHead>
                 <TableHead>{language === 'it' ? 'Durata' : 'Duration'}</TableHead>
+                <TableHead>{language === 'it' ? 'Disponibilità' : 'Availability'}</TableHead>
                 <TableHead>{language === 'it' ? 'Regole' : 'Rules'}</TableHead>
                 <TableHead>{language === 'it' ? 'Colore' : 'Color'}</TableHead>
                 <TableHead>{language === 'it' ? 'Azioni' : 'Actions'}</TableHead>
@@ -335,7 +405,7 @@ export function MembershipPanel() {
             <TableBody>
               {memberships.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-gray-400 py-8">
+                  <TableCell colSpan={9} className="text-center text-gray-400 py-8">
                     {language === 'it' ? 'Nessun piano di iscrizione.' : 'No membership plans yet.'}
                   </TableCell>
                 </TableRow>
@@ -352,6 +422,31 @@ export function MembershipPanel() {
                     {m.duration > 0
                       ? (language === 'it' ? `${m.duration} mesi` : `${m.duration} mo`)
                       : <span className="text-xs text-gray-400">—</span>}
+                  </TableCell>
+                  <TableCell>
+                    {!m.start_date && !m.end_date ? (
+                      <span className="text-xs text-gray-400">
+                        {language === 'it' ? 'Sempre' : 'Always'}
+                      </span>
+                    ) : (
+                      <div className="flex flex-col gap-1 text-xs">
+                        <span>
+                          {m.start_date ? formatDateTime(m.start_date) : '…'}
+                          {' → '}
+                          {m.end_date ? formatDateTime(m.end_date) : '…'}
+                        </span>
+                        {availabilityStatus(m) === 'expired' && (
+                          <Badge variant="destructive" className="w-fit text-xs">
+                            {language === 'it' ? 'Scaduto' : 'Expired'}
+                          </Badge>
+                        )}
+                        {availabilityStatus(m) === 'scheduled' && (
+                          <Badge variant="secondary" className="w-fit text-xs">
+                            {language === 'it' ? 'Programmato' : 'Scheduled'}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     {m.rules.length === 0 ? (

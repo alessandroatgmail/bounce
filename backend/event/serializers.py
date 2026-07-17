@@ -278,9 +278,15 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_memberships(self, obj):
         from membership.serializers import MembershipSerializer
-        from membership.models import MembershipRule
+        from membership.models import MembershipRule, available_memberships
+        request = self.context.get("request")
+        is_staff = bool(request and request.user and request.user.is_staff)
         if obj.multi_events:
-            return MembershipSerializer(obj.memberships.all(), many=True).data
+            # Filter in Python to keep the memberships prefetch warm.
+            memberships = obj.memberships.all()
+            if not is_staff:
+                memberships = [m for m in memberships if m.is_available]
+            return MembershipSerializer(memberships, many=True).data
         # One query per event_type on the page instead of one per event.
         cache = self.context.setdefault("_memberships_by_event_type", {})
         if obj.event_type_id not in cache:
@@ -293,6 +299,8 @@ class EventSerializer(serializers.ModelSerializer):
                     .prefetch_related("event_type__partner_roles"),
                 )
             ).distinct()
+            if not is_staff:
+                memberships = available_memberships(memberships)
             cache[obj.event_type_id] = MembershipSerializer(memberships, many=True).data
         return cache[obj.event_type_id]
 

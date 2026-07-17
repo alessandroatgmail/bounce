@@ -268,6 +268,10 @@ class UserContributionSerializer(serializers.ModelSerializer):
         partner_email = attrs.get('partner_email')
         # partner_id is declared with source="partner", so DRF stores it under 'partner'
         partner = attrs.get('partner')
+        if self.instance is None and not membership.is_available:
+            raise serializers.ValidationError({
+                'membership_id': f"Membership '{membership.name}' is not available for booking."
+            })
         if event:
             _validate_membership_events(membership, [event])
             if event.event_type.partners > 1:

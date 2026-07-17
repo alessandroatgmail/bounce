@@ -1621,3 +1621,80 @@ class TestMultiEventsFestivalValidation:
         res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
         assert res.status_code == http_status.HTTP_400_BAD_REQUEST
         assert "FestivalPass" in str(res.data)
+
+
+# ── Membership booking window (start_date / end_date) ─────────────────────────
+
+class TestMembershipBookingWindow:
+    """
+    A membership with a start_date / end_date window can only be booked while
+    now falls inside the window. Null bounds are open-ended.
+    """
+
+    def _windowed_membership(self, start=None, end=None, **overrides):
+        now = timezone.now()
+        return Membership.objects.create(
+            name=overrides.pop("name", "Windowed"),
+            contribution=overrides.pop("contribution", 50),
+            start_date=now + timedelta(days=start) if start is not None else None,
+            end_date=now + timedelta(days=end) if end is not None else None,
+            **overrides,
+        )
+
+    def test_booking_within_window_returns_201(self, student_client, db):
+        m = self._windowed_membership(start=-1, end=1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_booking_without_window_returns_201(self, student_client, db):
+        m = self._windowed_membership()
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_booking_expired_membership_returns_400(self, student_client, db):
+        m = self._windowed_membership(end=-1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_booking_not_yet_open_membership_returns_400(self, student_client, db):
+        m = self._windowed_membership(start=1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_booking_with_only_past_start_returns_201(self, student_client, db):
+        m = self._windowed_membership(start=-1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_booking_with_only_future_end_returns_201(self, student_client, db):
+        m = self._windowed_membership(end=1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_expired_membership_creates_no_contribution(self, student_client, student_user, db):
+        m = self._windowed_membership(end=-1)
+        student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert not Contribution.objects.filter(user=student_user).exists()
+
+    def test_booking_event_with_expired_membership_returns_400(self, student_client, world_data, db):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        m = self._windowed_membership(end=-1)
+        res = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.pk}, format="json",
+        )
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_booking_event_within_window_returns_201(self, student_client, world_data, db):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        m = self._windowed_membership(start=-1, end=30)
+        res = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.pk}, format="json",
+        )
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_error_mentions_membership_field(self, student_client, db):
+        m = self._windowed_membership(end=-1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert "membership_id" in res.data
