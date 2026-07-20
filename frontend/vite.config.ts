@@ -37,7 +37,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/admin/, /^\/ws/, /^\/static/],
+        navigateFallbackDenylist: [/^\/api/, /^\/d-admin/, /^\/ws/, /^\/static/],
       },
       manifest: {
         name: 'Bounce Dance School',
