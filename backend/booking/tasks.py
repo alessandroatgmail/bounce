@@ -180,6 +180,14 @@ def notify_next_waiting(event_id: int, role_id: int = None) -> None:
 
     event = Event.objects.select_related('event_type').get(pk=event_id)
 
+    if event.multi_events and not event.free:
+        # Contributions link only to the festival, not to the specific
+        # child class, so there's no way to tell here which level's spot
+        # actually freed up. Leave waiting students waiting; they rebook
+        # once the level is open again, instead of being silently
+        # promoted into a class/role that may still be full.
+        return
+
     if event.available_spot < 1:
         return
 

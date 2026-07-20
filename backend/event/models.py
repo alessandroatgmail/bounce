@@ -133,6 +133,13 @@ class Event(models.Model):
     def available_spot(self):
         from booking.models import ContributionStatus as CS
 
+        if self.event_set.all().exists():
+            if self.event_set.first().multi_events and not self.event_set.first().free:
+                return self.capacity - self.event_set.first().contributions.filter(
+                    Q(level=self.level),
+                    Q(status=CS.PAYED) | Q(status=CS.ACCEPTED)
+                ).count()
+
         return self.capacity - self.contributions.filter(Q(status=CS.PAYED) | Q(status=CS.ACCEPTED)).count()
 
     @property
@@ -151,6 +158,19 @@ class Event(models.Model):
     def role_count(self):
         from booking.models import ContributionStatus as CS
         from collections import Counter
+
+        if self.event_set.all().exists():
+            if self.event_set.first().multi_events and not self.event_set.first().free:
+                parent = self.event_set.first()
+                roles = list (parent.contributions.filter(
+                    status__in=[CS.ACCEPTED, CS.PAYED], level=self.level,
+                ).values("role__name")
+                )
+                roles = dict(Counter([r["role__name"] for r in roles]))
+                for role in self.event_type.partner_roles.all():
+                    if role.name not in roles:
+                        roles[role.name] = 0
+                return roles
         roles = list(
             self.contributions.filter(status__in=[CS.ACCEPTED, CS.PAYED]).values("role__name")
         )

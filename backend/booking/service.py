@@ -27,6 +27,7 @@ def _create_partner_contribution(original: Contribution, partner: get_user_model
             end_date=original.end_date,
             original_contribution=original,
             role = original.events.first().event_type.partner_roles.all().exclude(pk=original.role.pk).first(),
+            level=original.level,
             # copia gli altri campi rilevanti
         )
         # link the same events
@@ -126,10 +127,6 @@ def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status
         send_email_accept_email.delay(user_id=user_id, contribution_id=contribution_id)
 
 def _validate_double_registrations(user, event):
-    print ("---------- ENTERED VALIDATE REGISTRATIONS ---------")
-    print (user)
-    print (event)
-    print (Contribution.objects.filter(user=user).all())
     return Contribution.objects.filter(user=user,
                                    events=event).exists()
 
@@ -208,12 +205,10 @@ def _check_max_capacity(contribution: Contribution) -> bool:
 
     if contribution.events.exists():
         event = contribution.events.first()
-        if event.available_spot:
-            return True
         if event.multi_events and not event.free:
-            event = event.events.filter(level=contribution.level).first()
-            if event.available_spot:
-                return True
+            level_event = event.events.filter(level=contribution.level).first()
+            return bool(level_event and level_event.available_spot)
+        return bool(event.available_spot)
     return False
 
 def _check_extras(contribution: Contribution) -> bool:
@@ -227,7 +222,7 @@ def _check_extras(contribution: Contribution) -> bool:
         if not event.multi_events:
             event = contribution.events.first()
         elif event.multi_events and not event.free:
-            event = event.events.first().events.filter(levels=contribution.level).first()
+            event = event.events.filter(level=contribution.level).first()
         elif event.multi_events and event.free:
             event = event.events.first()
         else:
