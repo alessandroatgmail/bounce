@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router';
+import { Navigate, useNavigate, useParams, useLocation } from 'react-router';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -245,7 +245,9 @@ export function EventRegisterPage() {
   const { user, accessToken } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
+  const location = useLocation();
   const { eventId } = useParams();
+  const backTo = (location.state as { from?: string } | null)?.from ?? '/admin';
 
   const [eventName, setEventName] = useState<string | null>(null);
   const [data, setData] = useState<RegisterData | null>(null);
@@ -608,7 +610,7 @@ export function EventRegisterPage() {
       <div className="container mx-auto px-4 py-8">
         <Button
           variant="ghost"
-          onClick={() => navigate('/admin')}
+          onClick={() => navigate(backTo)}
           className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4"
         >
           <ArrowLeft className="size-4" />
