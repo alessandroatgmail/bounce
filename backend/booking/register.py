@@ -242,7 +242,13 @@ def consolidate_register(event, rows=None, removed_user_ids=None):
 
     Returns (created, deleted) counts.
     """
+
+    if event.multi_events and not event.free:
+        return 0, 0
     children = list(event.events.all())
+    if event.event_set.first():
+        if event.event_set.first().multi_events and not event.free:
+            children = event.event_set.first().events.filter(level=event.level)
     if not children:
         return 0, 0
 
