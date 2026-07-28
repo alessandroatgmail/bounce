@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 import environ
+from celery.schedules import crontab
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -13,6 +14,10 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
 
+# Trust the X-Forwarded-Proto header set by the reverse proxy so that
+# build_absolute_uri() returns https:// URLs when the site is served over TLS.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 INSTALLED_APPS = [
@@ -24,6 +29,7 @@ INSTALLED_APPS = [
     "daphne",
     'django.contrib.staticfiles',
     # third-party
+    'django_filters',
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
@@ -31,6 +37,7 @@ INSTALLED_APPS = [
     "channels",
     'drf_spectacular',
     'colorfield',
+    'post_office',
     # local
     'config',
     'users',
@@ -39,6 +46,7 @@ INSTALLED_APPS = [
     'membership',
     'festival',
     'booking',
+    'emails',
 
 ]
 
@@ -109,6 +117,7 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
 }
 
 #Django-channels
@@ -136,7 +145,7 @@ SIMPLE_JWT = {
 }
 
 # ── Email (MailHog in dev) ─────────────────────────────────────────────────────
-EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="post_office.EmailBackend")
 EMAIL_HOST = env("EMAIL_HOST", default="localhost")
 EMAIL_PORT = env.int("EMAIL_PORT", default=1025)
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
@@ -144,11 +153,48 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@bounce.com")
 
+POST_OFFICE = {
+    'DEFAULT_PRIORITY': 'now',
+    'CELERY_ENABLED': True,
+}
+
+CELERY_TIMEZONE = 'Europe/Rome'
+
+# Hours before an event's start date when its register is automatically
+# consolidated into Booking rows (parent event + all its children).
+CONSOLIDATE_TIME_HR = env.int("CONSOLIDATE_TIME_HR", default=1)
+
+# ── Celery Beat ────────────────────────────────────────────────────────────────
+CELERY_BEAT_SCHEDULE = {
+    'cancel-expired-contributions-daily': {
+        'task': 'booking.tasks.cancel_expired_contributions',
+        'schedule': crontab(hour=0, minute=5),
+    },
+    'consolidate-upcoming-parent-events': {
+        'task': 'booking.tasks.consolidate_upcoming_parent_events',
+        'schedule': crontab(minute='*/10'),
+    },
+    # 'warning-expired-contributions-daily': {
+    #     'task': 'booking.tasks.send_contribution_expiry_reminder_email',
+    #     'schedule': crontab(hour=13, minute=9),
+    # },
+}
+
 # ── CORS ───────────────────────────────────────────────────────────────────────
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",   # Vite dev server
-    "http://localhost:3000",
-]
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:5173",   # Vite dev server
+#     "http://localhost:3000",
+# ]
+
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=["http://localhost"]
+)
+
+# ── Stripe ─────────────────────────────────────────────────────────────────────
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", default="")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
 
 LOGGING = {
     'version': 1,

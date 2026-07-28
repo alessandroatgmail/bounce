@@ -2,7 +2,8 @@ import { Link, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Button } from './ui/button';
-import { Music, LogOut, User, Languages } from 'lucide-react';
+import { LogOut, User, Languages } from 'lucide-react';
+import { NotificationsBell } from './NotificationsBell';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,15 +27,18 @@ export function Header() {
   };
 
   return (
+
     <header className="bg-[#2b2b2b] sticky top-0 z-50 shadow-md">
+    <div className="bg-yellow-400 text-yellow-900 text-center text-sm font-semibold py-2 px-4">
+        ⚠️ This website is a work in progress — for testing purposes only.
+      </div>
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3">
-            <Music className="size-10 text-white" />
-            <div className="text-white">
-              <h1 className="text-2xl font-bold tracking-tight">Bounce</h1>
-              <p className="text-xs tracking-widest uppercase">Swing Lovers</p>
-            </div>
+          <Link to="/" className="flex items-center">
+            {/* desktop: full horizontal logo */}
+            <img src="/logo-full.png" alt="Bounce Swing Lovers" className="hidden md:block h-10 w-auto object-contain" />
+            {/* mobile: compact icon */}
+            <img src="/logo.png" alt="Bounce" className="block md:hidden size-10 object-contain" />
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
@@ -46,14 +50,16 @@ export function Header() {
             >
               {t('nav.home')}
             </Link>
-            <Link
-              to="/events"
-              className={`hover:text-[#d4b896] transition-colors uppercase text-sm tracking-wide ${
-                isActive('/events') ? 'text-[#d4b896]' : 'text-white'
-              }`}
-            >
-              {t('nav.events')}
-            </Link>
+            {!isAuthenticated && (
+              <Link
+                to="/events"
+                className={`hover:text-[#d4b896] transition-colors uppercase text-sm tracking-wide ${
+                  isActive('/events') ? 'text-[#d4b896]' : 'text-white'
+                }`}
+              >
+                {t('nav.events')}
+              </Link>
+            )}
             {user?.role === 'admin' && (
               <Link
                 to="/admin"
@@ -64,19 +70,10 @@ export function Header() {
                 {t('nav.admin')}
               </Link>
             )}
-            {user?.role === 'student' && (
-              <Link
-                to="/student"
-                className={`hover:text-[#d4b896] transition-colors uppercase text-sm tracking-wide ${
-                  location.pathname.startsWith('/student') ? 'text-[#d4b896]' : 'text-white'
-                }`}
-              >
-                {t('nav.dashboard')}
-              </Link>
-            )}
           </nav>
 
           <div className="flex items-center gap-4">
+            {isAuthenticated && <NotificationsBell />}
             {/* Language Switcher */}
             <button
               onClick={toggleLanguage}
@@ -90,9 +87,8 @@ export function Header() {
             {isAuthenticated ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="flex items-center gap-2 bg-transparent border-[#d4b896] text-white hover:bg-[#d4b896] hover:text-[#2b2b2b]">
+                  <Button variant="outline" className="bg-transparent border-[#d4b896] text-white hover:bg-[#d4b896] hover:text-[#2b2b2b] px-2">
                     <User className="size-4" />
-                    {user?.name}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="bg-[#2b2b2b] text-white border-[#d4b896]">
@@ -101,7 +97,7 @@ export function Header() {
                   {user?.role === 'student' && (
                     <>
                       <DropdownMenuItem asChild className="hover:bg-[#d4b896] hover:text-[#2b2b2b]">
-                        <Link to="/student">{t('nav.dashboard')}</Link>
+                        <Link to="/">{t('nav.dashboard')}</Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild className="hover:bg-[#d4b896] hover:text-[#2b2b2b]">
                         <Link to="/student/settings">{t('nav.settings')}</Link>

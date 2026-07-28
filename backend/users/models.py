@@ -1,3 +1,5 @@
+import uuid as uuid_lib
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 
@@ -7,6 +9,9 @@ class Role(models.TextChoices):
     TEACHER = "teacher", "Teacher"
     ADMIN = "admin", "Admin"
 
+class Language(models.TextChoices):
+    IT = 'it', 'Italiano'
+    EN = 'en', 'English'
 
 class Country(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -66,6 +71,9 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     """Custom user model for Bounce dance school — email is the login identifier."""
 
+    uuid = models.UUIDField(default=uuid_lib.uuid4, editable=False, unique=True)
+    profile_image = models.ImageField(upload_to='profiles/', null=True, blank=True)
+
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150, blank=True)
     last_name = models.CharField(max_length=150, blank=True)
@@ -91,6 +99,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
 
     date_joined = models.DateTimeField(auto_now_add=True)
+
+    language = models.CharField(
+        max_length=2,
+        choices=Language.choices,
+        default=Language.IT,
+    )
 
     objects = UserManager()
 

@@ -3,11 +3,21 @@ import { authFetch, authFetchFile, apiUrl } from '../../lib/api';
 
 const BASE = '/api/events/events/';
 
+export interface EventMembership {
+  id: number;
+  name: string;
+  type: string;
+  contribution: number;
+  color: string | null;
+  max_events: number;
+  duration: number;
+}
+
 export interface EventItem {
   id: number;
   name: string;
   status: string;
-  event_type: { id: number; name: string; frequency: string };
+  event_type: { id: number; name: string; frequency: string; partners: number; partner_roles: { id: number; name: string }[] };
   type: string;
   start_date: string;
   end_date: string;
@@ -23,6 +33,17 @@ export interface EventItem {
   color: string | null;
   image: string | null;
   effective_image: string | null;
+  accepted_roles: { id: number; name: string }[];
+  memberships: EventMembership[];
+  warning_threshold: number;
+  extras: number;
+  payment_days: number;
+  multi_events: boolean;
+  free: boolean;
+  children_levels: { id: number; name: string }[];
+  already_booked: boolean;
+  booked_by: string | null;
+  available_spot: number;
 }
 
 export interface EventPayload {
@@ -41,6 +62,14 @@ export interface EventPayload {
   style_ids?: number[];
   info?: string | null;
   color?: string | null;
+  payment_days?: number;
+  warning_threshold?: number;
+  extras?: number;
+  accepted_role_ids?: number[];
+  membership_ids?: number[];
+  multi_events?: boolean;
+  free?: boolean;
+  event_ids?: number[];
 }
 
 export function useEvents(token: string | null) {
@@ -52,11 +81,25 @@ export function useEvents(token: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const res = token
-        ? await authFetch(BASE, token)
-        : await fetch(apiUrl(BASE), { headers: { 'Content-Type': 'application/json' } });
-      if (!res.ok) throw new Error(`${res.status}`);
-      setEvents(await res.json());
+      const accumulated: EventItem[] = [];
+      let url: string | null = BASE;
+      while (url) {
+        const res = token
+          ? await authFetch(url, token)
+          : await fetch(apiUrl(url), { headers: { 'Content-Type': 'application/json' } });
+        if (!res.ok) throw new Error(`${res.status}`);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          accumulated.push(...data);
+          url = null;
+        } else {
+          accumulated.push(...data.results);
+          url = data.next
+            ? new URL(data.next).pathname + new URL(data.next).search
+            : null;
+        }
+      }
+      setEvents(accumulated);
     } catch {
       setError('Failed to load events.');
     } finally {

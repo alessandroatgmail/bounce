@@ -8,8 +8,7 @@ class EventNotificationConsumer(AsyncJsonWebsocketConsumer):
     """
 
     async def connect(self):
-        print ("-------- check user -------")
-        print(self.scope["user"])
+        self.group_name = None
         if not self.scope["user"].is_authenticated:
             await self.close()
             return
@@ -35,7 +34,8 @@ class EventNotificationConsumer(AsyncJsonWebsocketConsumer):
 
     async def disconnect(self, close_code):
         # Leave the group when the connection closes
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if self.group_name is not None:
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
 
     @database_sync_to_async

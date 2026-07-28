@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 
 function figmaAssetResolver() {
@@ -31,6 +32,28 @@ export default defineConfig({
     // Tailwind is not being actively used – do not remove them
     react(),
     tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/d-admin/, /^\/ws/, /^\/static/],
+      },
+      manifest: {
+        name: 'Bounce Dance School',
+        short_name: 'Bounce',
+        description: 'Dance school booking portal',
+        theme_color: '#e67e22',
+        background_color: '#2b2b2b',
+        display: 'standalone',
+        start_url: '/',
+        icons: [
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+    }),
   ],
   resolve: {
     alias: {

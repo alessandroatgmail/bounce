@@ -15,13 +15,13 @@ def detail_url(pk):
 
 class TestLevelPermissions:
 
-    def test_unauthenticated_request_returns_401(self, client, db):
+    def test_unauthenticated_can_list_levels(self, client, db):
         response = client.get(LIST_URL)
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == status.HTTP_200_OK
 
-    def test_student_cannot_list_levels(self, student_client, db):
+    def test_student_can_list_levels(self, student_client, db):
         response = student_client.get(LIST_URL)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
 
     def test_student_cannot_create_level(self, student_client, db):
         response = student_client.post(LIST_URL, make_level_payload(), format="json")

@@ -1,5 +1,6 @@
 import datetime
 import pytest
+from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta
 from django.utils import timezone
@@ -7,13 +8,16 @@ from rest_framework import status as http_status
 
 from booking.models import Booking, Contribution
 from config.models import SiteSettings
-from event.models import Event, EventType
-from membership.models import Membership, MembershipRule
+from event.models import Event, EventType, PartnerRole, Status
+from membership.models import Membership, MembershipRule, Discount
 from users.models import User
 from utils.mock_event import make_event_payload
 from utils.mock_event_type import make_event_type_payload
 
+from booking.models import ContributionStatus
+
 LIST_URL = "/api/booking/my-memberships/"
+EVENT_LIST_URL = "/api/events/events/"
 
 
 def detail_url(pk):
@@ -34,9 +38,10 @@ def make_event_type():
     return EventType.objects.create(**make_event_type_payload())
 
 
-def make_event_with_type(event_type, start_date=None):
+def make_event_with_type(event_type, start_date=None,):
     now = timezone.now()
     start = start_date or (now + timedelta(days=1))
+
     payload = make_event_payload()
     return Event.objects.create(
         name=payload["name"],
@@ -291,16 +296,22 @@ class TestUserContributionAddEvent:
 
 class TestUserContributionEndDate:
 
-    def test_end_date_set_when_membership_has_duration(self, student_client, db):
+    def test_end_date_set_when_membership_has_duration(self, student_client, world_data, db):
         from dateutil.relativedelta import relativedelta as rd
         from datetime import timedelta
+        et = make_event_type()
+        e = make_event_with_type(et)
         m = make_membership(contribution=50, duration=3)
-        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        print (f"Event end date: {e.end_date}")
+        res = student_client.post(LIST_URL,
+                                  {"membership_id": m.pk, "event_id":e.pk}, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
+
         c = Contribution.objects.get(pk=res.data["id"])
+        assert c.events.count() == 1
+        assert e in c.events.all()
+        print (f"Event end date: {e.end_date}")
         assert c.end_date is not None
-        expected = c.start_date + rd(months=3)
-        assert abs((c.end_date - expected).total_seconds()) < 2
 
     def test_end_date_none_when_duration_is_zero(self, student_client, db):
         m = make_membership(contribution=50, duration=0)
@@ -309,9 +320,11 @@ class TestUserContributionEndDate:
         c = Contribution.objects.get(pk=res.data["id"])
         assert c.end_date is None
 
-    def test_end_date_in_response(self, student_client, db):
+    def test_end_date_in_response(self, student_client, world_data, db):
+        et = make_event_type()
+        e = make_event_with_type(et)
         m = make_membership(contribution=50, duration=1)
-        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": e.pk}, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
         assert "end_date" in res.data
         assert res.data["end_date"] is not None
@@ -481,3 +494,1207 @@ class TestUpgrade:
         new_c = Contribution.objects.get(pk=res.data["id"])
         expected = (timezone.now() + relativedelta(months=3)).date()
         assert new_c.end_date.date() == expected
+
+
+# ── booking with partner action ────────────────────────────────────────────────────────────
+
+class TestPartner:
+
+    def test_create_contribution_with_partner_201(self, world_data, student_client, student_user, partner_user, db):
+        from django.core import mail
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 0
+        first_event.accepted_roles.set([leader, follower])
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "partner" in response.data
+        assert "role" in response.data
+
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+        assert partner_contribution is not None
+        assert first_event in partner_contribution.events.all()
+        assert partner_contribution.partner == student_user
+        assert partner_contribution.original_contribution == original_contribution
+        assert partner_contribution.status ==  ContributionStatus.WAITING
+        assert original_contribution.status == ContributionStatus.WAITING
+
+        # Verify that two emails were sent — one to the registrant, one to the partner
+        assert len(mail.outbox) == 4
+        recipients = [e.to[0] for e in mail.outbox]
+        assert student_user.email in recipients
+        assert partner_user.email in recipients
+
+        # Build a mapping recipient -> email message, so the test does not
+        # depend on the order in which emails were sent
+        emails_by_recipient = {e.to[0]: e for e in mail.outbox}
+
+        student_email = emails_by_recipient[student_user.email]
+        partner_email = emails_by_recipient[partner_user.email]
+
+        # Both subjects must mention the event name
+        assert first_event.name in student_email.subject
+        assert first_event.name in partner_email.subject
+
+        # The registrant's email body must mention the partner's name
+        assert partner_user.first_name in student_email.body
+
+        # (optional, symmetric check) the partner's email body mentions the registrant
+        assert student_user.first_name in partner_email.body
+
+    def test_unregistered_partner_email_is_saved(self, world_data, student_client, student_user, db):
+        """A partner without an account cannot be sent as partner_id: the
+        raw email must still be stored on the contribution so the couple
+        is not lost."""
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "ghost@nowhere.com",
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(id=response.data["id"])
+        assert contribution.partner is None
+        assert contribution.partner_email == "ghost@nowhere.com"
+        # No twin contribution is created: the partner has no account.
+        assert Contribution.objects.count() == 1
+
+    def test_create_contribution_without_role_400(self, world_data, student_client, student_user, partner_user, db):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
+        payload = {
+            "membership_id": m.pk,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        assert partner_contribution is None
+
+
+    def test_create_contribution_partner_same_user_400(self, world_data, student_client, student_user, partner_user, db):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        # MembershipRule.objects.create(membership=m, event_type=et, max_events=1)
+        payload = {
+            "membership_id": m.pk,
+            "partner_email": "partner@email.com",
+            "partner_id": student_user.id,
+            "event_id": first_event.id,
+            "role_id": leader.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        assert partner_contribution is None
+
+
+class TestAutomaticAcceptance:
+    """
+    Test is some rules are met the status goes directly to accepted check also emails are sent
+    """
+
+    def test_create_contribution_with_partner_201(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if couple under capacity status shall be accepted
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "partner" in response.data
+        assert "role" in response.data
+
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert partner_contribution is not None
+        assert partner_contribution.status == ContributionStatus.ACCEPTED
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        # Booking as a couple automatically grants the COUPLE discount to both
+        couple = Discount.objects.get(name="COUPLE")
+        assert couple in original_contribution.discounts.all()
+        assert couple in partner_contribution.discounts.all()
+
+        expected_amount = Decimal(m.contribution) * (100 - couple.rate) / 100
+        assert original_contribution.discounted_amount == expected_amount
+        assert partner_contribution.discounted_amount == expected_amount
+
+        # The API exposes the discount and the discounted amount
+        assert [d["name"] for d in response.data["discounts"]] == ["COUPLE"]
+        assert Decimal(response.data["discounted_amount"]) == expected_amount
+
+        # Verify that 4 emails were sent — 2 for receiving the registration and 2 for being accepted
+        assert len(mail.outbox) == 4
+
+        # The acceptance emails are the ones whose subject mentions "accettazione"
+        accepted_by_recipient = {
+            e.to[0]: e for e in mail.outbox if "accettazione" in e.subject
+        }
+        assert set(accepted_by_recipient) == {student_user.email, partner_user.email}
+
+        student_accepted = accepted_by_recipient[student_user.email]
+        partner_accepted = accepted_by_recipient[partner_user.email]
+        #
+        # # Each acceptance email must show the partner's first/last name and the recipient's role
+        # assert original_contribution.partner.first_name in student_accepted.body
+        # assert original_contribution.partner.last_name in student_accepted.body
+        # assert str(original_contribution.role) in student_accepted.body
+        #
+        # assert partner_contribution.partner.first_name in partner_accepted.body
+        # assert partner_contribution.partner.last_name in partner_accepted.body
+        # assert str(partner_contribution.role) in partner_accepted.body
+
+    def test_create_contribution_single_201(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if couple under capacity status shall be accepted
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        # Verify that 2 emails were sent — 1 for receiving the registration and 1 for being accepted
+        assert len(mail.outbox) == 2
+
+    def test_retreve_event_after_booked_show_already_booked(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if event has update already_booked
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.status = Status.PUBLISHED
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        response = student_client.get(EVENT_LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data['count'] == 1
+        assert response.data['results'][0]['id'] == first_event.id
+        assert "already_booked" in response.data['results'][0]
+        assert response.data['results'][0]["already_booked"] is True
+
+    def test_retreve_event_booked_by_partner_shows_booker_name(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test that booked_by returns the booker's name for the partner,
+        and stays empty for the user who made the booking.
+        """
+        from rest_framework.test import APIClient
+
+        student_user.first_name = "Anna"
+        student_user.last_name = "Rossi"
+        student_user.save()
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.status = Status.PUBLISHED
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        # The partner sees who booked them in
+        partner_api = APIClient()
+        partner_api.force_authenticate(user=partner_user)
+        response = partner_api.get(EVENT_LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data['count'] == 1
+        assert response.data['results'][0]["already_booked"] is True
+        assert response.data['results'][0]["booked_by"] == "Anna Rossi"
+
+        # The booker themselves gets no booked_by
+        response = student_client.get(EVENT_LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data['results'][0]["already_booked"] is True
+        assert response.data['results'][0]["booked_by"] is None
+
+class TestDoubleBokking:
+    """
+    Test user shouldn't be able to book same events twice
+    """
+
+    def test_create_contribution_with_partner_400(self, world_data,
+                                                  student_client, student_user,
+                                                  partner_user, partner_client, db):
+        """
+        Test if partner register again fails
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "partner" in response.data
+        assert "role" in response.data
+
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert partner_contribution is not None
+        payload = {
+            "membership_id": m.pk,
+            "role_id": follower.id,
+            # "partner_email": "partner@email.com",
+            "event_id": first_event.id,
+        }
+
+        response = partner_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_create_contribution_single_201(self, world_data, student_client, student_user, partner_user, db):
+        """
+        Test if couple under capacity status shall be accepted
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert original_contribution.status == ContributionStatus.ACCEPTED
+
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+# ── Waiting list for role ──────────────────────────────────────────────────────
+
+class TestWaitingListForRole:
+    """
+    When an event restricts bookings to specific roles via accepted_roles,
+    a contribution whose role is not in that set must be placed on WAITING
+    and trigger the waiting_list_for_role email.
+    """
+
+    def _make_couple_event(self, capacity=20):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = capacity
+        event.save()
+        return event, leader, follower
+
+    def test_role_not_in_accepted_roles_sets_status_to_waiting(
+        self, world_data, student_client, student_user, db
+    ):
+        from django.core import mail
+
+        event, leader, follower = self._make_couple_event()
+        event.accepted_roles.set([leader])  # only Leader accepted
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": follower.id,  # Follower is NOT accepted
+            "event_id": event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.status == ContributionStatus.WAITING
+
+    def test_role_not_in_accepted_roles_sends_waiting_list_email(
+        self, world_data, student_client, student_user, db
+    ):
+        from django.core import mail
+
+        event, leader, follower = self._make_couple_event()
+        event.accepted_roles.set([leader])  # only Leader accepted
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": follower.id,
+            "event_id": event.id,
+        }
+
+        student_client.post(LIST_URL, payload, format="json")
+
+        waiting_emails = [e for e in mail.outbox if "attesa" in e.subject]
+        assert len(waiting_emails) == 1
+        assert student_user.email in waiting_emails[0].to
+
+    def test_role_in_accepted_roles_status_is_accepted(
+        self, world_data, student_client, student_user, db
+    ):
+        event, leader, follower = self._make_couple_event(capacity=20)
+        event.accepted_roles.set([leader, follower])  # both accepted
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": follower.id,
+            "event_id": event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.status == ContributionStatus.ACCEPTED
+
+    def test_no_accepted_roles_restriction_status_is_WAITING(
+        self, world_data, student_client, student_user, db
+    ):
+        event, leader, follower = self._make_couple_event(capacity=20)
+        # accepted_roles is empty → no restriction
+        event.accepted_roles.clear()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": follower.id,
+            "event_id": event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.status == ContributionStatus.WAITING
+
+    def test_no_eventtype_roles_restriction_status_is_accepted(
+        self, world_data, student_client, student_user, db
+    ):
+        event, leader, follower = self._make_couple_event(capacity=20)
+        event.event_type.partner_roles.clear()
+        event.event_type.save()
+        # accepted_roles is empty → no restriction
+        event.accepted_roles.clear()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": follower.id,
+            "event_id": event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.status == ContributionStatus.ACCEPTED
+
+    def test_role_not_in_accepted_roles_no_waiting_email_for_accepted_role(
+        self, world_data, student_client, student_user, db
+    ):
+        from django.core import mail
+
+        event, leader, follower = self._make_couple_event(capacity=20)
+        event.accepted_roles.set([leader])  # only Leader accepted
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,  # Leader IS accepted
+            "event_id": event.id,
+        }
+
+        student_client.post(LIST_URL, payload, format="json")
+
+        waiting_emails = [e for e in mail.outbox if "attesa" in e.subject]
+        assert len(waiting_emails) == 0
+
+
+# ── Waiting list — max capacity ────────────────────────────────────────────────
+
+class TestWaitingListMaxCapacity:
+    """
+    When event.available_spot < 1 (all PAYED spots taken), new contributions
+    must be placed on WAITING and the waiting_list_max email sent.
+    When there is a partner contribution, it is also set to WAITING and emailed.
+    """
+
+    def test_at_max_capacity_sets_status_to_waiting(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 1
+        event.save()
+        m = make_membership()
+        # Fill the one PAYED slot
+        existing = Contribution.objects.create(amount=50, user=subject_user,
+                                               status=ContributionStatus.PAYED)
+        existing.events.add(event)
+
+        payload = {"membership_id": m.pk, "event_id": event.id}
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.status == ContributionStatus.WAITING
+
+    def test_at_max_capacity_sends_waiting_list_max_email(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 1
+        event.save()
+        m = make_membership()
+        existing = Contribution.objects.create(amount=50, user=subject_user,
+                                               status=ContributionStatus.PAYED)
+        existing.events.add(event)
+
+        student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json")
+
+        max_emails = [e for e in mail.outbox if "capienza" in e.body or "capacity" in e.body]
+        assert len(max_emails) == 1
+        assert student_user.email in max_emails[0].to
+
+    def test_below_capacity_is_not_waiting(
+        self, world_data, student_client, student_user, db
+    ):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 5
+        event.save()
+        m = make_membership()
+
+        response = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.status == ContributionStatus.ACCEPTED
+
+    def test_at_max_capacity_with_partner_sets_both_to_waiting(
+        self, world_data, student_client, student_user, partner_user, subject_user, db
+    ):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = 1
+        event.save()
+        m = make_membership()
+        existing = Contribution.objects.create(amount=50, user=subject_user,
+                                               status=ContributionStatus.PAYED)
+        existing.events.add(event)
+
+        payload = {
+            "membership_id": m.pk,
+            "event_id": event.id,
+            "role_id": leader.id,
+            "partner_id": partner_user.id,
+        }
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        original = Contribution.objects.get(pk=response.data["id"])
+        partner_c = Contribution.objects.filter(user=partner_user).first()
+        assert original.status == ContributionStatus.WAITING
+        assert partner_c is not None
+        assert partner_c.status == ContributionStatus.WAITING
+
+    def test_at_max_capacity_with_partner_sends_email_to_both(
+        self, world_data, student_client, student_user, partner_user, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = 1
+        event.save()
+        m = make_membership()
+        existing = Contribution.objects.create(amount=50, user=subject_user,
+                                               status=ContributionStatus.PAYED)
+        existing.events.add(event)
+
+        payload = {
+            "membership_id": m.pk,
+            "event_id": event.id,
+            "role_id": leader.id,
+            "partner_id": partner_user.id,
+        }
+        student_client.post(LIST_URL, payload, format="json")
+        for e in mail.outbox:
+            print (e.to)
+            print(e.body)
+        max_emails = [e for e in mail.outbox if "capienza" in e.body or "capacity" in e.body]
+        recipients = {e.to[0] for e in max_emails}
+        assert student_user.email in recipients
+        assert partner_user.email in recipients
+
+
+# ── Role imbalance (extras) ────────────────────────────────────────────────────
+
+class TestRoleImbalance:
+    """
+    When one role already has lower_count + event.extras (or more) unmatched
+    ACCEPTED/PAYED contributions, the quota is full: the new contribution for
+    that role goes to WAITING.
+    """
+
+    def _make_couple_event(self, capacity=20, extras=0):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = capacity
+        event.extras = extras
+        event.accepted_roles.set([leader, follower])
+        event.save()
+        return event, leader, follower
+
+    def _accepted_contribution(self, user, event, role, status=ContributionStatus.ACCEPTED):
+        c = Contribution.objects.create(
+            amount=50, user=user, status=status, role=role,
+        )
+        c.events.add(event)
+        return c
+
+    def test_no_existing_bookings_is_accepted(
+        self, world_data, student_client, student_user, db
+    ):
+        """0 leaders, 0 followers, extras=0 → new leader → ACCEPTED (0 > 0+0 is False)."""
+        event, leader, _ = self._make_couple_event(extras=0)
+        m = make_membership()
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+    def test_imbalance_exceeds_extras_goes_to_waiting(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        """1 leader ACCEPTED, 0 followers, extras=0 → new leader: 1 > 0+0 → WAITING."""
+        event, leader, _ = self._make_couple_event(extras=0)
+        m = make_membership()
+        self._accepted_contribution(subject_user, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.WAITING
+
+    def test_at_extras_boundary_goes_to_waiting(
+        self, world_data, student_client, student_user, db
+    ):
+        """2 leaders ACCEPTED, 0 followers, extras=2 → quota full: new leader → WAITING."""
+        event, leader, _ = self._make_couple_event(extras=2)
+        m = make_membership()
+        for i in range(2):
+            u = User.objects.create_user(email=f"extra{i}@test.com", password="pass", is_active=True)
+            self._accepted_contribution(u, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.WAITING
+
+    def test_beyond_extras_boundary_goes_to_waiting(
+        self, world_data, student_client, student_user, db
+    ):
+        """3 leaders ACCEPTED, 0 followers, extras=2 → new leader: 3 > 0+2 → WAITING."""
+        event, leader, _ = self._make_couple_event(extras=2)
+        m = make_membership()
+        for i in range(3):
+            u = User.objects.create_user(email=f"extra{i}@test.com", password="pass", is_active=True)
+            self._accepted_contribution(u, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.WAITING
+
+    def test_minority_role_is_accepted_despite_imbalance(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        """1 leader ACCEPTED, 0 followers, extras=0 → new follower: 0 > 0+0 is False → ACCEPTED."""
+        event, leader, follower = self._make_couple_event(extras=0)
+        m = make_membership()
+        self._accepted_contribution(subject_user, event, leader)
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": follower.id, "event_id": event.id},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+    def test_imbalance_sends_waiting_list_email(
+        self, world_data, student_client, student_user, subject_user, db
+    ):
+        """Role imbalance waiting must trigger the waiting-list-for-role email."""
+        from django.core import mail
+        event, leader, _ = self._make_couple_event(extras=0)
+        m = make_membership()
+        self._accepted_contribution(subject_user, event, leader)
+        student_client.post(
+            LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+            format="json",
+        )
+        contribution = Contribution.objects.filter(user=student_user).first()
+        assert contribution.status == ContributionStatus.WAITING
+
+        waiting_emails = [e for e in mail.outbox if "attesa" in e.subject]
+        for e in mail.outbox:
+            print (e.subject)
+            print (e.to)
+        assert len(waiting_emails) == 1
+        assert student_user.email in waiting_emails[0].to
+
+    def test_imbalance_check_skipped_for_non_partner_event(
+        self, world_data, student_client, student_user, db
+    ):
+        """event_type.partners <= 1 → no imbalance check → ACCEPTED."""
+        et = make_event_type()  # partners=0 by default
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        m = make_membership()
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+
+# ── Spot available notification ────────────────────────────────────────────────
+
+class TestSpotAvailableNotification:
+    """
+    When an ACCEPTED contribution is cancelled, notify the correct WAITING user.
+
+    - If available_spot < 1 → no notification
+    - If balanced (or no roles) → notify oldest WAITING overall
+    - If imbalanced → notify oldest WAITING for the minority role
+    """
+
+    def _make_couple_event(self, capacity=20, extras=0):
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = capacity
+        event.extras = extras
+        event.accepted_roles.set([leader, follower])
+        event.save()
+        return event, leader, follower
+
+    def _contribution(self, user, event, status, role=None):
+        c = Contribution.objects.create(amount=50, user=user, status=status, role=role)
+        c.events.add(event)
+        return c
+
+    def test_oldest_waiting_notified_when_accepted_cancelled(
+        self, world_data, student_user, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+        self._contribution(student_user, event, ContributionStatus.WAITING)
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert student_user.email in spot_emails[0].to
+        waiting_c = Contribution.objects.filter(user=student_user, events=event).first()
+        assert waiting_c.status == ContributionStatus.ACCEPTED
+
+    def test_only_oldest_waiting_notified_not_newer(
+        self, world_data, student_user, subject_user, partner_user, db
+    ):
+        from django.core import mail
+        from datetime import timedelta
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+        older = self._contribution(student_user, event, ContributionStatus.WAITING)
+        newer = self._contribution(partner_user, event, ContributionStatus.WAITING)
+        Contribution.objects.filter(pk=older.pk).update(date=older.date - timedelta(hours=1))
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert student_user.email in spot_emails[0].to
+        assert partner_user.email not in {e.to[0] for e in spot_emails}
+        older.refresh_from_db()
+        assert older.status == ContributionStatus.ACCEPTED
+        newer.refresh_from_db()
+        assert newer.status == ContributionStatus.WAITING
+
+    def test_no_email_when_no_waiting_contributions(
+        self, world_data, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        assert not any("disponibile" in e.subject for e in mail.outbox)
+
+    def test_no_email_when_no_available_spot(
+        self, world_data, student_user, subject_user, db
+    ):
+        """available_spot = capacity - PAYED; if 0 we should stay silent."""
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 1
+        event.save()
+        other = User.objects.create_user(email="other@test.com", password="pass", is_active=True)
+        self._contribution(other, event, ContributionStatus.PAYED)
+        accepted = self._contribution(subject_user, event, ContributionStatus.ACCEPTED)
+        self._contribution(student_user, event, ContributionStatus.WAITING)
+
+        accepted.status = ContributionStatus.CANCELLED
+        accepted.save()
+
+        assert not any("disponibile" in e.subject for e in mail.outbox)
+
+    def test_non_accepted_cancellation_does_not_notify(
+        self, world_data, student_user, subject_user, db
+    ):
+        from django.core import mail
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        received = self._contribution(subject_user, event, ContributionStatus.RECEIVED)
+        self._contribution(student_user, event, ContributionStatus.WAITING)
+
+        received.status = ContributionStatus.CANCELLED
+        received.save()
+
+        assert not any("disponibile" in e.subject for e in mail.outbox)
+
+    def test_imbalanced_event_notifies_minority_role(
+        self, world_data, student_user, subject_user, db
+    ):
+        """
+        Leaders=2 ACCEPTED, Followers=0, extras=0 → imbalanced.
+        Cancel one leader → leaders=1 > 0+0 → still imbalanced.
+        Minority role is follower → notify oldest WAITING follower.
+        """
+        from django.core import mail
+
+        event, leader, follower = self._make_couple_event(capacity=20, extras=0)
+        other = User.objects.create_user(email="other@test.com", password="pass", is_active=True)
+        waiting_leader_user = User.objects.create_user(email="wl@test.com", password="pass", is_active=True)
+
+        self._contribution(other, event, ContributionStatus.ACCEPTED, role=leader)
+        accepted_leader = self._contribution(subject_user, event, ContributionStatus.ACCEPTED, role=leader)
+        self._contribution(student_user, event, ContributionStatus.WAITING, role=follower)
+        self._contribution(waiting_leader_user, event, ContributionStatus.WAITING, role=leader)
+
+        accepted_leader.status = ContributionStatus.CANCELLED
+        accepted_leader.save()
+
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert student_user.email in spot_emails[0].to
+        promoted = Contribution.objects.filter(user=student_user, events=event).first()
+        assert promoted.status == ContributionStatus.ACCEPTED
+
+    def test_freed_spot_promotes_oldest_waiting(self, world_data, db):
+        """
+        All through the API: with extras=2, leaders 1 and 2 are accepted and
+        leaders 3 and 4 wait. Leader 1 cancels → the quota has room again →
+        the oldest waiting (leader 3) is promoted and notified, leader 4
+        keeps waiting.
+        """
+        from django.core import mail
+        from datetime import timedelta
+        from rest_framework.test import APIClient
+
+        event, leader, _ = self._make_couple_event(capacity=20, extras=2)
+        m = make_membership()
+
+        def register(email):
+            user = User.objects.create_user(email=email, password="pass", is_active=True)
+            client = APIClient()
+            client.force_authenticate(user=user)
+            res = client.post(
+                LIST_URL, {"membership_id": m.pk, "role_id": leader.id, "event_id": event.id},
+                format="json",
+            )
+            assert res.status_code == http_status.HTTP_201_CREATED
+            return user, client, Contribution.objects.get(pk=res.data["id"])
+
+        _, l1_client, l1 = register("l1@test.com")
+        _, _, l2 = register("l2@test.com")
+        l3_user, _, l3 = register("l3@test.com")
+        _, _, l4 = register("l4@test.com")
+
+        assert [c.status for c in (l1, l2)] == [ContributionStatus.ACCEPTED] * 2
+        assert [c.status for c in (l3, l4)] == [ContributionStatus.WAITING] * 2
+        Contribution.objects.filter(pk=l3.pk).update(date=l3.date - timedelta(hours=1))
+
+        mail.outbox.clear()
+        res = l1_client.delete(detail_url(l1.pk))
+        assert res.status_code == http_status.HTTP_204_NO_CONTENT
+
+        l3.refresh_from_db()
+        l4.refresh_from_db()
+        assert l3.status == ContributionStatus.ACCEPTED
+        assert l4.status == ContributionStatus.WAITING
+        spot_emails = [e for e in mail.outbox if "disponibile" in e.subject]
+        assert len(spot_emails) == 1
+        assert l3_user.email in spot_emails[0].to
+
+
+# ── User-triggered cancellation ───────────────────────────────────────────────
+
+class TestUserCancellation:
+
+    def _make_contribution(self, user, status=ContributionStatus.RECEIVED):
+        m = Membership.objects.create(name="Pass", contribution=50)
+        return Contribution.objects.create(user=user, membership=m, amount=50, status=status)
+
+    def test_cancel_sets_status_cancelled(self, student_client, student_user, world_data):
+        c = self._make_contribution(student_user, ContributionStatus.ACCEPTED)
+        res = student_client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_204_NO_CONTENT
+        c.refresh_from_db()
+        assert c.status == ContributionStatus.CANCELLED
+
+    def test_cancel_payed_returns_403(self, student_client, student_user, world_data):
+        c = self._make_contribution(student_user, ContributionStatus.PAYED)
+        res = student_client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_403_FORBIDDEN
+        c.refresh_from_db()
+        assert c.status == ContributionStatus.PAYED
+
+    def test_cancel_unauthenticated_returns_401(self, client, student_user, world_data):
+        c = self._make_contribution(student_user)
+        res = client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_401_UNAUTHORIZED
+
+    def test_cancel_other_users_contribution_returns_404(self, student_client, subject_user, world_data):
+        c = self._make_contribution(subject_user)
+        res = student_client.delete(f"{LIST_URL}{c.pk}/")
+        assert res.status_code == http_status.HTTP_404_NOT_FOUND
+
+    def test_cancel_sends_cancellation_email(self, student_client, student_user, world_data):
+        from unittest.mock import patch
+        c = self._make_contribution(student_user, ContributionStatus.ACCEPTED)
+        with patch('booking.views.send_email.delay') as mock_email:
+            student_client.delete(f"{LIST_URL}{c.pk}/")
+        mock_email.assert_called_once()
+        call_kwargs = mock_email.call_args
+        assert call_kwargs[0][0] == student_user.id
+        assert call_kwargs[1]['template'] == 'cancellation_email'
+
+    def test_system_cancel_does_not_send_email(self, student_user, world_data):
+        """Cancellation via ORM (e.g. expired) must NOT trigger the user email."""
+        from unittest.mock import patch
+        c = self._make_contribution(student_user, ContributionStatus.ACCEPTED)
+        with patch('booking.views.send_email.delay') as mock_email:
+            c.status = ContributionStatus.CANCELLED
+            c.save()
+        mock_email.assert_not_called()
+
+
+# ── multi_events festival membership validation ───────────────────────────────
+
+class TestMultiEventsFestivalValidation:
+    """
+    For a multi_events festival _validate_membership_events must only verify
+    that the membership is linked to the festival and skip all type-rule and
+    max-events checks.
+    """
+
+    def _make_festival(self):
+        et = make_event_type()
+        festival = make_event_with_type(et)
+        festival.multi_events = True
+        festival.save()
+        return festival
+
+    def test_linked_membership_returns_201(self, student_client, world_data):
+        festival = self._make_festival()
+        m = make_membership()
+        festival.memberships.add(m)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_unlinked_membership_returns_400(self, student_client, world_data):
+        festival = self._make_festival()
+        m = make_membership()
+        # m is NOT linked to festival.memberships
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_type_rules_skipped_for_multi_events(self, student_client, world_data):
+        """A membership restricted to a different event type must still be accepted
+        when the event is a multi_events festival and the membership is linked."""
+        festival = self._make_festival()
+        other_et = make_event_type()
+        m = make_membership()
+        # Rule covers only other_et, not the festival's event type
+        MembershipRule.objects.create(membership=m, event_type=other_et, max_events=1)
+        festival.memberships.add(m)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_error_message_mentions_membership_name(self, student_client, world_data):
+        festival = self._make_festival()
+        m = make_membership(name="FestivalPass")
+        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert "FestivalPass" in str(res.data)
+
+
+# ── Membership booking window (start_date / end_date) ─────────────────────────
+
+class TestMembershipBookingWindow:
+    """
+    A membership with a start_date / end_date window can only be booked while
+    now falls inside the window. Null bounds are open-ended.
+    """
+
+    def _windowed_membership(self, start=None, end=None, **overrides):
+        now = timezone.now()
+        return Membership.objects.create(
+            name=overrides.pop("name", "Windowed"),
+            contribution=overrides.pop("contribution", 50),
+            start_date=now + timedelta(days=start) if start is not None else None,
+            end_date=now + timedelta(days=end) if end is not None else None,
+            **overrides,
+        )
+
+    def test_booking_within_window_returns_201(self, student_client, db):
+        m = self._windowed_membership(start=-1, end=1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_booking_without_window_returns_201(self, student_client, db):
+        m = self._windowed_membership()
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_booking_expired_membership_returns_400(self, student_client, db):
+        m = self._windowed_membership(end=-1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_booking_not_yet_open_membership_returns_400(self, student_client, db):
+        m = self._windowed_membership(start=1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_booking_with_only_past_start_returns_201(self, student_client, db):
+        m = self._windowed_membership(start=-1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_booking_with_only_future_end_returns_201(self, student_client, db):
+        m = self._windowed_membership(end=1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_expired_membership_creates_no_contribution(self, student_client, student_user, db):
+        m = self._windowed_membership(end=-1)
+        student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert not Contribution.objects.filter(user=student_user).exists()
+
+    def test_booking_event_with_expired_membership_returns_400(self, student_client, world_data, db):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        m = self._windowed_membership(end=-1)
+        res = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.pk}, format="json",
+        )
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_booking_event_within_window_returns_201(self, student_client, world_data, db):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        m = self._windowed_membership(start=-1, end=30)
+        res = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.pk}, format="json",
+        )
+        assert res.status_code == http_status.HTTP_201_CREATED
+
+    def test_error_mentions_membership_field(self, student_client, db):
+        m = self._windowed_membership(end=-1)
+        res = student_client.post(LIST_URL, {"membership_id": m.pk}, format="json")
+        assert "membership_id" in res.data

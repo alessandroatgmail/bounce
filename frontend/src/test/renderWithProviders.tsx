@@ -22,7 +22,8 @@ export function renderWithProviders(
           {/* fake pages to verify redirect destination */}
           <Routes>
             <Route path="/admin" element={<div>Admin Page</div>} />
-            <Route path="/student" element={<div>Student Page</div>} />
+            {/* students land on the home route, which hosts the dashboard */}
+            <Route path="/" element={<div>Home Page</div>} />
           </Routes>
         </AuthProvider>
       </LanguageProvider>

@@ -1,16 +1,21 @@
-import { useState, useRef } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { ArrowLeft, Loader2, Save, Copy, ClipboardPaste, X, Plus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { useEvents, type EventItem, type EventPayload } from '../hooks/useEvents';
 import { useEventTypes } from '../hooks/useEventTypes';
+import { useRooms } from '../hooks/useRooms';
+import { useLevels } from '../hooks/useLevels';
 import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
 import { useFestivalDays, type FestivalDay, type FestivalRoom } from '../hooks/useFestivalDays';
+import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
@@ -21,7 +26,7 @@ import { authFetch } from '../../lib/api';
 const HOUR_HEIGHT = 64;            // px per hour
 const PIXELS_PER_MINUTE = HOUR_HEIGHT / 60;
 const DAY_START_HOUR = 8;
-const DAY_END_HOUR = 25;           // 01:00 next day
+const DAY_END_HOUR = 28;           // 04:00 next day
 const DAY_START_MIN = DAY_START_HOUR * 60;
 const DAY_END_MIN = DAY_END_HOUR * 60;
 const TOTAL_MINUTES = DAY_END_MIN - DAY_START_MIN;
@@ -49,9 +54,16 @@ function eventMinutes(iso: string) {
 }
 
 // Parse YYYY-MM-DD without timezone conversion
-function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions) {
+function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 'en-GB') {
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-GB', opts);
+  return new Date(y, m - 1, d).toLocaleDateString(locale, opts);
+}
+
+function addOneDay(dateStr: string): string {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const next = new Date(y, m - 1, d + 1);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
 }
 
 // ── Add-event mini form ───────────────────────────────────────────────────────
@@ -76,15 +88,20 @@ function EventSlotDialog({
   onSaved: () => void;
 }) {
   const { accessToken } = useAuth();
+  const { t, language } = useLanguage();
+  const locale = language === 'it' ? 'it-IT' : 'en-GB';
   const { eventTypes, loading: loadingTypes } = useEventTypes(accessToken);
+  const { levels, loading: loadingLevels } = useLevels(accessToken);
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
+  const { memberships, loading: loadingMemberships } = useMemberships(accessToken);
 
   const isEdit = !!editEvent;
 
   const [name, setName] = useState(editEvent?.name ?? '');
   const [eventTypeId, setEventTypeId] = useState(editEvent?.event_type.id.toString() ?? '');
+  const [levelId, setLevelId] = useState(editEvent?.level?.id.toString() ?? '');
   const [status, setStatus] = useState(editEvent?.status ?? 'draft');
   const [startTime, setStartTime] = useState(
     editEvent ? formatTime(editEvent.start_date) : (slot?.startTime ?? '')
@@ -101,24 +118,51 @@ function EventSlotDialog({
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(
     editEvent?.styles ?? []
   );
+  const [selectedMemberships, setSelectedMemberships] = useState<{ id: number; name: string }[]>(
+    editEvent?.memberships?.map(m => ({ id: m.id, name: m.name })) ?? []
+  );
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const date = editEvent ? editEvent.start_date.slice(0, 10) : slot!.date;
   const roomId = editEvent ? editEvent.room.id : slot!.room.room.id;
   const roomName = editEvent ? editEvent.room.name : slot!.room.room.name;
 
-  const computeDuration = () => {
+  const computeTimings = () => {
     const [sh, sm] = startTime.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
-    return (eh * 60 + em) - (sh * 60 + sm);
+    const startMin = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+    const crossesMidnight = endMin < startMin;
+    const duration = crossesMidnight ? (24 * 60 - startMin) + endMin : endMin - startMin;
+    const endDate = crossesMidnight ? addOneDay(date) : date;
+    return { duration, endDate };
+  };
+
+  const handleDelete = async () => {
+    if (!accessToken || !editEvent) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/events/events/${editEvent.id}/`, accessToken, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? t('festival.event.errorDelete'));
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('festival.event.errorDelete'));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accessToken) return;
-    const duration = computeDuration();
-    if (duration <= 0) { setError('End time must be after start time.'); return; }
+    const { duration, endDate } = computeTimings();
+    if (duration <= 0) { setError(t('festival.event.errorSameTime')); return; }
 
     setSaving(true);
     setError(null);
@@ -129,14 +173,16 @@ function EventSlotDialog({
         event_type_id: Number(eventTypeId),
         type: festival.type,
         start_date: `${date}T${startTime}:00`,
-        end_date: `${date}T${endTime}:00`,
+        end_date: `${endDate}T${endTime}:00`,
         duration,
         room_id: roomId,
         capacity: Number(capacity) || festival.capacity,
+        level_id: levelId ? Number(levelId) : null,
         artist_ids: selectedArtists.map(a => a.id),
         genre_ids: selectedGenres.map(g => g.id),
         style_ids: selectedStyles.map(s => s.id),
         color: color || null,
+        membership_ids: selectedMemberships.map(m => m.id),
       };
 
       if (isEdit) {
@@ -162,12 +208,12 @@ function EventSlotDialog({
           method: 'PATCH',
           body: JSON.stringify({ event_ids: [...festival.events, created.id] }),
         });
-        if (!patchRes.ok) throw new Error('Event created but failed to link to festival.');
+        if (!patchRes.ok) throw new Error(t('festival.event.errorLinkFestival'));
       }
 
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save event.');
+      setError(err instanceof Error ? err.message : t('festival.event.errorSave'));
     } finally {
       setSaving(false);
     }
@@ -177,59 +223,72 @@ function EventSlotDialog({
     <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Event' : 'Add Event'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('festival.event.editTitle') : t('festival.event.addTitle')}</DialogTitle>
           <DialogDescription>
-            {roomName} · {formatDate(date, { weekday: 'short', day: 'numeric', month: 'short' })} · {startTime}
+            {roomName} · {formatDate(date, { weekday: 'short', day: 'numeric', month: 'short' }, locale)} · {startTime}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3 pt-1">
           <div className="space-y-1.5">
-            <Label htmlFor="ae-name">Name *</Label>
+            <Label htmlFor="ae-name">{t('festival.event.name')}</Label>
             <Input id="ae-name" value={name} onChange={e => setName(e.target.value)} required />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Event Type *</Label>
-            <Select value={eventTypeId} onValueChange={setEventTypeId} disabled={loadingTypes}>
-              <SelectTrigger><SelectValue placeholder="Select type…" /></SelectTrigger>
-              <SelectContent>
-                {eventTypes.map(et => <SelectItem key={et.id} value={et.id.toString()}>{et.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Start *</Label>
+              <Label>{t('festival.event.eventType')}</Label>
+              <Select value={eventTypeId} onValueChange={setEventTypeId} disabled={loadingTypes}>
+                <SelectTrigger><SelectValue placeholder={t('festival.event.selectType')} /></SelectTrigger>
+                <SelectContent>
+                  {eventTypes.map(et => <SelectItem key={et.id} value={et.id.toString()}>{et.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('festival.event.level')}</Label>
+              <Select value={levelId || 'none'} onValueChange={v => setLevelId(v === 'none' ? '' : v)} disabled={loadingLevels}>
+                <SelectTrigger><SelectValue placeholder={loadingLevels ? t('common.loading') : t('festival.event.none')} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t('festival.event.none')}</SelectItem>
+                  {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>{t('festival.event.start')}</Label>
               <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} required />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="ae-end">End *</Label>
+              <Label htmlFor="ae-end">{t('festival.event.end')}</Label>
               <Input id="ae-end" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} required />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Status</Label>
+              <Label>{t('festival.event.status')}</Label>
               <Select value={status} onValueChange={setStatus}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="confirmed">Confirmed</SelectItem>
-                  <SelectItem value="published">Published</SelectItem>
+                  <SelectItem value="draft">{t('festival.event.draft')}</SelectItem>
+                  <SelectItem value="confirmed">{t('festival.event.confirmed')}</SelectItem>
+                  <SelectItem value="published">{t('festival.event.published')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="ae-cap">Capacity</Label>
+              <Label htmlFor="ae-cap">{t('festival.event.capacity')}</Label>
               <Input id="ae-cap" type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder={String(festival.capacity)} />
             </div>
           </div>
 
-          <MultiSearchSelect label="Artists" items={artists.map(a => ({ id: a.id, name: a.full_name }))} selected={selectedArtists} loading={loadingArtists} placeholder="Search artist…" onChange={setSelectedArtists} />
-          <MultiSearchSelect label="Genres" items={genres} selected={selectedGenres} loading={loadingGenres} placeholder="Search genre…" onChange={setSelectedGenres} />
-          <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style…" onChange={setSelectedStyles} />
+          <MultiSearchSelect label={t('festival.event.artists')} items={artists.map(a => ({ id: a.id, name: a.full_name }))} selected={selectedArtists} loading={loadingArtists} placeholder={t('festival.event.searchArtist')} onChange={setSelectedArtists} />
+          <MultiSearchSelect label={t('festival.event.genres')} items={genres} selected={selectedGenres} loading={loadingGenres} placeholder={t('festival.event.searchGenre')} onChange={setSelectedGenres} />
+          <MultiSearchSelect label={t('festival.event.styles')} items={styles} selected={selectedStyles} loading={loadingStyles} placeholder={t('festival.event.searchStyle')} onChange={setSelectedStyles} />
+          <MultiSearchSelect label={t('festival.event.memberships')} items={memberships.map(m => ({ id: m.id, name: m.name }))} selected={selectedMemberships} loading={loadingMemberships} placeholder={t('festival.event.searchMembership')} onChange={setSelectedMemberships} />
 
           <div className="space-y-1.5">
-            <Label>Color</Label>
+            <Label>{t('festival.event.color')}</Label>
             <div className="flex gap-2 items-center">
               <input type="color" value={color ?? '#e67e22'} onChange={e => setColor(e.target.value)} className="h-8 w-12 rounded border cursor-pointer p-0.5" />
               <Input value={color ?? ''} onChange={e => setColor(e.target.value || null as any)} placeholder="#rrggbb" className="flex-1 h-8 text-sm" />
@@ -237,10 +296,145 @@ function EventSlotDialog({
           </div>
 
           {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex items-center justify-between pt-1">
+            <div>
+              {isEdit && editEvent!.status !== 'published' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={deleting || saving}
+                  onClick={handleDelete}
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                >
+                  {deleting && <Loader2 className="size-3 mr-1 animate-spin" />}{t('common.delete')}
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
+              <Button type="submit" size="sm" disabled={saving || deleting || !eventTypeId}>
+                {saving && <Loader2 className="size-3 mr-1 animate-spin" />}
+                {isEdit ? t('common.save') : t('festival.event.addTitle')}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Add-day dialog ────────────────────────────────────────────────────────────
+
+function AddDayDialog({
+  defaultDate,
+  onClose,
+  onAdd,
+}: {
+  defaultDate: string;
+  onClose: () => void;
+  onAdd: (date: string) => void;
+}) {
+  const { t } = useLanguage();
+  const [date, setDate] = useState(defaultDate);
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-xs">
+        <DialogHeader>
+          <DialogTitle>{t('festival.day.addTitle')}</DialogTitle>
+          <DialogDescription>{t('festival.day.addDesc')}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 pt-1">
+          <div className="space-y-1.5">
+            <Label>{t('festival.day.date')}</Label>
+            <Input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+          </div>
           <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={saving || !eventTypeId}>
-              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}Add
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
+            <Button type="button" size="sm" disabled={!date} onClick={() => date && onAdd(date)}>
+              {t('festival.day.addTitle')}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Add-room dialog ───────────────────────────────────────────────────────────
+
+function AddRoomDialog({
+  day,
+  accessToken,
+  onClose,
+  onAdded,
+}: {
+  day: FestivalDay;
+  accessToken: string;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const { t, language } = useLanguage();
+  const locale = language === 'it' ? 'it-IT' : 'en-GB';
+  const { rooms, loading } = useRooms(accessToken);
+  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const existingIds = new Set(day.rooms.map(fr => fr.room.id));
+  const available = rooms.filter(r => !existingIds.has(r.id));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRoomId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch('/api/festival/festival-rooms/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ festival_day: day.id, room_id: Number(selectedRoomId) }),
+      });
+      if (!res.ok) throw new Error(t('festival.room.errorAdd'));
+      onAdded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('festival.room.errorAdd'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-xs">
+        <DialogHeader>
+          <DialogTitle>{t('festival.room.addTitle')}</DialogTitle>
+          <DialogDescription>
+            {formatDate(day.date, { weekday: 'long', day: 'numeric', month: 'long' }, locale)}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3 pt-1">
+          <div className="space-y-1.5">
+            <Label>{t('festival.room.label')}</Label>
+            <Select value={selectedRoomId} onValueChange={setSelectedRoomId} disabled={loading || available.length === 0}>
+              <SelectTrigger>
+                <SelectValue placeholder={loading ? t('common.loading') : available.length === 0 ? t('festival.room.allAssigned') : t('festival.room.selectPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                {available.map(r => (
+                  <SelectItem key={r.id} value={r.id.toString()}>
+                    {r.name} — {r.location.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
+            <Button type="submit" size="sm" disabled={saving || !selectedRoomId}>
+              {saving && <Loader2 className="size-3 mr-1 animate-spin" />}{t('festival.room.addTitle')}
             </Button>
           </div>
         </form>
@@ -255,17 +449,24 @@ function RoomColumn({
   festivalRoom,
   dayDate,
   dayEvents,
+  copiedEvent,
   onSlotClick,
   onEventClick,
   onEventDrop,
+  onCopy,
+  onPaste,
 }: {
   festivalRoom: FestivalRoom;
   dayDate: string;
   dayEvents: EventItem[];
+  copiedEvent: EventItem | null;
   onSlotClick: (slot: AddSlot) => void;
   onEventClick: (event: EventItem) => void;
   onEventDrop: (eventId: number, room: FestivalRoom, date: string, startMin: number) => void;
+  onCopy: (event: EventItem) => void;
+  onPaste: (slot: AddSlot) => void;
 }) {
+  const { t } = useLanguage();
   const colRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -281,11 +482,16 @@ function RoomColumn({
     const minutes = Math.floor(y / PIXELS_PER_MINUTE / 30) * 30 + DAY_START_MIN;
     const h = Math.floor(minutes / 60) % 24;
     const m = minutes % 60;
-    onSlotClick({
+    const slot: AddSlot = {
       room: festivalRoom,
       date: dayDate,
       startTime: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`,
-    });
+    };
+    if (copiedEvent) {
+      onPaste(slot);
+    } else {
+      onSlotClick(slot);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -306,10 +512,12 @@ function RoomColumn({
     onEventDrop(eventId, festivalRoom, dayDate, startMin);
   };
 
+  const colCursor = copiedEvent ? 'cursor-copy' : 'cursor-crosshair';
+
   return (
     <div
       ref={colRef}
-      className={`relative border-l border-gray-100 cursor-crosshair select-none transition-colors ${dragOver ? 'bg-orange-50' : ''}`}
+      className={`relative border-l border-gray-100 select-none transition-colors ${colCursor} ${dragOver ? 'bg-orange-50' : copiedEvent ? 'bg-amber-50/40' : ''}`}
       style={{ width: ROOM_COL_W, height: GRID_HEIGHT, flexShrink: 0 }}
       onClick={handleClick}
       onDragOver={handleDragOver}
@@ -329,25 +537,39 @@ function RoomColumn({
       {/* Events */}
       {roomEvents.map(ev => {
         const startM = eventMinutes(ev.start_date);
-        const endM = eventMinutes(ev.end_date);
+        const rawEndM = eventMinutes(ev.end_date);
+        const crossesMidnight = ev.end_date.slice(0, 10) > ev.start_date.slice(0, 10);
+        const endM = crossesMidnight ? rawEndM + 24 * 60 : rawEndM;
         const top = minutesToTop(startM);
         const height = Math.max((endM - startM) * PIXELS_PER_MINUTE, 20);
+        const isCopied = copiedEvent?.id === ev.id;
         return (
           <div
             key={ev.id}
-            draggable
+            draggable={!copiedEvent}
             onDragStart={e => {
               e.dataTransfer.effectAllowed = 'move';
               e.dataTransfer.setData('eventId', String(ev.id));
               const rect = e.currentTarget.getBoundingClientRect();
               e.dataTransfer.setData('offsetY', String(e.clientY - rect.top));
             }}
-            className="absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 cursor-grab active:cursor-grabbing hover:opacity-90"
+            className={`group absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 hover:opacity-90 ${copiedEvent ? 'cursor-copy' : 'cursor-grab active:cursor-grabbing'} ${isCopied ? 'ring-2 ring-white ring-offset-1' : ''}`}
             style={{ top, height, backgroundColor: ev.color ?? '#e67e22' }}
-            onClick={e => { e.stopPropagation(); onEventClick(ev); }}
+            onClick={e => { e.stopPropagation(); if (!copiedEvent) onEventClick(ev); }}
           >
-            <div className="font-medium truncate leading-tight">{ev.name}</div>
-            <div className="opacity-80 text-[10px]">{formatTime(ev.start_date)}–{formatTime(ev.end_date)}</div>
+            <div className="flex items-start gap-1">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate leading-tight">{ev.name}</div>
+                <div className="opacity-80 text-[10px]">{formatTime(ev.start_date)}–{formatTime(ev.end_date)}</div>
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); onCopy(ev); }}
+                className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-white/25 transition-opacity cursor-copy"
+                title={t('festival.event.copyTitle')}
+              >
+                <Copy className="size-2.5" />
+              </button>
+            </div>
           </div>
         );
       })}
@@ -361,17 +583,31 @@ function DayGrid({
   day,
   festival,
   allEvents,
+  copiedEvent,
+  removingRoomId,
   onSlotClick,
   onEventClick,
   onEventDrop,
+  onCopy,
+  onPaste,
+  onAddRoom,
+  onRemoveRoom,
 }: {
   day: FestivalDay;
   festival: EventItem;
   allEvents: EventItem[];
+  copiedEvent: EventItem | null;
+  removingRoomId: number | null;
   onSlotClick: (slot: AddSlot) => void;
   onEventClick: (event: EventItem) => void;
   onEventDrop: (eventId: number, room: FestivalRoom, date: string, startMin: number) => void;
+  onCopy: (event: EventItem) => void;
+  onPaste: (slot: AddSlot) => void;
+  onAddRoom: () => void;
+  onRemoveRoom: (fr: FestivalRoom) => void;
 }) {
+  const { t } = useLanguage();
+
   // Events belonging to this festival that fall on this day
   const festivalEventIds = new Set(festival.events);
   const dayEvents = allEvents.filter(e =>
@@ -381,8 +617,15 @@ function DayGrid({
 
   if (day.rooms.length === 0) {
     return (
-      <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
-        No rooms assigned to this day yet.
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 text-sm">
+        <span>{t('festival.room.noRooms')}</span>
+        <button
+          onClick={onAddRoom}
+          className="flex items-center gap-1.5 text-gray-400 hover:text-[#e67e22] transition-colors"
+          title={t('festival.room.addRoomLabel')}
+        >
+          <Plus className="size-4" /> {t('festival.room.addRoomLabel')}
+        </button>
       </div>
     );
   }
@@ -395,12 +638,32 @@ function DayGrid({
         {day.rooms.map(fr => (
           <div
             key={fr.id}
-            className="border-l px-2 py-2 text-sm font-medium text-gray-700 bg-gray-50"
+            className="group border-l px-2 py-2 text-sm font-medium text-gray-700 bg-gray-50 flex items-center justify-between gap-1"
             style={{ width: ROOM_COL_W, flexShrink: 0 }}
           >
-            {fr.room.name}
+            <span className="truncate">{fr.room.name}</span>
+            <button
+              onClick={() => onRemoveRoom(fr)}
+              disabled={removingRoomId === fr.id}
+              className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 disabled:opacity-40"
+              title={t('festival.room.removeTitle')}
+            >
+              {removingRoomId === fr.id
+                ? <Loader2 className="size-3 animate-spin" />
+                : <X className="size-3" />}
+            </button>
           </div>
         ))}
+        {/* Add room button */}
+        <div className="border-l px-2 py-2 bg-gray-50 flex items-center" style={{ flexShrink: 0 }}>
+          <button
+            onClick={onAddRoom}
+            className="text-gray-400 hover:text-[#e67e22] transition-colors"
+            title={t('festival.room.addRoomLabel')}
+          >
+            <Plus className="size-4" />
+          </button>
+        </div>
       </div>
 
       {/* Grid body */}
@@ -435,9 +698,12 @@ function DayGrid({
             festivalRoom={fr}
             dayDate={day.date}
             dayEvents={dayEvents}
+            copiedEvent={copiedEvent}
             onSlotClick={onSlotClick}
             onEventClick={onEventClick}
             onEventDrop={onEventDrop}
+            onCopy={onCopy}
+            onPaste={onPaste}
           />
         ))}
       </div>
@@ -445,29 +711,394 @@ function DayGrid({
   );
 }
 
+// ── Festival info tab ─────────────────────────────────────────────────────────
+
+function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: () => void }) {
+  const { accessToken } = useAuth();
+  const { t, language } = useLanguage();
+  const { rooms, loading: loadingRooms } = useRooms(accessToken);
+  const { levels, loading: loadingLevels } = useLevels(accessToken);
+  const { artists, loading: loadingArtists } = useArtists(accessToken);
+  const { genres, loading: loadingGenres } = useGenres(accessToken);
+  const { styles, loading: loadingStyles } = useStyles(accessToken);
+
+  const [form, setForm] = useState({
+    name:            festival.name,
+    status:          festival.status,
+    type:            festival.type,
+    startDate:       festival.start_date.slice(0, 10),
+    startTime:       festival.start_date.slice(11, 16),
+    endDate:         festival.end_date.slice(0, 10),
+    endTime:         festival.end_date.slice(11, 16),
+    duration:        String(festival.duration),
+    capacity:        String(festival.capacity),
+    roomId:          String(festival.room.id),
+    levelId:         festival.level ? String(festival.level.id) : '',
+    info:            festival.info ?? '',
+    multi_events:    festival.multi_events,
+    free:            festival.free,
+    selectedArtists: festival.artists.map(a => ({ id: a.id, name: a.full_name })),
+    selectedGenres:  festival.genres.map(g => ({ id: g.id, name: g.name })),
+    selectedStyles:  festival.styles.map(s => ({ id: s.id, name: s.name })),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+  const [saved, setSaved]   = useState(false);
+
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
+    setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accessToken) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const payload: EventPayload = {
+        name:           form.name,
+        status:         form.status,
+        event_type_id:  festival.event_type.id,
+        type:           form.type,
+        start_date:     `${form.startDate}T${form.startTime}:00`,
+        end_date:       `${form.endDate}T${form.endTime}:00`,
+        duration:       Number(form.duration),
+        room_id:        Number(form.roomId),
+        capacity:       Number(form.capacity),
+        level_id:       form.levelId ? Number(form.levelId) : null,
+        artist_ids:     form.selectedArtists.map(a => a.id),
+        genre_ids:      form.selectedGenres.map(g => g.id),
+        style_ids:      form.selectedStyles.map(s => s.id),
+        info:           form.info || null,
+        multi_events:   form.multi_events,
+        free:           form.free,
+      };
+      const res = await authFetch(`/api/events/events/${festival.id}/`, accessToken, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(JSON.stringify(body));
+      }
+      setSaved(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('festival.info.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5 pt-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2 space-y-1.5">
+          <Label>{t('festival.info.festivalName')}</Label>
+          <Input value={form.name} onChange={e => set('name', e.target.value)} required />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>{t('festival.event.status')}</Label>
+          <Select value={form.status} onValueChange={v => set('status', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="draft">{t('festival.event.draft')}</SelectItem>
+              <SelectItem value="confirmed">{t('festival.event.confirmed')}</SelectItem>
+              <SelectItem value="published">{t('festival.event.published')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.access')}</Label>
+          <Select value={form.type} onValueChange={v => set('type', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="free">{t('festival.info.free')}</SelectItem>
+              <SelectItem value="members">{t('festival.info.members')}</SelectItem>
+              <SelectItem value="collaboration">{t('festival.info.collaboration')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="col-span-2 flex items-center gap-3">
+          <input
+            id="fi-multi"
+            type="checkbox"
+            checked={form.multi_events}
+            onChange={e => set('multi_events', e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+          />
+          <Label htmlFor="fi-multi" className="cursor-pointer">
+            {t('festival.info.multiEvents')}
+            <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.info.multiEventsNote')}</span>
+          </Label>
+        </div>
+
+        <div className="col-span-2 flex items-center gap-3">
+          <input
+            id="fi-free"
+            type="checkbox"
+            checked={form.free}
+            onChange={e => set('free', e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+          />
+          <Label htmlFor="fi-free" className="cursor-pointer">
+            {t('festival.info.freeChoice')}
+            <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.info.freeChoiceNote')}</span>
+          </Label>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.startDate')}</Label>
+          <Input type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.startTime')}</Label>
+          <Input type="time" value={form.startTime} onChange={e => set('startTime', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.endDate')}</Label>
+          <Input type="date" value={form.endDate} onChange={e => set('endDate', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.endTime')}</Label>
+          <Input type="time" value={form.endTime} onChange={e => set('endTime', e.target.value)} required />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.duration')}</Label>
+          <Input type="number" value={form.duration} onChange={e => set('duration', e.target.value)} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.capacity')}</Label>
+          <Input type="number" value={form.capacity} onChange={e => set('capacity', e.target.value)} required />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>{t('festival.info.mainVenue')}</Label>
+          <Select value={form.roomId} onValueChange={v => set('roomId', v)} disabled={loadingRooms}>
+            <SelectTrigger><SelectValue placeholder={loadingRooms ? t('common.loading') : t('festival.info.selectRoom')} /></SelectTrigger>
+            <SelectContent>
+              {rooms.map(r => (
+                <SelectItem key={r.id} value={r.id.toString()}>{r.name} — {r.location.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>{t('festival.event.level')}</Label>
+          <Select value={form.levelId || 'none'} onValueChange={v => set('levelId', v === 'none' ? '' : v)} disabled={loadingLevels}>
+            <SelectTrigger><SelectValue placeholder={loadingLevels ? t('common.loading') : t('festival.info.selectLevel')} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">{t('festival.event.none')}</SelectItem>
+              {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="col-span-2">
+          <MultiSearchSelect
+            label={t('festival.event.artists')}
+            items={artists.map(a => ({ id: a.id, name: a.full_name }))}
+            selected={form.selectedArtists}
+            loading={loadingArtists}
+            placeholder={t('festival.event.searchArtist')}
+            onChange={v => set('selectedArtists', v)}
+          />
+        </div>
+        <div className="col-span-2">
+          <MultiSearchSelect
+            label={t('festival.event.genres')}
+            items={genres}
+            selected={form.selectedGenres}
+            loading={loadingGenres}
+            placeholder={t('festival.event.searchGenre')}
+            onChange={v => set('selectedGenres', v)}
+          />
+        </div>
+        <div className="col-span-2">
+          <MultiSearchSelect
+            label={t('festival.event.styles')}
+            items={styles}
+            selected={form.selectedStyles}
+            loading={loadingStyles}
+            placeholder={t('festival.event.searchStyle')}
+            onChange={v => set('selectedStyles', v)}
+          />
+        </div>
+
+        <div className="col-span-2 space-y-1.5">
+          <Label>{t('festival.info.infoLabel')}</Label>
+          <Textarea value={form.info} onChange={e => set('info', e.target.value)} rows={3} placeholder={t('festival.info.infoPlaceholder')} />
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded">{error}</p>}
+      {saved && <p className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded">{t('festival.info.saved')}</p>}
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={saving}>
+          {saving ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Save className="size-4 mr-2" />}
+          {t('festival.info.saveChanges')}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 // ── Main FestivalGrid ─────────────────────────────────────────────────────────
 
 export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack: () => void }) {
   const { accessToken } = useAuth();
-  const { days, loading: loadingDays } = useFestivalDays(accessToken, festival.id);
+  const { t, language } = useLanguage();
+  const locale = language === 'it' ? 'it-IT' : 'en-GB';
+  const { days, loading: loadingDays, refetch: refetchDays } = useFestivalDays(accessToken, festival.id);
   const { events: allEvents, refetch: refetchEvents } = useEvents(accessToken);
 
-  const [selectedDayId, setSelectedDayId] = useState<number | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'info' | number>('info');
   const [addingSlot, setAddingSlot] = useState<AddSlot | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [copiedEvent, setCopiedEvent] = useState<EventItem | null>(null);
+  const [addingDay, setAddingDay] = useState(false);
+  const [addDayDialogOpen, setAddDayDialogOpen] = useState(false);
+  const [removingDayId, setRemovingDayId] = useState<number | null>(null);
+  const [dayError, setDayError] = useState<string | null>(null);
+  const [addRoomDay, setAddRoomDay] = useState<FestivalDay | null>(null);
+  const [removingRoomId, setRemovingRoomId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCopiedEvent(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Keep festival in sync with the live events list so festival.events reflects newly added children
   const liveFestival = allEvents.find(e => e.id === festival.id) ?? festival;
 
-  const selectedDay = days.find(d => d.id === selectedDayId) ?? days[0] ?? null;
+  const selectedDay = typeof selectedTab === 'number'
+    ? (days.find(d => d.id === selectedTab) ?? days[0] ?? null)
+    : null;
 
   const formatDayLabel = (date: string) =>
-    formatDate(date, { weekday: 'short', day: 'numeric', month: 'short' });
+    formatDate(date, { weekday: 'short', day: 'numeric', month: 'short' }, locale);
 
   const handleSaved = () => {
     setAddingSlot(null);
     setEditingEvent(null);
     refetchEvents();
+  };
+
+  const handleRemoveDay = async (day: FestivalDay) => {
+    if (!accessToken) return;
+    const festivalIds = new Set(liveFestival.events);
+    const hasEvents = allEvents.some(
+      e => festivalIds.has(e.id) && e.start_date.slice(0, 10) === day.date
+    );
+    if (hasEvents) {
+      const label = formatDayLabel(day.date);
+      const msg = language === 'it'
+        ? `Impossibile rimuovere ${label} — ha ancora lezioni programmate.`
+        : `Cannot remove ${label} — it still has classes scheduled.`;
+      setDayError(msg);
+      setTimeout(() => setDayError(null), 4000);
+      return;
+    }
+    setRemovingDayId(day.id);
+    try {
+      await authFetch(`/api/festival/festival-days/${day.id}/`, accessToken, { method: 'DELETE' });
+      if (selectedTab === day.id) setSelectedTab('info');
+      await refetchDays();
+    } finally {
+      setRemovingDayId(null);
+    }
+  };
+
+  const handleRemoveRoom = async (fr: FestivalRoom, day: FestivalDay) => {
+    if (!accessToken) return;
+    const festivalIds = new Set(liveFestival.events);
+    const hasEvents = allEvents.some(
+      e => festivalIds.has(e.id) && e.start_date.slice(0, 10) === day.date && e.room.id === fr.room.id
+    );
+    if (hasEvents) {
+      const msg = language === 'it'
+        ? `Impossibile rimuovere "${fr.room.name}" — ha ancora lezioni programmate in questo giorno.`
+        : `Cannot remove "${fr.room.name}" — it still has classes scheduled on this day.`;
+      setDayError(msg);
+      setTimeout(() => setDayError(null), 4000);
+      return;
+    }
+    setRemovingRoomId(fr.id);
+    try {
+      await authFetch(`/api/festival/festival-rooms/${fr.id}/`, accessToken, { method: 'DELETE' });
+      await refetchDays();
+    } finally {
+      setRemovingRoomId(null);
+    }
+  };
+
+  const handleAddDay = async (date: string) => {
+    if (!accessToken) return;
+    setAddDayDialogOpen(false);
+    setAddingDay(true);
+    try {
+      const res = await authFetch('/api/festival/festival-days/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ event_id: festival.id, date }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        await refetchDays();
+        setSelectedTab(created.id);
+      }
+    } finally {
+      setAddingDay(false);
+    }
+  };
+
+  const handlePaste = async (slot: AddSlot) => {
+    if (!copiedEvent || !accessToken) return;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const startMin = parseInt(slot.startTime.slice(0, 2), 10) * 60 + parseInt(slot.startTime.slice(3, 5), 10);
+    const endMin = startMin + copiedEvent.duration;
+    const toISO = (totalMin: number) => {
+      const effectiveDate = totalMin >= 24 * 60 ? addOneDay(slot.date) : slot.date;
+      const h = Math.floor(totalMin / 60) % 24;
+      const m = totalMin % 60;
+      return `${effectiveDate}T${pad(h)}:${pad(m)}:00`;
+    };
+    try {
+      const res = await authFetch('/api/events/events/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: copiedEvent.name,
+          status: copiedEvent.status,
+          event_type_id: copiedEvent.event_type.id,
+          type: copiedEvent.type,
+          start_date: toISO(startMin),
+          end_date: toISO(endMin),
+          duration: copiedEvent.duration,
+          room_id: slot.room.room.id,
+          capacity: copiedEvent.capacity,
+          level_id: copiedEvent.level?.id ?? null,
+          artist_ids: copiedEvent.artists.map(a => a.id),
+          genre_ids: copiedEvent.genres.map(g => g.id),
+          style_ids: copiedEvent.styles.map(s => s.id),
+          color: copiedEvent.color,
+        } satisfies EventPayload),
+      });
+      if (!res.ok) return;
+      const created: EventItem = await res.json();
+      await authFetch(`/api/events/events/${liveFestival.id}/`, accessToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ event_ids: [...liveFestival.events, created.id] }),
+      });
+      refetchEvents();
+    } catch {
+      // silently ignore — user can try again
+    }
   };
 
   const handleEventDrop = async (
@@ -482,9 +1113,10 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
 
     const pad = (n: number) => n.toString().padStart(2, '0');
     const toISO = (date: string, totalMin: number) => {
+      const effectiveDate = totalMin >= 24 * 60 ? addOneDay(date) : date;
       const h = Math.floor(totalMin / 60) % 24;
       const m = totalMin % 60;
-      return `${date}T${pad(h)}:${pad(m)}:00`;
+      return `${effectiveDate}T${pad(h)}:${pad(m)}:00`;
     };
 
     // All other festival events in the target room on the target date, sorted by start
@@ -546,55 +1178,129 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={onBack}>
-            <ArrowLeft className="size-4 mr-1" /> Festivals
+            <ArrowLeft className="size-4 mr-1" /> {t('festival.grid.back')}
           </Button>
           <div>
             <h2 className="font-semibold text-lg text-[#2b2b2b]">{liveFestival.name}</h2>
             <p className="text-xs text-gray-500">
-              {formatDate(liveFestival.start_date, { day: 'numeric', month: 'short', year: 'numeric' })}
+              {formatDate(liveFestival.start_date, { day: 'numeric', month: 'short', year: 'numeric' }, locale)}
               {' – '}
-              {formatDate(liveFestival.end_date, { day: 'numeric', month: 'short', year: 'numeric' })}
+              {formatDate(liveFestival.end_date, { day: 'numeric', month: 'short', year: 'numeric' }, locale)}
             </p>
           </div>
         </div>
         <Badge variant="outline">{liveFestival.status}</Badge>
       </div>
 
-      {/* Day tabs */}
-      {loadingDays ? (
-        <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-gray-400" /></div>
-      ) : days.length === 0 ? (
-        <div className="text-center py-12 text-gray-400 text-sm">No days configured for this festival.</div>
-      ) : (
-        <>
-          <div className="flex gap-1 border-b">
+      {/* Tabs: Info + one per day */}
+      <div className="flex gap-1 border-b">
+        <button
+          onClick={() => setSelectedTab('info')}
+          className={[
+            'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+            selectedTab === 'info'
+              ? 'border-[#e67e22] text-[#e67e22]'
+              : 'border-transparent text-gray-500 hover:text-gray-800',
+          ].join(' ')}
+        >
+          {t('festival.grid.info')}
+        </button>
+        {loadingDays ? (
+          <span className="px-4 py-2"><Loader2 className="size-4 animate-spin text-gray-400" /></span>
+        ) : (
+          <>
             {days.map(day => (
-              <button
+              <div
                 key={day.id}
-                onClick={() => setSelectedDayId(day.id)}
                 className={[
-                  'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                  (selectedDay?.id === day.id)
+                  'group flex items-center gap-1 border-b-2 -mb-px transition-colors',
+                  selectedTab === day.id
                     ? 'border-[#e67e22] text-[#e67e22]'
                     : 'border-transparent text-gray-500 hover:text-gray-800',
                 ].join(' ')}
               >
-                {formatDayLabel(day.date)}
-              </button>
+                <button
+                  onClick={() => setSelectedTab(day.id)}
+                  className="px-3 py-2 text-sm font-medium"
+                >
+                  {formatDayLabel(day.date)}
+                </button>
+                <button
+                  onClick={() => handleRemoveDay(day)}
+                  disabled={removingDayId === day.id}
+                  className="pr-2 py-2 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 disabled:opacity-40"
+                  title={t('festival.grid.removeDay')}
+                >
+                  {removingDayId === day.id
+                    ? <Loader2 className="size-3 animate-spin" />
+                    : <X className="size-3" />}
+                </button>
+              </div>
             ))}
-          </div>
+            {days.length > 0 && (
+              <button
+                onClick={() => setAddDayDialogOpen(true)}
+                disabled={addingDay}
+                className="px-3 py-2 text-sm font-medium border-b-2 border-transparent -mb-px text-gray-400 hover:text-[#e67e22] transition-colors disabled:opacity-40"
+                title={t('festival.grid.addDay')}
+              >
+                {addingDay ? <Loader2 className="size-4 animate-spin" /> : '+'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
 
-          {selectedDay && (
-            <DayGrid
-              day={selectedDay}
-              festival={liveFestival}
-              allEvents={allEvents}
-              onSlotClick={setAddingSlot}
-              onEventClick={setEditingEvent}
-              onEventDrop={handleEventDrop}
-            />
-          )}
-        </>
+      {dayError && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+          {dayError}
+        </p>
+      )}
+
+      {/* Copy/paste banner */}
+      {copiedEvent && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+          <ClipboardPaste className="size-4 text-amber-600 flex-shrink-0" />
+          <span className="text-amber-800">
+            {t('festival.grid.pasteHint')} <strong>{copiedEvent.name}</strong>
+          </span>
+          <button
+            onClick={() => setCopiedEvent(null)}
+            className="ml-auto text-amber-500 hover:text-amber-800 transition-colors"
+            title={t('festival.grid.cancelEsc')}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {selectedTab === 'info' && (
+        <FestivalInfoTab festival={liveFestival} onSaved={refetchEvents} />
+      )}
+
+      {selectedTab !== 'info' && (
+        selectedDay ? (
+          <DayGrid
+            day={selectedDay}
+            festival={liveFestival}
+            allEvents={allEvents}
+            copiedEvent={copiedEvent}
+            removingRoomId={removingRoomId}
+            onSlotClick={setAddingSlot}
+            onEventClick={setEditingEvent}
+            onEventDrop={handleEventDrop}
+            onCopy={setCopiedEvent}
+            onPaste={handlePaste}
+            onAddRoom={() => setAddRoomDay(selectedDay)}
+            onRemoveRoom={fr => handleRemoveRoom(fr, selectedDay)}
+          />
+        ) : (
+          !loadingDays && (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              {t('festival.grid.noDays')}
+            </div>
+          )
+        )
       )}
 
       {/* Create event dialog */}
@@ -614,6 +1320,25 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
           festival={liveFestival}
           onClose={() => setEditingEvent(null)}
           onSaved={handleSaved}
+        />
+      )}
+
+      {/* Add day dialog */}
+      {addDayDialogOpen && (
+        <AddDayDialog
+          defaultDate={days.length > 0 ? addOneDay(days[days.length - 1].date) : ''}
+          onClose={() => setAddDayDialogOpen(false)}
+          onAdd={handleAddDay}
+        />
+      )}
+
+      {/* Add room dialog */}
+      {addRoomDay && accessToken && (
+        <AddRoomDialog
+          day={addRoomDay}
+          accessToken={accessToken}
+          onClose={() => setAddRoomDay(null)}
+          onAdded={() => { setAddRoomDay(null); refetchDays(); }}
         />
       )}
     </div>

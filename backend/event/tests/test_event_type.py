@@ -2,7 +2,7 @@ import pytest
 from django.urls import reverse
 from rest_framework import status
 
-from event.models import EventType, Frequency
+from event.models import EventType, Frequency, PartnerRole
 from utils.mock_event_type import make_event_type_payload, make_event_type_payloads
 
 LIST_URL = "/api/events/event-types/"
@@ -16,13 +16,13 @@ def detail_url(pk):
 
 class TestEventTypePermissions:
 
-    def test_unauthenticated_request_returns_401(self, client, db):
+    def test_unauthenticated_can_list_event_types(self, client, db):
         response = client.get(LIST_URL)
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == status.HTTP_200_OK
 
-    def test_student_cannot_list_event_types(self, student_client, db):
+    def test_student_can_list_event_types(self, student_client, db):
         response = student_client.get(LIST_URL)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
 
     def test_student_cannot_create_event_type(self, student_client, db):
         response = student_client.post(LIST_URL, make_event_type_payload(), format="json")
@@ -58,7 +58,7 @@ class TestEventTypeList:
         EventType.objects.create(**make_event_type_payload())
 
         response = staff_client.get(LIST_URL)
-        assert set(response.data[0].keys()) == {"id", "name", "frequency", "partners"}
+        assert set(response.data[0].keys()) == {"id", "name", "frequency", "partners", "partner_roles"}
 
     def test_empty_list_returns_empty_array(self, staff_client, db):
         response = staff_client.get(LIST_URL)
@@ -70,7 +70,10 @@ class TestEventTypeList:
 class TestEventTypeCreate:
 
     def test_staff_can_create_event_type(self, staff_client, db):
+        payload = make_event_type_payload()
+        # payload["partners"] = 0
         response = staff_client.post(LIST_URL, make_event_type_payload(), format="json")
+        print (response.data)
         assert response.status_code == status.HTTP_201_CREATED
 
     def test_create_persists_to_db(self, staff_client, db):
@@ -98,6 +101,25 @@ class TestEventTypeCreate:
 
     def test_create_with_empty_body_returns_400(self, staff_client, db):
         response = staff_client.post(LIST_URL, {}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_event_with_partners(self, staff_client, world_data, roles):
+        payload = make_event_type_payload()
+        payload["partners"] = 3
+        payload["role_ids"] = [role.id for role in PartnerRole.objects.all()]
+        response = staff_client.post(LIST_URL, payload, format="json")
+        print (response.data)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert "partner_roles" in response.data
+        expected = {(role.id, role.name) for role in PartnerRole.objects.all()}
+        actual = {(d["id"], d["name"]) for d in response.data["partner_roles"]}
+        assert actual == expected
+
+    def test_create_event_with_different_partner_400(self, staff_client, world_data, roles):
+        payload = make_event_type_payload()
+        payload["partners"] = 2
+        payload["partner_roles"] = PartnerRole.objects.first().id
+        response = staff_client.post(LIST_URL, payload, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 

@@ -7,7 +7,6 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Button } from '../components/ui/button';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { Music } from 'lucide-react';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -26,7 +25,7 @@ export function Login() {
     try {
       const loggedInUser = await login(email, password);
       if (loggedInUser) {
-        navigate(loggedInUser.role === 'admin' ? '/admin' : '/student');
+        navigate(loggedInUser.role === 'admin' ? '/admin' : '/');
       } else {
         setError('Invalid email or password');
       }
@@ -42,7 +41,7 @@ export function Login() {
       <Card className="w-full max-w-md border-[#d4b896]/30">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <Music className="size-12 text-[#e67e22]" />
+            <img src="/logo.png" alt="Bounce" className="size-16 object-contain" />
           </div>
           <CardTitle className="text-3xl text-[#2b2b2b]">{t('login.title')}</CardTitle>
           <CardDescription>{t('login.subtitle')}</CardDescription>
@@ -84,21 +83,32 @@ export function Login() {
               {loading ? '...' : t('login.submit')}
             </Button>
 
-            <p className="text-center text-sm text-gray-600 mt-4">
+            <p className="text-center text-sm mt-1">
+              <Link to="/forgot-password" className="text-[#e67e22] hover:underline text-sm">
+                {t('login.forgotPassword')}
+              </Link>
+            </p>
+
+            <p className="text-center text-sm text-gray-600 mt-2">
               {t('login.noAccount')} <Link to="/register" className="text-[#e67e22] hover:underline font-semibold">{t('login.register')}</Link>
             </p>
           </form>
 
-          <div className="mt-6 p-4 bg-[#d4b896]/10 rounded-lg border border-[#d4b896]/30">
-            <p className="text-sm font-semibold mb-2 text-[#2b2b2b]">{t('login.demo.title')}:</p>
-            <div className="text-xs space-y-1 text-gray-600">
-              <p>
-                <strong>{t('login.demo.admin')}:</strong> admin@danceschool.com / qualsiasi password
-              </p>
-              <p>
-                <strong>{t('login.demo.student')}:</strong> student@example.com / qualsiasi password
-              </p>
-            </div>
+          <div className="mt-6 p-4 bg-[#d4b896]/10 rounded-lg border border-[#d4b896]/30 space-y-2">
+            <p className="text-xs text-gray-600 text-center">
+              {t('login.termsPrefix')}{' '}
+              <a
+                href="https://www.bounceswinglovers.com/privacy-cookie-policy/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#e67e22] hover:underline font-semibold"
+              >
+                {t('login.termsLink')}
+              </a>
+            </p>
+            <p className="text-xs text-gray-500 text-center italic">
+              {t('login.acsiNotice')}
+            </p>
           </div>
         </CardContent>
       </Card>

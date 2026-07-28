@@ -1,10 +1,24 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authFetch } from '../../lib/api';
 import type { Membership } from './useMemberships';
+import type { Discount } from './useDiscounts';
 
 const BASE = '/api/booking/my-memberships/';
 
-export type ContributionStatus = 'received' | 'accepted' | 'confirmed';
+export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed' | 'waiting' | 'cancelled';
+
+/** Lightweight embedded view of a related contribution (may belong to another user). */
+export interface LinkedContribution {
+  id: number;
+  status: ContributionStatus;
+  amount: string;
+  discounted_amount: string;
+  events: number[];
+  membership: Membership | null;
+  discounts: Discount[];
+  role: string | null;
+  partner: string | null;
+}
 
 export interface UserMembership {
   id: number;
@@ -15,6 +29,12 @@ export interface UserMembership {
   start_date: string | null;
   end_date: string | null;
   upgraded_from: number | null;
+  original_contribution: LinkedContribution | null;
+  twin_contributions: LinkedContribution[];
+  role: string | null;
+  partner: string | null;
+  discounts: Discount[];
+  discounted_amount: string;
 }
 
 async function extractErrorMessage(res: Response): Promise<string> {
@@ -78,5 +98,12 @@ export function useUserMemberships(token: string | null) {
     await fetchAll();
   }, [token, fetchAll]);
 
-  return { userMemberships, loading, error, refetch: fetchAll, create, upgrade, addEvent };
+  const cancel = useCallback(async (id: number): Promise<void> => {
+    if (!token) return;
+    const res = await authFetch(`${BASE}${id}/`, token, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    await fetchAll();
+  }, [token, fetchAll]);
+
+  return { userMemberships, loading, error, refetch: fetchAll, create, upgrade, addEvent, cancel };
 }

@@ -13,14 +13,14 @@ def mock_celery_tasks():
     Block Celery tasks from firing during notification tests.
     transaction=True causes real commits which trigger on_commit signals.
     """
-    with patch("users.tasks.send_to_kafka.delay"), \
-         patch("users.tasks.send_activation_email.delay"):
+    with patch("utils.tasks.send_to_kafka.delay"), \
+         patch("utils.tasks.send_activation_email.delay"):
         yield
 
 @pytest.fixture(autouse=True)
 def mock_kafka_producer():
     """Prevent real Kafka connections in all notification tests."""
-    with patch("users.tasks.get_producer") as mock_get:
+    with patch("utils.tasks.get_producer") as mock_get:
         mock_get.return_value = MagicMock()
         yield
 

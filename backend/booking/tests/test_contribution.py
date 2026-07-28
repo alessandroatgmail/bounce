@@ -15,7 +15,7 @@ from rest_framework import status as http_status
 
 from booking.models import Booking, Contribution, ContributionStatus
 from event.models import Event, EventType
-from membership.models import Membership, MembershipRule
+from membership.models import Membership, MembershipRule, Discount
 from utils.mock_event import make_event_payload
 from utils.mock_event_type import make_event_type_payload
 
@@ -164,6 +164,39 @@ class TestContributionCRUD:
         Contribution.objects.create(amount=20, user=subject_user)
         res = admin_client.get(LIST_URL)
         assert len(res.data) == 2
+
+
+# ── start_date assignment ─────────────────────────────────────────────────────
+
+class TestContributionStartDate:
+
+    def _create_via_api(self, admin_client, subject_user, event, membership):
+        payload = make_contribution_payload(
+            subject_user,
+            event_ids=[event.pk],
+            membership_id=membership.pk,
+        )
+        return admin_client.post(LIST_URL, payload, format="json")
+
+    def test_future_event_start_date_is_event_start(self, admin_client, subject_user, world_data):
+        now = timezone.now()
+        future_event = make_event_at(now + timedelta(days=10))
+        membership = Membership.objects.create(name="Pass", contribution=100)
+        res = self._create_via_api(admin_client, subject_user, future_event, membership)
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.start_date is not None
+        assert abs((c.start_date - future_event.start_date).total_seconds()) < 1
+
+    def test_past_event_start_date_is_now(self, admin_client, subject_user, world_data):
+        now = timezone.now()
+        past_event = make_event_at(now - timedelta(days=10))
+        membership = Membership.objects.create(name="Pass", contribution=100)
+        res = self._create_via_api(admin_client, subject_user, past_event, membership)
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.start_date is not None
+        assert c.start_date >= now - timedelta(seconds=5)
 
 
 # ── Booking sync helpers ──────────────────────────────────────────────────────
@@ -385,33 +418,6 @@ class TestMembershipRuleValidation:
         body = str(res.data)
         assert et.name in body or "event_ids" in body
 
-    def test_create_higher_limit_allows_multiple(self, admin_client, subject_user, world_data):
-        et = make_event_type()
-        m = make_membership_with_rule(et, max_events=2)
-        e1 = make_event_with_type(et)
-        e2 = make_event_with_type(et)
-        res = admin_client.post(
-            LIST_URL,
-            make_contribution_payload(subject_user, event_ids=[e1.pk, e2.pk], membership_id=m.pk),
-            format="json",
-        )
-        assert res.status_code == http_status.HTTP_201_CREATED
-
-    def test_create_different_event_types_each_within_limit(self, admin_client, subject_user, world_data):
-        et_a = make_event_type()
-        et_b = make_event_type()
-        m = Membership.objects.create(name="Combo Plan", contribution=200)
-        MembershipRule.objects.create(membership=m, event_type=et_a, max_events=1)
-        MembershipRule.objects.create(membership=m, event_type=et_b, max_events=1)
-        event_a = make_event_with_type(et_a)
-        event_b = make_event_with_type(et_b)
-        res = admin_client.post(
-            LIST_URL,
-            make_contribution_payload(subject_user, event_ids=[event_a.pk, event_b.pk], membership_id=m.pk),
-            format="json",
-        )
-        assert res.status_code == http_status.HTTP_201_CREATED
-
     def test_create_event_type_not_in_rules_returns_400(self, admin_client, subject_user, world_data):
         """Membership has a rule for et_a only; events of et_b must be rejected."""
         et_a = make_event_type()
@@ -440,10 +446,9 @@ class TestMembershipRuleValidation:
         m = Membership.objects.create(name="Open Plan", contribution=0)
         et = make_event_type()
         e1 = make_event_with_type(et)
-        e2 = make_event_with_type(et)
         res = admin_client.post(
             LIST_URL,
-            make_contribution_payload(subject_user, event_ids=[e1.pk, e2.pk], membership_id=m.pk),
+            make_contribution_payload(subject_user, event_ids=[e1.pk], membership_id=m.pk),
             format="json",
         )
         assert res.status_code == http_status.HTTP_201_CREATED
@@ -480,7 +485,7 @@ class TestMembershipRuleValidation:
         cid = res.data["id"]
         res2 = admin_client.put(
             detail_url(cid),
-            make_contribution_payload(subject_user, event_ids=[e1.pk, e2.pk], membership_id=m.pk),
+            make_contribution_payload(subject_user, event_ids=[e2.pk], membership_id=m.pk),
             format="json",
         )
         assert res2.status_code == http_status.HTTP_200_OK
@@ -586,6 +591,101 @@ class TestMembershipTotalCap:
             format="json",
         )
         assert res.status_code == http_status.HTTP_201_CREATED
+
+
+# ── Discounts (admin) ─────────────────────────────────────────────────────────
+
+def make_discount(name="DISC", rate=None, amount=None):
+    return Discount.objects.create(
+        name=name, name_ext=f"{name} extended", description="test discount",
+        rate=rate, amount=amount,
+    )
+
+
+class TestContributionDiscounts:
+
+    def test_create_with_discounts(self, admin_client, subject_user, db):
+        d1 = make_discount("D1", rate=10)
+        d2 = make_discount("D2", amount="5.00")
+        res = admin_client.post(
+            LIST_URL,
+            make_contribution_payload(subject_user, amount="100.00", discount_ids=[d1.pk, d2.pk]),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert set(c.discounts.values_list("pk", flat=True)) == {d1.pk, d2.pk}
+
+    def test_create_without_discounts(self, admin_client, subject_user, db):
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["discounts"] == []
+
+    def test_response_includes_discounts_and_discounted_amount(self, admin_client, subject_user, db):
+        d = make_discount("RATE10", rate=10)
+        res = admin_client.post(
+            LIST_URL,
+            make_contribution_payload(subject_user, amount="100.00", discount_ids=[d.pk]),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert len(res.data["discounts"]) == 1
+        assert res.data["discounts"][0]["name"] == "RATE10"
+        assert float(res.data["discounted_amount"]) == pytest.approx(90.0)
+
+    def test_discounted_amount_stacks_rate_and_amount(self, admin_client, subject_user, db):
+        d1 = make_discount("D1", rate=10)
+        d2 = make_discount("D2", amount="5.00")
+        res = admin_client.post(
+            LIST_URL,
+            make_contribution_payload(subject_user, amount="100.00", discount_ids=[d1.pk, d2.pk]),
+            format="json",
+        )
+        # 100 * 0.9 = 90, then -5 = 85 (order-independent since rate applies to base each time)
+        assert float(res.data["discounted_amount"]) == pytest.approx(85.0)
+
+    def test_update_adds_discounts(self, admin_client, subject_user, db):
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        d = make_discount("LATE", rate=20)
+        res = admin_client.put(
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, amount="100.00", discount_ids=[d.pk]),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert list(c.discounts.values_list("pk", flat=True)) == [d.pk]
+        assert float(res.data["discounted_amount"]) == pytest.approx(80.0)
+
+    def test_update_removes_discounts(self, admin_client, subject_user, db):
+        d = make_discount("GONE", rate=50)
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        c.discounts.add(d)
+        res = admin_client.put(
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, amount="100.00", discount_ids=[]),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert c.discounts.count() == 0
+
+    def test_update_without_discount_ids_keeps_existing(self, admin_client, subject_user, db):
+        d = make_discount("KEEP", rate=10)
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        c.discounts.add(d)
+        res = admin_client.put(
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, amount="100.00"),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert list(c.discounts.values_list("pk", flat=True)) == [d.pk]
+
+    def test_list_includes_discounts(self, admin_client, subject_user, db):
+        d = make_discount("LIST", rate=10)
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        c.discounts.add(d)
+        res = admin_client.get(LIST_URL)
+        assert res.data[0]["discounts"][0]["name"] == "LIST"
 
 
 # ── end_date auto-computation (admin) ─────────────────────────────────────────

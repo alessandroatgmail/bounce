@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { useEventTypes, EventType, EventTypePayload, FREQUENCIES } from '../hooks/useEventTypes';
+import { usePartnerRoles, PartnerRole } from '../hooks/usePartnerRoles';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Button } from './ui/button';
@@ -10,30 +11,49 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Badge } from './ui/badge';
+import { MultiSearchSelect } from './MultiSearchSelect';
 
-const EMPTY: EventTypePayload = { name: '', frequency: '', partners: 0 };
+const EMPTY: EventTypePayload = { name: '', frequency: '', partners: 0, role_ids: [] };
 
 interface FormProps {
   initial?: EventTypePayload;
+  initialRoles?: PartnerRole[];
+  availableRoles: PartnerRole[];
+  loadingRoles: boolean;
   onSubmit: (data: EventTypePayload) => Promise<void>;
   onCancel: () => void;
 }
 
-function EventTypeForm({ initial = EMPTY, onSubmit, onCancel }: FormProps) {
+function EventTypeForm({ initial = EMPTY, initialRoles = [], availableRoles, loadingRoles, onSubmit, onCancel }: FormProps) {
   const { language } = useLanguage();
   const [form, setForm] = useState<EventTypePayload>(initial);
+  const [selectedRoles, setSelectedRoles] = useState<PartnerRole[]>(initialRoles);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const set = (field: keyof EventTypePayload, value: string | number) =>
+  const set = (field: keyof EventTypePayload, value: string | number | number[]) =>
     setForm(f => ({ ...f, [field]: value }));
+
+  const handlePartnersChange = (value: number) => {
+    set('partners', value);
+    if (value === 0) setSelectedRoles([]);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.partners > 0 && selectedRoles.length !== form.partners) {
+      setError(
+        language === 'it'
+          ? `Seleziona esattamente ${form.partners} ruolo/i.`
+          : `Select exactly ${form.partners} role(s).`
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await onSubmit(form);
+      await onSubmit({ ...form, role_ids: selectedRoles.map(r => r.id) });
     } catch {
       setError(language === 'it' ? 'Errore durante il salvataggio.' : 'Failed to save.');
     } finally {
@@ -74,10 +94,32 @@ function EventTypeForm({ initial = EMPTY, onSubmit, onCancel }: FormProps) {
           type="number"
           min={0}
           value={form.partners}
-          onChange={e => set('partners', parseInt(e.target.value, 10) || 0)}
+          onChange={e => handlePartnersChange(parseInt(e.target.value, 10) || 0)}
           required
         />
       </div>
+
+      {form.partners > 0 && (
+        <div className="space-y-1">
+          <MultiSearchSelect
+            label={
+              language === 'it'
+                ? `Ruoli Partner (seleziona esattamente ${form.partners})`
+                : `Partner Roles (select exactly ${form.partners})`
+            }
+            items={availableRoles}
+            selected={selectedRoles}
+            loading={loadingRoles}
+            placeholder={language === 'it' ? 'Cerca ruolo...' : 'Search role...'}
+            onChange={roles => {
+              if (roles.length <= form.partners) setSelectedRoles(roles);
+            }}
+          />
+          <p className="text-xs text-gray-400">
+            {selectedRoles.length}/{form.partners} {language === 'it' ? 'selezionati' : 'selected'}
+          </p>
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
@@ -98,10 +140,14 @@ export function EventTypePanel() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const { eventTypes, loading, error, create, update, remove } = useEventTypes(accessToken);
+  const { partnerRoles, loading: loadingRoles } = usePartnerRoles(accessToken);
 
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<EventType | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const resolveInitialRoles = (et: EventType): PartnerRole[] =>
+    partnerRoles.filter(r => et.partner_roles.some(pr => pr.id === r.id));
 
   const handleCreate = async (data: EventTypePayload) => {
     await create(data);
@@ -147,7 +193,12 @@ export function EventTypePanel() {
                   {language === 'it' ? 'Compila i campi per creare un nuovo tipo.' : 'Fill in the fields to create a new type.'}
                 </DialogDescription>
               </DialogHeader>
-              <EventTypeForm onSubmit={handleCreate} onCancel={() => setAddOpen(false)} />
+              <EventTypeForm
+                availableRoles={partnerRoles}
+                loadingRoles={loadingRoles}
+                onSubmit={handleCreate}
+                onCancel={() => setAddOpen(false)}
+              />
             </DialogContent>
           </Dialog>
         </div>
@@ -169,13 +220,14 @@ export function EventTypePanel() {
                 <TableHead>{language === 'it' ? 'Nome' : 'Name'}</TableHead>
                 <TableHead>{language === 'it' ? 'Frequenza' : 'Frequency'}</TableHead>
                 <TableHead>{language === 'it' ? 'Partner' : 'Partners'}</TableHead>
+                <TableHead>{language === 'it' ? 'Ruoli' : 'Roles'}</TableHead>
                 <TableHead>{language === 'it' ? 'Azioni' : 'Actions'}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {eventTypes.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-gray-400 py-8">
+                  <TableCell colSpan={5} className="text-center text-gray-400 py-8">
                     {language === 'it' ? 'Nessun tipo di evento.' : 'No event types yet.'}
                   </TableCell>
                 </TableRow>
@@ -185,6 +237,16 @@ export function EventTypePanel() {
                   <TableCell className="font-medium">{et.name}</TableCell>
                   <TableCell>{et.frequency}</TableCell>
                   <TableCell>{et.partners}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {et.partner_roles.length === 0
+                        ? <span className="text-gray-400 text-xs">—</span>
+                        : et.partner_roles.map(role => (
+                            <Badge key={role.id} variant="outline" className="text-xs">{role.name}</Badge>
+                          ))
+                      }
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       {/* Edit */}
@@ -200,7 +262,10 @@ export function EventTypePanel() {
                             <DialogDescription>{et.name}</DialogDescription>
                           </DialogHeader>
                           <EventTypeForm
-                            initial={{ name: et.name, frequency: et.frequency, partners: et.partners }}
+                            initial={{ name: et.name, frequency: et.frequency, partners: et.partners, role_ids: [] }}
+                            initialRoles={resolveInitialRoles(et)}
+                            availableRoles={partnerRoles}
+                            loadingRoles={loadingRoles}
                             onSubmit={handleUpdate}
                             onCancel={() => setEditing(null)}
                           />

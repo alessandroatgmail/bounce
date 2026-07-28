@@ -16,9 +16,15 @@ export interface EventType {
   name: string;
   frequency: Frequency;
   partners: number;
+  partner_roles: { id: number; name: string }[];
 }
 
-export type EventTypePayload = Omit<EventType, 'id'>;
+export interface EventTypePayload {
+  name: string;
+  frequency: string;
+  partners: number;
+  role_ids?: number[];
+}
 
 export function useEventTypes(token: string | null) {
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);

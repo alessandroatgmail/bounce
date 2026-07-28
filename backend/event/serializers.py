@@ -1,14 +1,59 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Prefetch
 from rest_framework import serializers
 from users.models import City
-from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status
+from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole
+from membership.models import Membership
+
+
+class PartnerRoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PartnerRole
+        fields = ["id", "name"]
 
 
 class EventTypeSerializer(serializers.ModelSerializer):
+    partner_roles = PartnerRoleSerializer(many=True, read_only=True)
+    role_ids = serializers.PrimaryKeyRelatedField(
+        many=True, write_only=True, source="partner_roles", queryset=PartnerRole.objects.all(),
+        required=False
+    )
     class Meta:
         model = EventType
-        fields = ["id", "name", "frequency", "partners"]
+        fields = ["id", "name", "frequency", "partners", "role_ids", "partner_roles"]
 
+    def validate(self, data):
+        # In partial updates (PATCH), skip validation if neither field is provided.
+        # self.partial is True when the serializer is initialized with partial=True.
+        if self.partial and "partners" not in data and "partner_roles" not in data:
+            return data
+
+        partners = data.get("partners", getattr(self.instance, "partners", None))
+        role_ids = data.get("partner_roles", None)
+
+        if partners and role_ids:
+            if partners != len(role_ids):
+                raise serializers.ValidationError("Wrong number of roles")
+        else:
+            if not (partners == 0 and not role_ids):
+                raise serializers.ValidationError("Wrong number of roles")
+
+        return data
+
+    def create(self, validated_data):
+        roles = validated_data.pop("partner_roles", [])
+        event_type = EventType.objects.create(**validated_data)
+        event_type.partner_roles.set(roles)
+        return event_type
+
+    def update(self, instance, validated_data):
+        roles = validated_data.pop("partner_roles", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        if roles:
+            instance.partner_roles.set(roles)
+        return instance
 
 
 class CitySerializer(serializers.ModelSerializer):
@@ -137,6 +182,27 @@ class ArtistSerializer(serializers.ModelSerializer):
         return instance
 
 
+class EventAdminListSerializer(serializers.ModelSerializer):
+    """Flat, read-only shape for the admin events table: no nested relations."""
+    event_type_name = serializers.CharField(source="event_type.name", read_only=True)
+    room = serializers.StringRelatedField(read_only=True)
+    artists = serializers.SerializerMethodField()
+    available_spot = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = [
+            "id", "name", "status", "event_type_name", "start_date",
+            "room", "artists", "capacity", "available_spot",
+        ]
+
+    def get_artists(self, obj):
+        return [str(artist) for artist in obj.artists.all()]
+
+    def get_available_spot(self, obj):
+        return obj.capacity - obj.payed_count
+
+
 class EventSerializer(serializers.ModelSerializer):
     event_type = EventTypeSerializer(read_only=True)
     event_type_id = serializers.PrimaryKeyRelatedField(
@@ -167,7 +233,21 @@ class EventSerializer(serializers.ModelSerializer):
     event_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Event.objects.all(), source="events", write_only=True, required=False
     )
+    accepted_roles = PartnerRoleSerializer(many=True, read_only=True)
+    accepted_role_ids = serializers.PrimaryKeyRelatedField(
+        many=True, write_only=True, source="accepted_roles",
+        queryset=PartnerRole.objects.all(), required=False,
+    )
+    memberships = serializers.SerializerMethodField()
+    membership_ids = serializers.PrimaryKeyRelatedField(
+        many=True, write_only=True, source="memberships",
+        queryset=Membership.objects.all(), required=False,
+    )
     effective_image = serializers.SerializerMethodField()
+    already_booked = serializers.SerializerMethodField()
+    booked_by = serializers.SerializerMethodField()
+    children_levels = serializers.SerializerMethodField()
+    available_spot = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -185,7 +265,59 @@ class EventSerializer(serializers.ModelSerializer):
             "events", "event_ids",
             "info", "color",
             "image", "effective_image",
+            "accepted_roles", "accepted_role_ids",
+            "memberships", "membership_ids",
+            "warning_threshold",
+            "extras",
+            "payment_days",
+            "multi_events",
+            "free",
+            "already_booked", "booked_by", "available_spot",
+            "children_levels",
         ]
+
+    def get_memberships(self, obj):
+        from membership.serializers import MembershipSerializer
+        from membership.models import MembershipRule, available_memberships
+        request = self.context.get("request")
+        is_staff = bool(request and request.user and request.user.is_staff)
+        if obj.multi_events:
+            # Filter in Python to keep the memberships prefetch warm.
+            memberships = obj.memberships.all()
+            if not is_staff:
+                memberships = [m for m in memberships if m.is_available]
+            return MembershipSerializer(memberships, many=True).data
+        # One query per event_type on the page instead of one per event.
+        cache = self.context.setdefault("_memberships_by_event_type", {})
+        if obj.event_type_id not in cache:
+            memberships = Membership.objects.filter(
+                membershiprule__event_type_id=obj.event_type_id
+            ).prefetch_related(
+                Prefetch(
+                    "membershiprule_set",
+                    queryset=MembershipRule.objects.select_related("event_type")
+                    .prefetch_related("event_type__partner_roles"),
+                )
+            ).distinct()
+            if not is_staff:
+                memberships = available_memberships(memberships)
+            cache[obj.event_type_id] = MembershipSerializer(memberships, many=True).data
+        return cache[obj.event_type_id]
+
+    def get_children_levels(self, obj):
+        # Iterate the (possibly prefetched) children instead of issuing a
+        # fresh filtered query per event.
+        levels = {}
+        for child in obj.events.all():
+            if child.level_id is not None and child.level_id not in levels:
+                levels[child.level_id] = child.level.name
+        return [{'id': pk, 'name': name} for pk, name in levels.items()]
+
+    def get_available_spot(self, obj):
+        payed_count = getattr(obj, "payed_count", None)
+        if payed_count is None:
+            return obj.available_spot
+        return obj.capacity - payed_count
 
     def get_effective_image(self, obj):
         img = obj.effective_image
@@ -196,11 +328,43 @@ class EventSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(img.url)
         return img.url
 
+    def get_already_booked(self, obj):
+        request = self.context.get("request")
+        if not (request and request.user.is_authenticated):
+            return False
+        user_has_booked = getattr(obj, "user_has_booked", None)
+        if user_has_booked is not None:
+            return user_has_booked
+        return obj.contributions.filter(user=request.user).exists()
+
+    def get_booked_by(self, obj):
+        request = self.context.get("request")
+        if not (request and request.user.is_authenticated):
+            return None
+        contributions = getattr(obj, "viewer_partner_contributions", None)
+        if contributions is not None:
+            contribution = contributions[0] if contributions else None
+        else:
+            contribution = (
+                obj.contributions
+                .filter(user=request.user, original_contribution__isnull=False)
+                .select_related("original_contribution__user")
+                .first()
+            )
+        if contribution:
+            booker = contribution.original_contribution.user
+            return f"{booker.first_name} {booker.last_name}"
+        return None
+
     def validate(self, data):
         start = data.get("start_date", getattr(self.instance, "start_date", None))
         end = data.get("end_date", getattr(self.instance, "end_date", None))
         if start and end and start >= end:
             raise serializers.ValidationError("end_date must be after start_date.")
+        partners = data.get("partners", None)
+        if partners:
+            if len(data.get("role_ids", None)) != int(partners):
+                raise serializers.ValidationError("wrong numbers of partners.")
         return data
 
     def create(self, validated_data):
@@ -208,11 +372,16 @@ class EventSerializer(serializers.ModelSerializer):
         genres = validated_data.pop("genres", [])
         artists = validated_data.pop("artists", [])
         events = validated_data.pop("events", [])
+        accepted_roles = validated_data.pop("accepted_roles", None)
+        memberships = validated_data.pop("memberships", [])
         event = Event.objects.create(**validated_data)
         event.styles.set(styles)
         event.genres.set(genres)
         event.artists.set(artists)
         event.events.set(events)
+        if accepted_roles is not None:
+            event.accepted_roles.set(accepted_roles)
+        event.memberships.set(memberships)
         return event
 
     def update(self, instance, validated_data):
@@ -220,6 +389,8 @@ class EventSerializer(serializers.ModelSerializer):
         genres = validated_data.pop("genres", None)
         artists = validated_data.pop("artists", None)
         events = validated_data.pop("events", None)
+        accepted_roles = validated_data.pop("accepted_roles", None)
+        memberships = validated_data.pop("memberships", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -231,4 +402,8 @@ class EventSerializer(serializers.ModelSerializer):
             instance.artists.set(artists)
         if events is not None:
             instance.events.set(events)
+        if accepted_roles is not None:
+            instance.accepted_roles.set(accepted_roles)
+        if memberships is not None:
+            instance.memberships.set(memberships)
         return instance

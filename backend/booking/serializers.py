@@ -1,20 +1,35 @@
 from collections import Counter
-from decimal import Decimal
+from django.db import transaction
 
+from decimal import Decimal
+from django.contrib.auth import get_user_model
+from . import service
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from django.db.models import Count, Min, Q
 from rest_framework import serializers
 from config.models import SiteSettings
-from event.models import Event
+from django.db.models import Q
+from event.models import Event, Level, PartnerRole
 from event.serializers import EventSerializer
-from membership.models import Membership
-from membership.serializers import MembershipSerializer
+from membership.models import Membership, Discount
+from membership.serializers import MembershipSerializer, DiscountSerializer
 from .models import Booking, Contribution, ContributionStatus
 from .utils import sync_bookings
 
 
+
 def _validate_membership_events(membership, events, field='event_id'):
     """Raise ValidationError if events violate membership rules."""
+    # For a multi_events festival, only verify that the membership is linked to it.
+    if len(events) == 1 and events[0].multi_events:
+        festival = events[0]
+        if not festival.memberships.filter(pk=membership.pk).exists():
+            raise serializers.ValidationError({
+                field: f"Membership '{membership.name}' is not valid for this festival."
+            })
+        return
+
     rules = {
         rule.event_type_id: rule
         for rule in membership.membershiprule_set.select_related('event_type').all()
@@ -52,6 +67,17 @@ class UserBookingSerializer(serializers.ModelSerializer):
         fields = ['id', 'event']
 
 
+class BookingSerializer(serializers.ModelSerializer):
+    """Staff-only serializer exposing every Booking field for full CRUD."""
+
+    class Meta:
+        model = Booking
+        fields = [
+            'id', 'user', 'event', 'role', 'partner', 'contribution',
+            'partner_email', 'partner_role', 'attended', 'couple',
+        ]
+
+
 class ContributionSerializer(serializers.ModelSerializer):
     events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
@@ -64,6 +90,12 @@ class ContributionSerializer(serializers.ModelSerializer):
         write_only=True, required=False, allow_null=True,
     )
     upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
+    discounts = DiscountSerializer(many=True, read_only=True)
+    discount_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Discount.objects.all(), source='discounts',
+        write_only=True, required=False,
+    )
+    discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = Contribution
@@ -71,6 +103,7 @@ class ContributionSerializer(serializers.ModelSerializer):
             'id', 'status', 'amount', 'user',
             'events', 'event_ids', 'membership', 'membership_id',
             'start_date', 'end_date', 'upgraded_from',
+            'discounts', 'discount_ids', 'discounted_amount',
         ]
         read_only_fields = ['start_date', 'end_date', 'upgraded_from']
 
@@ -88,19 +121,35 @@ class ContributionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         events = validated_data.pop('events', [])
+        discounts = validated_data.pop('discounts', [])
         contribution = Contribution.objects.create(**validated_data)
         contribution.events.set(events)
-        if contribution.membership and contribution.membership.duration:
-            contribution.end_date = timezone.now() + relativedelta(months=contribution.membership.duration)
-            contribution.save(update_fields=['end_date'])
+        contribution.discounts.set(discounts)
+        if contribution.membership:
+            first_event = events[0] if events else None
+            start_date, end_date = service._contribution_date_range(contribution.membership, first_event)
+            if start_date is None:
+                start_date = timezone.now()
+            if end_date is None and contribution.membership.duration:
+                end_date = start_date + relativedelta(months=contribution.membership.duration)
+            contribution.start_date = start_date
+            update_fields = ['start_date']
+            if end_date:
+                contribution.end_date = end_date
+                update_fields.append('end_date')
+            contribution.save(update_fields=update_fields)
         return contribution
 
     def update(self, instance, validated_data):
         events = validated_data.pop('events', None)
+        discounts = validated_data.pop('discounts', None)
         old_status = instance.status
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+
+        if discounts is not None:
+            instance.discounts.set(discounts)
 
         if events is not None:
             old_events = set(instance.events.all())
@@ -116,6 +165,49 @@ class ContributionSerializer(serializers.ModelSerializer):
         return instance
 
 
+class ContributionUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = ['first_name', 'last_name', 'email']
+
+
+class ContributionOverviewTwinSerializer(serializers.ModelSerializer):
+    user = ContributionUserSerializer(read_only=True)
+    role = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = Contribution
+        fields = ['id', 'user', 'status', 'date', 'role']
+
+
+class ContributionOverviewSerializer(ContributionOverviewTwinSerializer):
+    twin_contribution = serializers.SerializerMethodField()
+
+    class Meta(ContributionOverviewTwinSerializer.Meta):
+        fields = ContributionOverviewTwinSerializer.Meta.fields + ['twin_contribution']
+
+    def get_twin_contribution(self, obj):
+        twin = obj.original_contribution or next(iter(obj.twin_contributions.all()), None)
+        if twin is None:
+            return None
+        return ContributionOverviewTwinSerializer(twin).data
+
+
+class LinkedContributionSerializer(serializers.ModelSerializer):
+    """Embedded representation of a related contribution (possibly owned by another user)."""
+    events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    membership = MembershipSerializer(read_only=True)
+    discounts = DiscountSerializer(many=True, read_only=True)
+    discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    role = serializers.StringRelatedField(read_only=True)
+    partner = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = Contribution
+        fields = ['id', 'status', 'amount', 'discounted_amount', 'events',
+                  'membership', 'discounts', 'role', 'partner']
+
+
 class UserContributionSerializer(serializers.ModelSerializer):
     membership = MembershipSerializer(read_only=True)
     membership_id = serializers.PrimaryKeyRelatedField(
@@ -126,21 +218,73 @@ class UserContributionSerializer(serializers.ModelSerializer):
         queryset=Event.objects.all(), write_only=True, required=False, allow_null=True,
     )
     upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
+    original_contribution = LinkedContributionSerializer(read_only=True, allow_null=True)
+    twin_contributions = LinkedContributionSerializer(many=True, read_only=True)
+    partner_email = serializers.EmailField(required=False)
+    partner_id = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.filter(is_active=True), write_only=True, required=False,
+        source="partner"
+    )
+    partner = serializers.StringRelatedField(read_only=True)
+    role_id = serializers.PrimaryKeyRelatedField(write_only=True, required=False, queryset=PartnerRole.objects.all(), source='role')
+    role = serializers.StringRelatedField(read_only=True)
+    level_id = serializers.PrimaryKeyRelatedField(
+        queryset=Level.objects.all(), source='level', write_only=True, required=False, allow_null=True,
+    )
+    level = serializers.StringRelatedField(read_only=True)
+    discounts = DiscountSerializer(many=True, read_only=True)
+    discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = Contribution
         fields = [
             'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
-            'amount', 'start_date', 'end_date', 'upgraded_from',
+            'amount', 'start_date', 'end_date', 'upgraded_from', 'original_contribution',
+            'twin_contributions', 'partner_email',
+            'partner_id', 'role_id', 'role', 'partner',
+            'level_id', 'level',
+            'discounts', 'discounted_amount',
         ]
-        read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from']
+        read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',
+                            'original_contribution', 'twin_contributions']
+
+    def validate_event_id(self, event_id):
+        if service._validate_double_registrations(user=self.context["request"].user, event=event_id):
+                raise serializers.ValidationError(
+                    "User already registered for this event."
+                )
+        return event_id
+
+    def validate_partner_id(self, partner_id):
+        if self.context["request"].user == partner_id:
+            raise serializers.ValidationError("you can't add yourself as partner")
+        return partner_id
+
 
     def validate(self, attrs):
         membership = attrs['membership']
         event = attrs.get('event_id')
+        role = attrs.get('role')
+        partner_email = attrs.get('partner_email')
+        # partner_id is declared with source="partner", so DRF stores it under 'partner'
+        partner = attrs.get('partner')
+        if self.instance is None and not membership.is_available:
+            raise serializers.ValidationError({
+                'membership_id': f"Membership '{membership.name}' is not available for booking."
+            })
         if event:
             _validate_membership_events(membership, [event])
-
+            if event.event_type.partners > 1:
+                if not role:
+                    raise serializers.ValidationError("For this event, you must specify a role.")
+            else:
+                if partner_email or partner:
+                    raise serializers.ValidationError("This event does not need a partner.")
+            if partner:
+                if service._validate_double_registrations(user=partner, event=event):
+                    raise serializers.ValidationError(
+                        "Partner already registered for this event."
+                    )
         if self.instance is None and membership.duration:
             season_end = SiteSettings.load().season_end
             if season_end:
@@ -157,12 +301,62 @@ class UserContributionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         event = validated_data.pop('event_id', None)
+
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
+        # update start date and end date
+        start_date, end_date = service._contribution_date_range(membership, event)
+        if start_date:
+            validated_data.update({"start_date": start_date})
+        if end_date:
+            validated_data.update({"end_date": end_date})
         contribution = Contribution.objects.create(**validated_data)
-        if membership.duration:
-            contribution.end_date = timezone.now() + relativedelta(months=membership.duration)
-            contribution.save(update_fields=['end_date'])
+        # create partner contribution
         if event:
             contribution.events.add(event)
+            if contribution.partner:
+                partner_contribution = service._create_partner_contribution(contribution, contribution.partner)
+                service._apply_couple_discount(contribution, partner_contribution)
+                service._send_contribution_email(partner_contribution)
+            service._send_contribution_email(
+                contribution,
+            )
+            if service.waiting_list(contribution):
+                contribution.status = ContributionStatus.WAITING
+                contribution.save()
+                if contribution.partner:
+                    partner_contribution.status = ContributionStatus.WAITING
+                    partner_contribution.save()
+            else:
+                contribution.status = ContributionStatus.ACCEPTED
+                contribution.save()
+                service._dispatch_change_status_email(
+                    contribution_id=contribution.id,
+                    user_id=contribution.user.id,
+                    old_status=ContributionStatus.RECEIVED,
+                    new_status=ContributionStatus.ACCEPTED,
+                )
+                if contribution.partner:
+                    partner_contribution.status = ContributionStatus.ACCEPTED
+                    partner_contribution.save()
+                    service._dispatch_change_status_email(
+                        contribution_id=partner_contribution.id,
+                        user_id=partner_contribution.user.id,
+                        old_status=ContributionStatus.RECEIVED,
+                        new_status=ContributionStatus.ACCEPTED,
+                    )
+
         return contribution
+
+    def update(self, instance, validated_data):
+        old_status = instance.status
+        super().update(instance, validated_data)
+        if "status" in validated_data:
+            if old_status != validated_data["status"]:
+                service._dispatch_change_status_email(
+                    contribution_id=instance.id,
+                    user_id=instance.user.id,
+                    old_status=instance.status,
+                    new_status=validated_data["status"],
+                )
+        return instance

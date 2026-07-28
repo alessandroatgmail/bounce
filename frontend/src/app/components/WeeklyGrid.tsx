@@ -1,20 +1,25 @@
-import { useState, useRef } from 'react';
-import { Plus, Loader2, AlertTriangle, Upload, X } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Plus, Loader2, AlertTriangle, Upload, X, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { type EventItem, type EventPayload } from '../hooks/useEvents';
+import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
 import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
+import { usePartnerRoles } from '../hooks/usePartnerRoles';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Calendar } from './ui/calendar';
 import { authFetch, authFetchFile } from '../../lib/api';
 
 // ── Grid constants ─────────────────────────────────────────────────────────────
@@ -83,6 +88,18 @@ function toISO(date: string, totalMin: number) {
   return `${date}T${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:00`;
 }
 
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getWeekMonday(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun…6=Sat
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
 function computeLanes(events: EventItem[]): Map<number, number> {
   const sorted = [...events].sort((a, b) => eventMinutes(a.start_date) - eventMinutes(b.start_date));
   const laneEnds: number[] = [];
@@ -125,6 +142,7 @@ function WeeklyEventDialog({
   const { styles, loading: loadingStyles } = useStyles(accessToken);
   const { rooms, loading: loadingRooms } = useRooms(accessToken);
   const { levels, loading: loadingLevels } = useLevels(accessToken);
+  const { partnerRoles, loading: loadingRoles } = usePartnerRoles(accessToken);
 
   const isEdit = !!editEvent;
   const slotDayIndex = slot?.dayIndex ?? getDayIndex(editEvent!.start_date);
@@ -149,6 +167,10 @@ function WeeklyEventDialog({
   );
   const [selectedGenres, setSelectedGenres] = useState<{ id: number; name: string }[]>(editEvent?.genres ?? []);
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(editEvent?.styles ?? []);
+  const [selectedRoles, setSelectedRoles] = useState<{ id: number; name: string }[]>(editEvent?.accepted_roles ?? []);
+  const [paymentDays, setPaymentDays] = useState(editEvent?.payment_days?.toString() ?? '7');
+  const [warningThreshold, setWarningThreshold] = useState(editEvent?.warning_threshold?.toString() ?? '5');
+  const [extras, setExtras] = useState((editEvent?.extras ?? 0).toString());
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(editEvent?.effective_image ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +224,10 @@ function WeeklyEventDialog({
         style_ids: selectedStyles.map(s => s.id),
         color: color || null,
         level_id: levelId ? Number(levelId) : null,
+        payment_days: Number(paymentDays) || 7,
+        warning_threshold: Number(warningThreshold) || 5,
+        extras: Number(extras) || 0,
+        accepted_role_ids: selectedRoles.map(r => r.id),
       };
 
       const url = isEdit ? `/api/events/events/${editEvent!.id}/` : '/api/events/events/';
@@ -318,6 +344,21 @@ function WeeklyEventDialog({
           <MultiSearchSelect label="Artists" items={artists.map(a => ({ id: a.id, name: a.full_name }))} selected={selectedArtists} loading={loadingArtists} placeholder="Search artist…" onChange={setSelectedArtists} />
           <MultiSearchSelect label="Genres" items={genres} selected={selectedGenres} loading={loadingGenres} placeholder="Search genre…" onChange={setSelectedGenres} />
           <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style…" onChange={setSelectedStyles} />
+          <MultiSearchSelect label="Accepted Roles" items={partnerRoles} selected={selectedRoles} loading={loadingRoles} placeholder="Search role…" onChange={setSelectedRoles} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Payment days</Label>
+              <Input type="number" min={1} value={paymentDays} onChange={e => setPaymentDays(e.target.value)} placeholder="7" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Warning threshold</Label>
+              <Input type="number" min={0} value={warningThreshold} onChange={e => setWarningThreshold(e.target.value)} placeholder="5" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Extras / Notes</Label>
+            <Textarea value={extras} onChange={e => setExtras(e.target.value)} placeholder="Additional notes…" rows={2} />
+          </div>
           <div className="space-y-1.5">
             <Label>Color</Label>
             <div className="flex gap-2 items-center">
@@ -487,6 +528,7 @@ function LaneColumn({
 
 function DayColumn({
   dayIndex,
+  date,
   dayEvents,
   minLanes,
   onAddLane,
@@ -495,6 +537,7 @@ function DayColumn({
   onEventDrop,
 }: {
   dayIndex: number;
+  date: string; // "YYYY-MM-DD" of this column in the selected week
   dayEvents: EventItem[];
   minLanes: number;
   onAddLane: () => void;
@@ -518,7 +561,12 @@ function DayColumn({
         className="sticky top-0 z-20 bg-gray-50 border-l border-b px-2 py-1.5 flex items-center justify-between"
         style={{ width: totalLanes * LANE_W }}
       >
-        <span className="text-xs font-semibold text-gray-700">{WEEKDAY_NAMES[dayIndex]}</span>
+        <span className="text-xs font-semibold text-gray-700">
+          {WEEKDAY_NAMES[dayIndex]}
+          <span className="ml-1 font-normal text-gray-400">
+            {new Date(date + 'T00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+          </span>
+        </span>
         <button onClick={onAddLane} className="text-gray-400 hover:text-[#e67e22] transition-colors" title="Add lane">
           <Plus className="size-3.5" />
         </button>
@@ -550,26 +598,55 @@ function DayColumn({
 
 // ── Main WeeklyGrid ────────────────────────────────────────────────────────────
 
-export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
-  events: EventItem[];
-  loading: boolean;
-  onRefetch: () => void;
-}) {
+export function WeeklyGrid() {
   const { accessToken } = useAuth();
 
   const [minLanes, setMinLanes] = useState<Record<number, number>>({});
   const [addingSlot, setAddingSlot] = useState<WeekSlot | null>(null);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [weekMonday, setWeekMonday] = useState<Date>(() => getWeekMonday(new Date()));
+  const [calOpen, setCalOpen] = useState(false);
 
-  // Weekly parent events only: weekly frequency + not a child of another event
-  const childIds = new Set(allEvents.flatMap(e => e.events));
-  const weeklyParents = allEvents.filter(e =>
-    e.event_type.frequency === 'weekly' && !childIds.has(e.id)
+  const prevWeek = () => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; });
+  const nextWeek = () => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; });
+  const goToday  = () => setWeekMonday(getWeekMonday(new Date()));
+
+  // Dates for Mon–Fri of the selected week
+  const weekDates = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(weekMonday);
+    d.setDate(d.getDate() + i);
+    return toDateStr(d);
+  });
+
+  const weekFriday = new Date(weekMonday);
+  weekFriday.setDate(weekFriday.getDate() + 4);
+  const weekLabel = `${weekMonday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${weekFriday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+
+  const { events: visibleEvents, loading, refetch: onRefetch, setFilters } = useEventsPaginated(
+    accessToken,
+    {
+      frequency: 'weekly',
+      exclude_children: true,
+      start_date_before: toDateStr(weekFriday),
+      end_date_after: toDateStr(weekMonday),
+    },
+    20,
   );
 
-  // Group by day of week (0=Mon…4=Fri); ignore weekend events
+  useEffect(() => {
+    const friday = new Date(weekMonday);
+    friday.setDate(friday.getDate() + 4);
+    setFilters({
+      frequency: 'weekly',
+      exclude_children: true,
+      start_date_before: toDateStr(friday),
+      end_date_after: toDateStr(weekMonday),
+    });
+  }, [weekMonday, setFilters]);
+
+  // Group by day of week (0=Mon…4=Fri)
   const byDay: EventItem[][] = Array.from({ length: 5 }, () => []);
-  weeklyParents.forEach(ev => {
+  visibleEvents.forEach(ev => {
     const d = getDayIndex(ev.start_date);
     if (d >= 0 && d <= 4) byDay[d].push(ev);
   });
@@ -578,7 +655,7 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
 
   const handleEventDrop = async (draggedId: number, newDayIndex: number, newStartMin: number) => {
     if (!accessToken) return;
-    const ev = allEvents.find(e => e.id === draggedId);
+    const ev = visibleEvents.find(e => e.id === draggedId);
     if (!ev) return;
 
     const oldDayIndex = getDayIndex(ev.start_date);
@@ -603,6 +680,10 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
         genre_ids: ev.genres.map(g => g.id),
         style_ids: ev.styles.map(s => s.id),
         color: ev.color,
+        payment_days: ev.payment_days,
+        warning_threshold: ev.warning_threshold,
+        extras: ev.extras ?? 0,
+        accepted_role_ids: ev.accepted_roles.map(r => r.id),
       } satisfies EventPayload),
     });
     onRefetch();
@@ -610,6 +691,39 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
 
   return (
     <div className="space-y-2">
+      {/* Week selector */}
+      <div className="flex items-center gap-1">
+        <button onClick={prevWeek} className="p-1 rounded hover:bg-gray-100 transition-colors" title="Previous week">
+          <ChevronLeft className="size-4 text-gray-600" />
+        </button>
+        <button onClick={nextWeek} className="p-1 rounded hover:bg-gray-100 transition-colors" title="Next week">
+          <ChevronRight className="size-4 text-gray-600" />
+        </button>
+        <Popover open={calOpen} onOpenChange={setCalOpen}>
+          <PopoverTrigger asChild>
+            <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+              <CalendarDays className="size-4 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">{weekLabel}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="range"
+              selected={{ from: weekMonday, to: weekFriday }}
+              onDayClick={(day) => {
+                setWeekMonday(getWeekMonday(day));
+                setCalOpen(false);
+              }}
+              weekStartsOn={1}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+        <button onClick={goToday} className="ml-1 text-xs text-gray-500 hover:text-[#e67e22] underline transition-colors">
+          Today
+        </button>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="size-5 animate-spin text-gray-400" /></div>
       ) : (
@@ -637,6 +751,7 @@ export function WeeklyGrid({ events: allEvents, loading, onRefetch }: {
               <DayColumn
                 key={i}
                 dayIndex={i}
+                date={weekDates[i]}
                 dayEvents={evs}
                 minLanes={minLanes[i] ?? 1}
                 onAddLane={() => setMinLanes(prev => ({ ...prev, [i]: (prev[i] ?? 1) + 1 }))}

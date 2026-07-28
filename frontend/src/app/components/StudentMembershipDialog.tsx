@@ -3,6 +3,7 @@ import { Loader2, Pencil, Trash2, Plus, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useContributions, type Contribution, type ContributionPayload, type ContributionStatus } from '../hooks/useContributions';
+import { useDiscounts } from '../hooks/useDiscounts';
 import { useMemberships, type Membership } from '../hooks/useMemberships';
 import { useEvents } from '../hooks/useEvents';
 import { type UserListItem } from '../hooks/useUserList';
@@ -20,18 +21,26 @@ interface Props {
   user: UserListItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called after a contribution is created, updated or deleted, so the parent list can refresh. */
+  onChanged?: () => void;
 }
 
 const CONTRIBUTION_STATUSES: { value: ContributionStatus; labelIt: string; labelEn: string }[] = [
   { value: 'received',  labelIt: 'Ricevuto',   labelEn: 'Received'  },
   { value: 'accepted',  labelIt: 'Accettato',  labelEn: 'Accepted'  },
   { value: 'confirmed', labelIt: 'Confermato', labelEn: 'Confirmed' },
+  { value: 'payed',     labelIt: 'Pagato',     labelEn: 'Paid'      },
+  { value: 'cancelled', labelIt: 'Annullato',  labelEn: 'Cancelled' },
+  { value: 'waiting',   labelIt: 'In attesa',  labelEn: 'Waiting'   },
 ];
 
 const STATUS_BADGE: Record<ContributionStatus, string> = {
   received:  'bg-yellow-100 text-yellow-800 border-yellow-200',
   accepted:  'bg-blue-100 text-blue-800 border-blue-200',
   confirmed: 'bg-green-100 text-green-800 border-green-200',
+  payed:     'bg-purple-100 text-purple-800 border-purple-200',
+  cancelled: 'bg-red-100 text-red-800 border-red-200',
+  waiting:   'bg-gray-100 text-gray-600 border-gray-200',
 };
 
 interface FormState {
@@ -39,15 +48,17 @@ interface FormState {
   amount: string;
   status: ContributionStatus;
   selectedEvents: { id: number; name: string }[];
+  selectedDiscounts: { id: number; name: string }[];
 }
 
-const emptyForm = (): FormState => ({ membershipId: '', amount: '', status: 'received', selectedEvents: [] });
+const emptyForm = (): FormState => ({ membershipId: '', amount: '', status: 'received', selectedEvents: [], selectedDiscounts: [] });
 
-export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
+export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }: Props) {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const { memberships } = useMemberships(accessToken);
   const { events } = useEvents(accessToken);
+  const { discounts } = useDiscounts(accessToken);
   const { contributions, loading, error, create, update, remove } = useContributions(
     accessToken,
     user?.id ?? null,
@@ -61,6 +72,8 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
 
   // Parent events only
   const parentEvents = events.filter(e => e.events.length > 0).map(e => ({ id: e.id, name: e.name }));
+
+  const discountItems = discounts.map(d => ({ id: d.id, name: d.name_ext || d.name }));
 
   // When dialog closes, reset form state
   useEffect(() => {
@@ -101,6 +114,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
       amount: c.amount,
       status: c.status,
       selectedEvents: eventItems,
+      selectedDiscounts: c.discounts.map(d => ({ id: d.id, name: d.name_ext || d.name })),
     });
     setSaveError(null);
     setShowForm(true);
@@ -125,12 +139,14 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
         status: form.status,
         event_ids: form.selectedEvents.map(ev => ev.id),
         membership_id: form.membershipId === '' ? null : form.membershipId,
+        discount_ids: form.selectedDiscounts.map(d => d.id),
       };
       if (editing) {
         await update(editing.id, payload);
       } else {
         await create(payload);
       }
+      onChanged?.();
       cancelForm();
     } catch {
       setSaveError(language === 'it' ? 'Salvataggio fallito.' : 'Save failed.');
@@ -143,6 +159,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
     if (!confirm(language === 'it' ? 'Eliminare questo contributo?' : 'Delete this contribution?')) return;
     try {
       await remove(id);
+      onChanged?.();
     } catch {
       // silent
     }
@@ -190,13 +207,29 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
                     </span>
                   </div>
                   <span className="text-gray-500">
-                    €{c.amount}
+                    {c.discounts.length > 0 ? (
+                      <>
+                        <span className="line-through text-gray-400 mr-1">€{c.amount}</span>
+                        <span className="font-medium text-gray-700">€{c.discounted_amount}</span>
+                      </>
+                    ) : (
+                      <>€{c.amount}</>
+                    )}
                     {c.events.length > 0 && (
                       <span className="ml-2 text-xs text-gray-400">
                         {c.events.length} {language === 'it' ? 'evento/i' : 'event(s)'}
                       </span>
                     )}
                   </span>
+                  {c.discounts.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {c.discounts.map(d => (
+                        <Badge key={d.id} variant="outline" className="text-xs">
+                          {d.name_ext || d.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-1">
                   <Button
@@ -296,6 +329,14 @@ export function StudentMembershipDialog({ user, open, onOpenChange }: Props) {
               selected={form.selectedEvents}
               placeholder={language === 'it' ? 'Cerca evento...' : 'Search event...'}
               onChange={items => setForm(f => ({ ...f, selectedEvents: items }))}
+            />
+
+            <MultiSearchSelect
+              label={language === 'it' ? 'Sconti' : 'Discounts'}
+              items={discountItems}
+              selected={form.selectedDiscounts}
+              placeholder={language === 'it' ? 'Cerca sconto...' : 'Search discount...'}
+              onChange={items => setForm(f => ({ ...f, selectedDiscounts: items }))}
             />
 
             {saveError && <p className="text-sm text-red-500">{saveError}</p>}

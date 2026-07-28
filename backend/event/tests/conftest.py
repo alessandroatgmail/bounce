@@ -1,7 +1,18 @@
 import pytest
+from unittest.mock import patch
 from rest_framework.test import APIClient
 from users.models import User
 from utils.load_worldcities import load_worldcities
+from event.models import PartnerRole
+
+
+@pytest.fixture(autouse=True)
+def mock_email_tasks():
+    """Prevent real emails from being dispatched to Celery during tests."""
+    with patch("utils.tasks.send_activation_email.delay"), \
+         patch("utils.tasks.send_email.delay"), \
+         patch("utils.tasks.send_to_kafka.delay"):
+        yield
 
 
 @pytest.fixture
@@ -45,3 +56,12 @@ def staff_client(client, staff_user):
 def student_client(client, student_user):
     client.force_authenticate(user=student_user)
     return client
+
+
+@pytest.fixture
+def roles() -> None:
+    roles = ["Leader", "Follower", "Both"]
+    for role in roles:
+        PartnerRole.objects.get_or_create(name=role)
+
+

@@ -1,4 +1,6 @@
 import pytest
+from datetime import timedelta
+from django.utils import timezone
 from rest_framework import status as http_status
 
 from membership.models import Membership, MembershipRule
@@ -7,7 +9,8 @@ from utils.mock_membership import make_membership_payload
 LIST_URL = "/api/membership/memberships/"
 RULE_URL = "/api/membership/rules/"
 
-MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "duration", "rules"}
+MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "duration", "rules",
+                     "start_date", "end_date"}
 RULE_FIELDS = {"id", "membership", "event_type", "max_events"}
 
 
@@ -473,3 +476,144 @@ class TestMembershipDuration:
         payload = make_membership_payload()
         response = staff_client.post(LIST_URL, payload, format="json")
         assert "duration" in response.data
+
+
+# ── Booking window (start_date / end_date) ────────────────────────────────────
+
+def make_windowed_membership(start=None, end=None, **overrides):
+    payload = make_membership_payload(**overrides)
+    return Membership.objects.create(
+        name=payload["name"],
+        type=payload["type"],
+        contribution=payload["contribution"],
+        start_date=start,
+        end_date=end,
+    )
+
+
+class TestMembershipDates:
+
+    def test_create_with_dates(self, staff_client, db):
+        start = timezone.now() - timedelta(days=1)
+        end = timezone.now() + timedelta(days=30)
+        payload = make_membership_payload(
+            start_date=start.isoformat(), end_date=end.isoformat(),
+        )
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert response.data["start_date"] is not None
+        assert response.data["end_date"] is not None
+
+    def test_create_persists_dates_to_db(self, staff_client, db):
+        start = timezone.now() - timedelta(days=1)
+        end = timezone.now() + timedelta(days=30)
+        payload = make_membership_payload(
+            start_date=start.isoformat(), end_date=end.isoformat(),
+        )
+        response = staff_client.post(LIST_URL, payload, format="json")
+        membership = Membership.objects.get(pk=response.data["id"])
+        assert membership.start_date == start
+        assert membership.end_date == end
+
+    def test_dates_default_to_null(self, staff_client, db):
+        payload = make_membership_payload()
+        payload.pop("start_date", None)
+        payload.pop("end_date", None)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert response.data["start_date"] is None
+        assert response.data["end_date"] is None
+
+    def test_dates_returned_in_retrieve(self, staff_client, db):
+        start = timezone.now() - timedelta(days=2)
+        end = timezone.now() + timedelta(days=2)
+        membership = make_windowed_membership(start=start, end=end)
+        response = staff_client.get(detail_url(membership.pk))
+        assert response.data["start_date"] is not None
+        assert response.data["end_date"] is not None
+
+    def test_patch_dates(self, staff_client, db):
+        membership = make_windowed_membership()
+        end = timezone.now() + timedelta(days=10)
+        response = staff_client.patch(
+            detail_url(membership.pk), {"end_date": end.isoformat()}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        membership.refresh_from_db()
+        assert membership.end_date == end
+
+    def test_patch_clear_dates(self, staff_client, db):
+        membership = make_windowed_membership(
+            start=timezone.now() - timedelta(days=1),
+            end=timezone.now() + timedelta(days=1),
+        )
+        response = staff_client.patch(
+            detail_url(membership.pk), {"start_date": None, "end_date": None}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        membership.refresh_from_db()
+        assert membership.start_date is None
+        assert membership.end_date is None
+
+
+class TestMembershipStudentWindowVisibility:
+    """Students must only see memberships whose booking window covers now."""
+
+    def test_student_sees_membership_inside_window(self, student_client, db):
+        make_windowed_membership(
+            start=timezone.now() - timedelta(days=1),
+            end=timezone.now() + timedelta(days=1),
+        )
+        response = student_client.get(LIST_URL)
+        assert len(response.data) == 1
+
+    def test_student_sees_membership_without_window(self, student_client, db):
+        make_windowed_membership(start=None, end=None)
+        response = student_client.get(LIST_URL)
+        assert len(response.data) == 1
+
+    def test_student_does_not_see_expired_membership(self, student_client, db):
+        make_windowed_membership(end=timezone.now() - timedelta(minutes=1))
+        response = student_client.get(LIST_URL)
+        assert response.data == []
+
+    def test_student_does_not_see_not_yet_started_membership(self, student_client, db):
+        make_windowed_membership(start=timezone.now() + timedelta(minutes=1))
+        response = student_client.get(LIST_URL)
+        assert response.data == []
+
+    def test_student_sees_membership_with_only_past_start(self, student_client, db):
+        make_windowed_membership(start=timezone.now() - timedelta(days=1))
+        response = student_client.get(LIST_URL)
+        assert len(response.data) == 1
+
+    def test_student_sees_membership_with_only_future_end(self, student_client, db):
+        make_windowed_membership(end=timezone.now() + timedelta(days=1))
+        response = student_client.get(LIST_URL)
+        assert len(response.data) == 1
+
+    def test_student_retrieve_out_of_window_returns_404(self, student_client, db):
+        membership = make_windowed_membership(end=timezone.now() - timedelta(days=1))
+        response = student_client.get(detail_url(membership.pk))
+        assert response.status_code == http_status.HTTP_404_NOT_FOUND
+
+    def test_student_list_mixes_only_available(self, student_client, db):
+        available = make_windowed_membership(
+            start=timezone.now() - timedelta(days=1),
+            end=timezone.now() + timedelta(days=1),
+        )
+        make_windowed_membership(end=timezone.now() - timedelta(days=1))
+        make_windowed_membership(start=timezone.now() + timedelta(days=1))
+        response = student_client.get(LIST_URL)
+        assert [m["id"] for m in response.data] == [available.pk]
+
+    def test_staff_sees_out_of_window_memberships(self, staff_client, db):
+        make_windowed_membership(end=timezone.now() - timedelta(days=1))
+        make_windowed_membership(start=timezone.now() + timedelta(days=1))
+        response = staff_client.get(LIST_URL)
+        assert len(response.data) == 2
+
+    def test_staff_can_retrieve_out_of_window_membership(self, staff_client, db):
+        membership = make_windowed_membership(end=timezone.now() - timedelta(days=1))
+        response = staff_client.get(detail_url(membership.pk))
+        assert response.status_code == http_status.HTTP_200_OK

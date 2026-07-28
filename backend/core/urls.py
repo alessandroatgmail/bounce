@@ -9,12 +9,15 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # Mounted at d-admin/ so it can't collide with the frontend's /admin
+    # SPA route (nginx proxies /d-admin/ here).
+    path('d-admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
     path('api/events/', include('event.urls')),
     path('api/membership/', include('membership.urls')),
     path('api/festival/', include('festival.urls')),
     path('api/booking/', include('booking.urls')),
+    path('api/emails/', include('emails.urls')),
 
     # generates the raw schema file (yaml/json)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

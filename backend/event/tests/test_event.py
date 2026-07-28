@@ -1,14 +1,20 @@
 import pytest
 from rest_framework import status as http_status
 
-from event.models import Event, Status
+from event.models import Event, EventType, Status, PartnerRole
+from membership.models import Membership, MembershipRule, MembershipType
 from utils.mock_event import make_event_payload, make_event_payloads
+from utils.mock_membership import make_membership_payload
 
 LIST_URL = "/api/events/events/"
 
 
 def detail_url(pk):
     return f"{LIST_URL}{pk}/"
+
+
+def create_membership(**overrides):
+    return Membership.objects.create(**make_membership_payload(**overrides))
 
 
 def create_event(**overrides):
@@ -24,6 +30,7 @@ def create_event(**overrides):
         end_date=payload["end_date"],
         duration=payload["duration"],
         capacity=payload["capacity"],
+        multi_events=payload.get("multi_events", False),
     )
 
 
@@ -39,7 +46,7 @@ class TestEventAuthentication:
         create_event(status=Status.DRAFT)
         response = client.get(LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert response.json() == []
+        assert response.json()['results'] == []
 
     def test_unauthenticated_retrieve_returns_200_for_published(self, client, world_data):
         event = create_event(status=Status.PUBLISHED)
@@ -83,17 +90,17 @@ class TestEventStudentVisibility:
         create_event(status=Status.PUBLISHED)
         response = student_client.get(LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert len(response.data) == 1
+        assert len(response.data['results']) == 1
 
     def test_student_cannot_see_draft_events_in_list(self, student_client, world_data):
         create_event(status=Status.DRAFT)
         response = student_client.get(LIST_URL)
-        assert response.data == []
+        assert response.data['results'] == []
 
     def test_student_cannot_see_confirmed_events_in_list(self, student_client, world_data):
         create_event(status=Status.CONFIRMED)
         response = student_client.get(LIST_URL)
-        assert response.data == []
+        assert response.data['results'] == []
 
     def test_student_list_returns_only_published_among_mixed(self, student_client, world_data):
         create_event(status=Status.DRAFT)
@@ -102,7 +109,7 @@ class TestEventStudentVisibility:
         create_event(status=Status.PUBLISHED)
 
         response = student_client.get(LIST_URL)
-        assert len(response.data) == 2
+        assert len(response.data['results']) == 2
 
     def test_student_can_retrieve_published_event(self, student_client, world_data):
         event = create_event(status=Status.PUBLISHED)
@@ -131,24 +138,29 @@ class TestEventStaffList:
 
         response = staff_client.get(LIST_URL)
         assert response.status_code == http_status.HTTP_200_OK
-        assert len(response.data) == 3
+        assert len(response.data['results']) == 3
 
     def test_list_returns_correct_fields(self, staff_client, world_data):
         create_event()
         response = staff_client.get(LIST_URL)
         expected = {
+            "already_booked",
             "id", "name", "status",
             "event_type", "type", "level",
             "start_date", "end_date", "duration",
             "room", "capacity",
             "styles", "genres", "artists", "events", "info", "color",
-            "image", "effective_image",
+            "image", "effective_image", "booked_by", "available_spot",
+            "accepted_roles", "warning_threshold", "extras", "payment_days",
+            "multi_events", "free",
+            "children_levels",
+            "memberships",
         }
-        assert set(response.data[0].keys()) == expected
+        assert set(response.data['results'][0].keys()) == expected
 
     def test_empty_list_returns_empty_array(self, staff_client, world_data):
         response = staff_client.get(LIST_URL)
-        assert response.data == []
+        assert response.data['results'] == []
 
 
 # ── Staff create ──────────────────────────────────────────────────────────────
@@ -172,7 +184,7 @@ class TestEventCreate:
 
     def test_create_returns_nested_event_type(self, staff_client, world_data):
         response = staff_client.post(LIST_URL, make_event_payload(), format="json")
-        assert set(response.data["event_type"].keys()) == {"id", "name", "frequency", "partners"}
+        assert set(response.data["event_type"].keys()) == {"id", "name", "frequency", "partners", "partner_roles"}
 
     def test_create_returns_type_as_string(self, staff_client, world_data):
         payload = make_event_payload()
@@ -219,7 +231,6 @@ class TestEventCreate:
         payload["start_date"], payload["end_date"] = payload["end_date"], payload["start_date"]
         response = staff_client.post(LIST_URL, payload, format="json")
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
-
 
 # ── Staff retrieve ────────────────────────────────────────────────────────────
 
@@ -309,3 +320,419 @@ class TestEventDelete:
     def test_delete_nonexistent_returns_404(self, staff_client, world_data):
         response = staff_client.delete(detail_url(9999))
         assert response.status_code == http_status.HTTP_404_NOT_FOUND
+
+    def test_delete_blocked_when_event_has_contribution(self, staff_client, world_data, student_user):
+        from booking.models import Contribution
+        event = create_event()
+        c = Contribution.objects.create(user=student_user, amount=10)
+        c.events.add(event)
+        response = staff_client.delete(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Event.objects.filter(pk=event.pk).exists()
+
+    def test_delete_blocked_when_event_has_booking(self, staff_client, world_data, student_user):
+        from booking.models import Booking
+        event = create_event()
+        Booking.objects.create(user=student_user, event=event)
+        response = staff_client.delete(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Event.objects.filter(pk=event.pk).exists()
+
+    def test_delete_parent_also_deletes_children(self, staff_client, world_data):
+        parent = create_event()
+        child1 = create_event()
+        child2 = create_event()
+        parent.events.set([child1, child2])
+        response = staff_client.delete(detail_url(parent.pk))
+        assert response.status_code == http_status.HTTP_204_NO_CONTENT
+        assert not Event.objects.filter(pk=child1.pk).exists()
+        assert not Event.objects.filter(pk=child2.pk).exists()
+
+    def test_delete_parent_blocked_when_child_has_contribution(self, staff_client, world_data, student_user):
+        from booking.models import Contribution
+        parent = create_event()
+        child = create_event()
+        parent.events.set([child])
+        c = Contribution.objects.create(user=student_user, amount=10)
+        c.events.add(child)
+        response = staff_client.delete(detail_url(parent.pk))
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Event.objects.filter(pk=parent.pk).exists()
+        assert Event.objects.filter(pk=child.pk).exists()
+
+
+# ── accepted_roles automation ─────────────────────────────────────────────────
+
+def _make_event_type_with_roles(*role_names):
+    """Create an EventType whose partner_roles are the given named PartnerRoles."""
+    roles = [PartnerRole.objects.get_or_create(name=n)[0] for n in role_names]
+    et = EventType.objects.create(name=f"Type-{'-'.join(role_names)}", frequency="single", partners=len(roles))
+    et.partner_roles.set(roles)
+    return et, roles
+
+
+class TestEventAcceptedRolesAutomation:
+
+    def test_accepted_roles_set_from_event_type_on_create(self, staff_client, world_data, roles):
+        et, partner_roles = _make_event_type_with_roles("Leader", "Follower")
+        payload = make_event_payload(event_type_id=et.pk)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        event = Event.objects.get(pk=response.data["id"])
+        role_names = set(event.accepted_roles.values_list("name", flat=True))
+        assert role_names == {"Leader", "Follower"}
+
+    def test_accepted_roles_in_response_on_create(self, staff_client, world_data, roles):
+        et, _ = _make_event_type_with_roles("Leader", "Follower")
+        payload = make_event_payload(event_type_id=et.pk)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        returned_names = {r["name"] for r in response.data["accepted_roles"]}
+        assert returned_names == {"Leader", "Follower"}
+
+    def test_accepted_roles_empty_when_event_type_has_no_roles(self, staff_client, world_data):
+        et = EventType.objects.create(name="Solo", frequency="single", partners=0)
+        payload = make_event_payload(event_type_id=et.pk)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["accepted_roles"] == []
+
+    def test_accepted_roles_reset_when_event_type_changes(self, staff_client, world_data, roles):
+        et1, _ = _make_event_type_with_roles("Leader", "Follower")
+        et2, _ = _make_event_type_with_roles("Both")
+        event = create_event(event_type_id=et1.pk)
+        # Verify initial sync
+        assert set(event.accepted_roles.values_list("name", flat=True)) == {"Leader", "Follower"}
+        # Update event_type
+        payload = make_event_payload(event_type_id=et2.pk)
+        staff_client.put(detail_url(event.pk), payload, format="json")
+        event.refresh_from_db()
+        assert set(event.accepted_roles.values_list("name", flat=True)) == {"Both"}
+
+    def test_accepted_roles_unchanged_when_event_type_not_changed(self, staff_client, world_data, roles):
+        et, _ = _make_event_type_with_roles("Leader", "Follower")
+        event = create_event(event_type_id=et.pk)
+        original_role_ids = set(event.accepted_roles.values_list("id", flat=True))
+        # Patch something unrelated
+        staff_client.patch(detail_url(event.pk), {"name": "Renamed"}, format="json")
+        event.refresh_from_db()
+        assert set(event.accepted_roles.values_list("id", flat=True)) == original_role_ids
+
+
+# ── new scalar fields ─────────────────────────────────────────────────────────
+
+class TestEventNewFields:
+
+    def test_warning_threshold_default_is_5(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.data["warning_threshold"] == 5
+
+    def test_payment_days_default_is_7(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.data["payment_days"] == 7
+
+    def test_extras_default_is_zero(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.data["extras"] is 0
+
+    def test_can_set_warning_threshold(self, staff_client, world_data):
+        payload = make_event_payload(warning_threshold=10)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["warning_threshold"] == 10
+
+    def test_can_set_payment_days(self, staff_client, world_data):
+        payload = make_event_payload(payment_days=14)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["payment_days"] == 14
+
+    def test_can_set_extras(self, staff_client, world_data):
+        payload = make_event_payload(extras=5)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["extras"] == 5
+
+    def test_patch_warning_threshold(self, staff_client, world_data):
+        event = create_event()
+        staff_client.patch(detail_url(event.pk), {"warning_threshold": 3}, format="json")
+        event.refresh_from_db()
+        assert event.warning_threshold == 3
+
+    def test_patch_extras(self, staff_client, world_data):
+        event = create_event()
+        staff_client.patch(detail_url(event.pk), {"extras": 6}, format="json")
+        event.refresh_from_db()
+        assert event.extras == 6
+
+
+# ── memberships ───────────────────────────────────────────────────────────────
+
+class TestEventMemberships:
+
+    def test_memberships_default_empty_on_create(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert response.data["memberships"] == []
+
+    def test_admin_can_set_memberships_on_create(self, staff_client, world_data):
+        m = create_membership()
+        payload = make_event_payload(membership_ids=[m.pk])
+        payload.update({"multi_events": True})
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert len(response.data["memberships"]) == 1
+        assert response.data["memberships"][0]["id"] == m.pk
+
+    def test_memberships_response_shape(self, staff_client, world_data):
+        m = create_membership()
+        payload = make_event_payload(membership_ids=[m.pk])
+        payload.update({"multi_events": True})
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert set(response.data["memberships"][0].keys()) == {
+            "id", "name", "type", "contribution", "color", "max_events", "duration", "rules",
+            "start_date", "end_date",
+        }
+
+    def test_admin_can_replace_memberships_via_put(self, staff_client, world_data):
+        m1 = create_membership()
+        m2 = create_membership()
+        event = create_event()
+        event.memberships.set([m1])
+        payload = make_event_payload(membership_ids=[m2.pk])
+        staff_client.put(detail_url(event.pk), payload, format="json")
+        event.refresh_from_db()
+        assert list(event.memberships.values_list("id", flat=True)) == [m2.pk]
+
+    def test_admin_can_patch_memberships(self, staff_client, world_data):
+        m = create_membership()
+        event = create_event()
+        staff_client.patch(detail_url(event.pk), {"membership_ids": [m.pk]}, format="json")
+        event.refresh_from_db()
+        assert list(event.memberships.values_list("id", flat=True)) == [m.pk]
+
+    def test_admin_can_clear_memberships(self, staff_client, world_data):
+        m = create_membership()
+        event = create_event()
+        event.memberships.set([m])
+        staff_client.patch(detail_url(event.pk), {"membership_ids": []}, format="json")
+        event.refresh_from_db()
+        assert event.memberships.count() == 0
+
+
+class TestEventMembershipsStudentAccess:
+
+    def test_student_sees_memberships_on_multi_events_festival(self, student_client, world_data):
+        m = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+        response = student_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK
+        assert len(response.data["memberships"]) == 1
+        assert response.data["memberships"][0]["id"] == m.pk
+
+    def test_student_sees_memberships_on_non_multi_events(self, student_client, world_data):
+        m = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(
+            event_type=event.event_type,
+            membership=m
+        )
+        event.memberships.set([m])
+        response = student_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK
+        assert len(response.data["memberships"]) == 1
+        assert response.data["memberships"][0]["id"] == m.pk
+
+
+class TestEventMembershipWindowVisibility:
+    """Out-of-window memberships must not be offered to students as booking options."""
+
+    def _window(self, start=None, end=None):
+        from datetime import timedelta
+        from django.utils import timezone
+        now = timezone.now()
+        return {
+            "start_date": now + timedelta(days=start) if start is not None else None,
+            "end_date": now + timedelta(days=end) if end is not None else None,
+        }
+
+    def test_student_does_not_see_expired_membership_on_festival(self, student_client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+        response = student_client.get(detail_url(event.pk))
+        assert response.data["memberships"] == []
+
+    def test_student_does_not_see_future_membership_on_festival(self, student_client, world_data):
+        m = create_membership(**self._window(start=1))
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+        response = student_client.get(detail_url(event.pk))
+        assert response.data["memberships"] == []
+
+    def test_student_sees_in_window_membership_on_festival(self, student_client, world_data):
+        m = create_membership(**self._window(start=-1, end=1))
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+        response = student_client.get(detail_url(event.pk))
+        assert len(response.data["memberships"]) == 1
+        assert response.data["memberships"][0]["id"] == m.pk
+
+    def test_student_does_not_see_expired_membership_on_regular_event(self, student_client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        response = student_client.get(detail_url(event.pk))
+        assert response.data["memberships"] == []
+
+    def test_student_does_not_see_future_membership_on_regular_event(self, student_client, world_data):
+        m = create_membership(**self._window(start=1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        response = student_client.get(detail_url(event.pk))
+        assert response.data["memberships"] == []
+
+    def test_student_sees_in_window_membership_on_regular_event(self, student_client, world_data):
+        m = create_membership(**self._window(start=-1, end=1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        response = student_client.get(detail_url(event.pk))
+        assert len(response.data["memberships"]) == 1
+
+    def test_student_sees_membership_without_window_on_regular_event(self, student_client, world_data):
+        m = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        response = student_client.get(detail_url(event.pk))
+        assert len(response.data["memberships"]) == 1
+
+    def test_staff_still_sees_out_of_window_membership_on_festival(self, staff_client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+        response = staff_client.get(detail_url(event.pk))
+        assert len(response.data["memberships"]) == 1
+
+    def test_staff_still_sees_out_of_window_membership_on_regular_event(self, staff_client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        response = staff_client.get(detail_url(event.pk))
+        assert len(response.data["memberships"]) == 1
+
+    # ── list endpoint (what the booking UI consumes) ──────────────────────────
+
+    def _list_memberships(self, client, event_pk):
+        response = client.get(LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        results = response.json()["results"]
+        return next(e["memberships"] for e in results if e["id"] == event_pk)
+
+    def test_student_list_does_not_include_expired_membership_on_regular_event(self, student_client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        assert self._list_memberships(student_client, event.pk) == []
+
+    def test_student_list_does_not_include_future_membership_on_regular_event(self, student_client, world_data):
+        m = create_membership(**self._window(start=1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        assert self._list_memberships(student_client, event.pk) == []
+
+    def test_student_list_includes_in_window_membership_on_regular_event(self, student_client, world_data):
+        m = create_membership(**self._window(start=-1, end=1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        memberships = self._list_memberships(student_client, event.pk)
+        assert [x["id"] for x in memberships] == [m.pk]
+
+    def test_student_list_does_not_include_expired_membership_on_festival(self, student_client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+        assert self._list_memberships(student_client, event.pk) == []
+
+    def test_student_list_filters_only_out_of_window_memberships(self, student_client, world_data):
+        available = create_membership(**self._window(start=-1, end=1))
+        expired = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=available)
+        MembershipRule.objects.create(event_type=event.event_type, membership=expired)
+        memberships = self._list_memberships(student_client, event.pk)
+        assert [x["id"] for x in memberships] == [available.pk]
+
+    def test_anonymous_list_does_not_include_expired_membership(self, client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        assert self._list_memberships(client, event.pk) == []
+
+    def test_staff_list_still_includes_out_of_window_membership(self, staff_client, world_data):
+        m = create_membership(**self._window(end=-1))
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        MembershipRule.objects.create(event_type=event.event_type, membership=m)
+        memberships = self._list_memberships(staff_client, event.pk)
+        assert [x["id"] for x in memberships] == [m.pk]
+
+
+# ── Solo workshop (one-shot, no partner) ──────────────────────────────────────
+
+class TestStudentSeeOneShotEventAndMembership:
+
+    @pytest.fixture()
+    def solo_setup(self, world_data):
+        event_type = EventType.objects.create(
+            name="solo workshop",
+            frequency="single",
+            partners=0,
+        )
+        membership = Membership.objects.create(
+            name="Solo workshop",
+            type=MembershipType.SINGLE,
+            contribution=25,
+            max_events=1,
+            duration=0,
+        )
+        MembershipRule.objects.create(
+            membership=membership,
+            event_type=event_type,
+            max_events=1,
+        )
+        payload = make_event_payload(
+            name="Solo jazz",
+            status=Status.PUBLISHED,
+            event_type_id=event_type.pk,
+        )
+        event = Event.objects.create(
+            name=payload["name"],
+            status=payload["status"],
+            event_type_id=payload["event_type_id"],
+            type=payload["type"],
+            level_id=payload["level_id"],
+            room_id=payload["room_id"],
+            start_date=payload["start_date"],
+            end_date=payload["end_date"],
+            duration=payload["duration"],
+            capacity=payload["capacity"],
+        )
+        event.memberships.set([membership])
+        return event, membership
+
+    def test_student_can_see_solo_jazz_event(self, student_client, solo_setup):
+        event, _ = solo_setup
+        response = student_client.get(LIST_URL)
+        assert response.status_code == http_status.HTTP_200_OK
+        ids = [e["id"] for e in response.data["results"]]
+        assert event.pk in ids
+
+    def test_student_sees_solo_workshop_membership_on_event(self, student_client, solo_setup):
+        event, membership = solo_setup
+        response = student_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK
+        memberships = response.data["memberships"]
+        assert len(memberships) == 1
+        m = memberships[0]
+        assert m["id"] == membership.pk
+        assert m["name"] == "Solo workshop"
+        assert m["type"] == MembershipType.SINGLE
+        assert m["contribution"] == 25
+        assert m["max_events"] == 1
+        assert m["duration"] == 0
+

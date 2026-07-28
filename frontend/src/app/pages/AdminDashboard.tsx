@@ -1,4 +1,4 @@
-import { Navigate, useNavigate } from 'react-router';
+import { Navigate, useNavigate, useLocation, useSearchParams } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -18,10 +18,10 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, Bell, Upload, X } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { RegularClassForm } from '../components/RegularClassForm';
 import { FestivalPanel } from '../components/FestivalPanel';
 import { WeeklyGrid } from '../components/WeeklyGrid';
@@ -32,34 +32,43 @@ import { SimpleNamePanel } from '../components/SimpleNamePanel';
 import { useStyles } from '../hooks/useStyles';
 import { useGenres } from '../hooks/useGenres';
 import { useArtistTypes } from '../hooks/useArtistTypes';
+import { usePartnerRoles } from '../hooks/usePartnerRoles';
 import { ArtistPanel } from '../components/ArtistPanel';
 import { MembershipPanel } from '../components/MembershipPanel';
 import { MembershipManagementPanel } from '../components/MembershipManagementPanel';
+import { DiscountPanel } from '../components/DiscountPanel';
+import { EmailTemplatesPanel } from '../components/EmailTemplatesPanel';
+import { EmailsPanel } from '../components/EmailsPanel';
+import { EmailLogsPanel } from '../components/EmailLogsPanel';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useArtists } from '../hooks/useArtists';
 import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
-import { useEvents, type EventItem } from '../hooks/useEvents';
+import { type EventItem, type EventPayload } from '../hooks/useEvents';
+import { authFetch, authFetchFile } from '../../lib/api';
+import { useAdminEventsPaginated } from '../hooks/useAdminEventsPaginated';
+import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from '../components/MultiSearchSelect';
 
 export function AdminDashboard() {
   const { user, setAdminViewMode, accessToken } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  const { events, loading: loadingEvents, refetch: refetchEvents, remove: removeEvent } = useEvents(accessToken);
+  const { count: upcomingCount } = useAdminEventsPaginated(accessToken, { upcoming: true }, 1);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
   const [memberships, setMemberships] = useState(mockMemberships);
   const [userMemberships, setUserMemberships] = useState(mockUserMemberships);
 
   const [activeTab, setActiveTab] = useState('events');
-  const [membershipView, setMembershipView] = useState<'plans' | 'management'>('plans');
   const [showStats, setShowStats] = useState(true);
   const [selectedEventModel, setSelectedEventModel] = useState<string | null>(null);
+  const [selectedPackModel, setSelectedPackModel] = useState<string>('plans');
 
   const { styles, loading: stylesLoading, error: stylesError, create: createStyle, update: updateStyle, remove: removeStyle } = useStyles(accessToken);
   const { genres, loading: genresLoading, error: genresError, create: createGenre, update: updateGenre, remove: removeGenre } = useGenres(accessToken);
   const { artistTypes, loading: artistTypesLoading, error: artistTypesError, create: createArtistType, update: updateArtistType, remove: removeArtistType } = useArtistTypes(accessToken);
+  const { partnerRoles, loading: partnerRolesLoading, error: partnerRolesError, create: createPartnerRole, update: updatePartnerRole, remove: removePartnerRole } = usePartnerRoles(accessToken);
 
   const eventModels = [
     { key: 'event',        label: language === 'it' ? 'Eventi'           : 'Events'       },
@@ -68,35 +77,40 @@ export function AdminDashboard() {
     { key: 'room',         label: language === 'it' ? 'Sale'             : 'Rooms'        },
     { key: 'style',        label: language === 'it' ? 'Stili'            : 'Styles'       },
     { key: 'genre',        label: language === 'it' ? 'Generi'           : 'Genres'       },
-    { key: 'artist-type',  label: language === 'it' ? 'Tipi di Artista'  : 'Artist Types' },
-    { key: 'artist',       label: language === 'it' ? 'Artisti'          : 'Artists'      },
+    { key: 'artist-type',   label: language === 'it' ? 'Tipi di Artista'  : 'Artist Types'   },
+    { key: 'artist',        label: language === 'it' ? 'Artisti'          : 'Artists'        },
+    { key: 'partner-role',  label: language === 'it' ? 'Ruoli Partner'    : 'Partner Roles'  },
+  ];
+
+  const packModels = [
+    { key: 'plans',      label: language === 'it' ? 'Piani'    : 'Plans'      },
+    { key: 'management', label: language === 'it' ? 'Gestione' : 'Management' },
+    { key: 'discounts',  label: language === 'it' ? 'Sconti'   : 'Discounts'  },
   ];
 
   const tabs = [
     { value: 'events',          label: language === 'it' ? 'Eventi' : 'Events',                  icon: <Calendar className="size-4" /> },
     { value: 'regular-classes', label: language === 'it' ? 'Corsi Regolari' : 'Regular Classes', icon: <Repeat className="size-4" /> },
     { value: 'students',        label: language === 'it' ? 'Studenti' : 'Students',               icon: <Users className="size-4" /> },
-    { value: 'memberships',     label: language === 'it' ? 'Membresie' : 'Memberships',           icon: <Crown className="size-4" /> },
+    { value: 'packs',           label: language === 'it' ? 'Pacchetti' : 'Packs',                icon: <Crown className="size-4" /> },
     { value: 'festivals',       label: language === 'it' ? 'Festival' : 'Festivals',              icon: <PartyPopper className="size-4" /> },
     { value: 'notifications',   label: language === 'it' ? 'Notifiche' : 'Notifications',         icon: <Bell className="size-4" /> },
+    { value: 'emails',          label: language === 'it' ? 'Email' : 'Emails',                     icon: <Mail className="size-4" /> },
   ];
 
   const activeTabLabel = activeTab === 'events' && selectedEventModel
     ? (eventModels.find(m => m.key === selectedEventModel)?.label ?? (language === 'it' ? 'Eventi' : 'Events'))
+    : activeTab === 'packs'
+    ? (packModels.find(m => m.key === selectedPackModel)?.label ?? (language === 'it' ? 'Pacchetti' : 'Packs'))
     : (tabs.find(t => t.value === activeTab)?.label ?? '');
 
   if (!user || user.role !== 'admin') {
     return <Navigate to="/login" replace />;
   }
 
-  const totalRevenue = events.reduce(
-    (sum, event) => sum + event.currentEnrollment * event.price,
-    0
-  );
+  const totalRevenue = 0;
   const totalStudents = students.length;
-  const upcomingEvents = events.filter(
-    (event) => new Date(event.date) >= new Date()
-  ).length;
+  const upcomingEvents = upcomingCount;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -113,7 +127,7 @@ export function AdminDashboard() {
             <Button
               onClick={() => {
                 setAdminViewMode('student');
-                navigate('/student');
+                navigate('/');
               }}
               variant="outline"
               className="bg-white/10 border-white/20 text-white hover:bg-white/20"
@@ -213,13 +227,44 @@ export function AdminDashboard() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Remaining tabs */}
-            {tabs.filter(t => t.value !== 'events').map(tab => (
-              <TabsTrigger key={tab.value} value={tab.value} className="flex items-center gap-2">
-                {tab.icon}
-                {tab.label}
-              </TabsTrigger>
-            ))}
+            {/* Remaining tabs — Packs gets a dropdown, the rest are plain triggers */}
+            {tabs.filter(t => t.value !== 'events').map(tab =>
+              tab.value === 'packs' ? (
+                <DropdownMenu key="packs" modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={[
+                        'inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow]',
+                        activeTab === 'packs'
+                          ? 'bg-card border-transparent shadow-sm'
+                          : 'border-transparent text-muted-foreground hover:text-foreground',
+                      ].join(' ')}
+                      onClick={() => setActiveTab('packs')}
+                    >
+                      <Crown className="size-4" />
+                      {language === 'it' ? 'Pacchetti' : 'Packs'}
+                      <ChevronDown className="size-3 opacity-60" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent modal={false}>
+                    {packModels.map(model => (
+                      <DropdownMenuItem
+                        key={model.key}
+                        className="cursor-pointer"
+                        onSelect={() => { setActiveTab('packs'); setSelectedPackModel(model.key); }}
+                      >
+                        {model.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <TabsTrigger key={tab.value} value={tab.value} className="flex items-center gap-2">
+                  {tab.icon}
+                  {tab.label}
+                </TabsTrigger>
+              )
+            )}
           </TabsList>
 
           {/* Mobile burger menu */}
@@ -249,7 +294,21 @@ export function AdminDashboard() {
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
-                {tabs.filter(t => t.value !== 'events').map(tab => (
+                <DropdownMenuLabel className="flex items-center gap-2">
+                  <Crown className="size-4" />
+                  {language === 'it' ? 'Pacchetti' : 'Packs'}
+                </DropdownMenuLabel>
+                {packModels.map(model => (
+                  <DropdownMenuItem
+                    key={model.key}
+                    className="pl-6 cursor-pointer"
+                    onSelect={() => { setActiveTab('packs'); setSelectedPackModel(model.key); }}
+                  >
+                    {model.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                {tabs.filter(t => t.value !== 'events' && t.value !== 'packs').map(tab => (
                   <DropdownMenuItem
                     key={tab.value}
                     className="flex items-center gap-2 cursor-pointer"
@@ -298,11 +357,21 @@ export function AdminDashboard() {
               />
             )}
             {selectedEventModel === 'artist' && <ArtistPanel />}
-            {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel events={events} loading={loadingEvents} onRefetch={refetchEvents} onRemove={removeEvent} />}
+            {selectedEventModel === 'partner-role' && (
+              <SimpleNamePanel
+                title="Partner Roles" titleIt="Ruoli Partner"
+                description="Manage partner roles for event types" descriptionIt="Gestisci i ruoli partner per i tipi di evento"
+                items={partnerRoles} loading={partnerRolesLoading} error={partnerRolesError}
+                onCreate={name => createPartnerRole({ name })}
+                onUpdate={(id, name) => updatePartnerRole(id, { name })}
+                onRemove={removePartnerRole}
+              />
+            )}
+            {(selectedEventModel === null || selectedEventModel === 'event') && <EventsPanel accessToken={accessToken} />}
           </TabsContent>
 
           <TabsContent value="regular-classes" className="mt-6">
-            <WeeklyGrid events={events} loading={loadingEvents} onRefetch={refetchEvents} />
+            <WeeklyGrid />
           </TabsContent>
 
           <TabsContent value="students" className="mt-6">
@@ -593,29 +662,10 @@ export function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="memberships" className="mt-6 space-y-4">
-            {/* Sub-toggle */}
-            <div className="inline-flex rounded-lg border bg-muted p-1 gap-1">
-              <Button
-                size="sm"
-                variant={membershipView === 'plans' ? 'default' : 'ghost'}
-                onClick={() => setMembershipView('plans')}
-              >
-                {language === 'it' ? 'Piani' : 'Plans'}
-              </Button>
-              <Button
-                size="sm"
-                variant={membershipView === 'management' ? 'default' : 'ghost'}
-                onClick={() => setMembershipView('management')}
-              >
-                {language === 'it' ? 'Gestione' : 'Management'}
-              </Button>
-            </div>
-
-            {membershipView === 'plans'
-              ? <MembershipPanel />
-              : <MembershipManagementPanel />
-            }
+          <TabsContent value="packs" className="mt-6">
+            {selectedPackModel === 'plans' && <MembershipPanel />}
+            {selectedPackModel === 'management' && <MembershipManagementPanel />}
+            {selectedPackModel === 'discounts' && <DiscountPanel />}
           </TabsContent>
 
           <TabsContent value="festivals" className="mt-6">
@@ -646,52 +696,98 @@ export function AdminDashboard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="emails" className="mt-6">
+            <Tabs defaultValue="templates">
+              <TabsList>
+                <TabsTrigger value="templates">
+                  {language === 'it' ? 'Template' : 'Templates'}
+                </TabsTrigger>
+                <TabsTrigger value="sent">
+                  {language === 'it' ? 'Email inviate' : 'Sent emails'}
+                </TabsTrigger>
+                <TabsTrigger value="logs">
+                  {language === 'it' ? 'Log' : 'Logs'}
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="templates" className="mt-4">
+                <EmailTemplatesPanel />
+              </TabsContent>
+              <TabsContent value="sent" className="mt-4">
+                <EmailsPanel />
+              </TabsContent>
+              <TabsContent value="logs" className="mt-4">
+                <EmailLogsPanel />
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
         </Tabs>
       </div>
     </div>
   );
 }
 
-function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventItem[]; loading: boolean; onRefetch: () => void; onRemove: (id: number) => Promise<void> }) {
+function EventsPanel({ accessToken }: { accessToken: string | null }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
 
-  const [filterName, setFilterName] = useState('');
-  const [filterParent, setFilterParent] = useState(false);
-  const [filterActive, setFilterActive] = useState(false);
-  const [filterStyleId, setFilterStyleId] = useState<string>('');
-  const [filterLevelId, setFilterLevelId] = useState<string>('');
-  const [filterAccess, setFilterAccess] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<string>('');
-  const [filterCityId, setFilterCityId] = useState<string>('');
+  const [filterName, setFilterName] = useState(searchParams.get('name') ?? '');
+  const [filterParent, setFilterParent] = useState(searchParams.get('parent') === '1');
+  const [filterActive, setFilterActive] = useState(searchParams.get('active') === '1');
+  const [filterStyleId, setFilterStyleId] = useState<string>(searchParams.get('style') ?? '');
+  const [filterLevelId, setFilterLevelId] = useState<string>(searchParams.get('level') ?? '');
+  const [filterAccess, setFilterAccess] = useState<string>(searchParams.get('access') ?? '');
+  const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') ?? '');
+  const [filterCityId, setFilterCityId] = useState<string>(searchParams.get('city') ?? '');
 
-  const now = new Date();
+  const { styles } = useStyles(accessToken);
+  const { levels } = useLevels(accessToken);
+  const { rooms } = useRooms(accessToken);
+  const allCities = useMemo(
+    () => Array.from(new Map(rooms.map(r => r.location.city).map(c => [c.id, c])).values()).sort((a, b) => a.name.localeCompare(b.name)),
+    [rooms],
+  );
 
-  const allStyles = Array.from(
-    new Map(events.flatMap(e => e.styles).map(s => [s.id, s])).values()
-  ).sort((a, b) => a.name.localeCompare(b.name));
+  const { events: paginated, count, page, pageSize, loading, setPage, setFilters, refetch, remove: removeEvent } = useAdminEventsPaginated(accessToken);
 
-  const allLevels = Array.from(
-    new Map(events.flatMap(e => e.level ? [e.level] : []).map(l => [l.id, l])).values()
-  ).sort((a, b) => a.name.localeCompare(b.name));
+  // The admin list is flat; the edit form needs the full nested event.
+  const openEdit = async (id: number) => {
+    if (!accessToken) return;
+    const res = await authFetch(`/api/events/events/${id}/`, accessToken);
+    if (res.ok) setEditingEvent(await res.json());
+  };
 
-  const allCities = Array.from(
-    new Map(events.map(e => e.room.location.city).map(c => [c.id, c])).values()
-  ).sort((a, b) => a.name.localeCompare(b.name));
+  useEffect(() => {
+    setFilters({
+      name: filterName || undefined,
+      style_id: filterStyleId ? Number(filterStyleId) : undefined,
+      level_id: filterLevelId ? Number(filterLevelId) : undefined,
+      type: filterAccess || undefined,
+      status: filterStatus || undefined,
+      city_id: filterCityId ? Number(filterCityId) : undefined,
+      active: filterActive || undefined,
+      parent_only: filterParent || undefined,
+    });
 
-  const filtered = events.filter(e => {
-    if (filterName && !e.name.toLowerCase().includes(filterName.toLowerCase())) return false;
-    if (filterParent && e.events.length === 0) return false;
-    if (filterActive && new Date(e.end_date) <= now) return false;
-    if (filterStyleId && !e.styles.some(s => s.id === Number(filterStyleId))) return false;
-    if (filterLevelId && e.level?.id !== Number(filterLevelId)) return false;
-    if (filterAccess && e.type !== filterAccess) return false;
-    if (filterStatus && e.status !== filterStatus) return false;
-    if (filterCityId && e.room.location.city.id !== Number(filterCityId)) return false;
-    return true;
-  });
+    const params = new URLSearchParams();
+    if (filterName) params.set('name', filterName);
+    if (filterStyleId) params.set('style', filterStyleId);
+    if (filterLevelId) params.set('level', filterLevelId);
+    if (filterAccess) params.set('access', filterAccess);
+    if (filterStatus) params.set('status', filterStatus);
+    if (filterCityId) params.set('city', filterCityId);
+    if (filterParent) params.set('parent', '1');
+    if (filterActive) params.set('active', '1');
+    setSearchParams(params, { replace: true });
+  }, [filterName, filterStyleId, filterLevelId, filterAccess, filterStatus, filterCityId, filterActive, filterParent, setFilters, setSearchParams]);
+
+  const totalPages = Math.max(1, Math.ceil(count / pageSize));
 
   const handleDelete = async (id: number) => {
-    await onRemove(id);
+    await removeEvent(id);
+    refetch();
   };
 
   return (
@@ -702,7 +798,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
             <CardTitle>Events Management</CardTitle>
             <CardDescription>Create and manage dance classes and events</CardDescription>
           </div>
-          <EventFormDialog onSuccess={onRefetch} />
+          <EventFormDialog onSuccess={refetch} />
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -724,7 +820,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
               <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All styles" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All styles</SelectItem>
-                {allStyles.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                {styles.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -735,7 +831,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
               <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="All levels" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All levels</SelectItem>
-                {allLevels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
+                {levels.map(l => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -817,6 +913,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
         {loading ? (
           <p className="text-sm text-gray-500 py-4">Loading events...</p>
         ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -827,40 +924,44 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
                 <TableHead>Room</TableHead>
                 <TableHead>Artists</TableHead>
                 <TableHead>Capacity</TableHead>
+                <TableHead>Available</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 && (
+              {count === 0 && !loading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-gray-400 py-8">No events match the current filters.</TableCell>
+                  <TableCell colSpan={9} className="text-center text-gray-400 py-8">No events match the current filters.</TableCell>
                 </TableRow>
               )}
-              {filtered.map((event) => (
-                <TableRow key={event.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {event.effective_image && (
-                        <img src={event.effective_image} alt="" className="size-8 rounded object-cover shrink-0" />
-                      )}
-                      {event.name}
-                      {event.events.length > 0 && (
-                        <Badge variant="outline" className="text-xs">{event.events.length} children</Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell><Badge variant="outline">{event.event_type.name}</Badge></TableCell>
+              {paginated.map((event) => (
+                <TableRow
+                  key={event.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/admin/events/${event.id}/register`, { state: { from: `${location.pathname}${location.search}` } })}
+                >
+                  <TableCell className="font-medium">{event.name}</TableCell>
+                  <TableCell><Badge variant="outline">{event.event_type_name}</Badge></TableCell>
                   <TableCell><Badge variant="outline">{event.status}</Badge></TableCell>
                   <TableCell>{new Date(event.start_date).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })}</TableCell>
-                  <TableCell>{event.room.name}</TableCell>
-                  <TableCell>{event.artists.map(a => a.full_name).join(', ') || '—'}</TableCell>
+                  <TableCell>{event.room}</TableCell>
+                  <TableCell>{event.artists.join(', ') || '—'}</TableCell>
                   <TableCell>{event.capacity}</TableCell>
+                  <TableCell>{event.available_spot}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setEditingEvent(event)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Register"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/events/${event.id}/register`, { state: { from: `${location.pathname}${location.search}` } }); }}
+                      >
+                        <ClipboardList className="size-4" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEdit(event.id); }}>
                         <Pencil className="size-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDelete(event.id)}>
+                      <Button size="sm" variant="ghost" className="text-red-600" onClick={(e) => { e.stopPropagation(); handleDelete(event.id); }}>
                         <Trash2 className="size-4" />
                       </Button>
                     </div>
@@ -869,6 +970,47 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
               ))}
             </TableBody>
           </Table>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-xs text-gray-500">
+                {count} events · page {page} of {totalPages}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline" size="sm"
+                  disabled={page === 1}
+                  onClick={() => setPage(page - 1)}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronLeft className="size-3" />
+                </Button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <Button
+                    key={p}
+                    variant={p === page ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPage(p)}
+                    className={[
+                      'h-7 w-7 p-0 text-xs',
+                      p === page ? 'bg-[#2b2b2b] text-white hover:bg-[#e67e22]' : '',
+                    ].join(' ')}
+                  >
+                    {p}
+                  </Button>
+                ))}
+                <Button
+                  variant="outline" size="sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage(page + 1)}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronRight className="size-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </CardContent>
 
@@ -881,7 +1023,7 @@ function EventsPanel({ events, loading, onRefetch, onRemove }: { events: EventIt
             </DialogHeader>
             <EventForm
               initialData={editingEvent}
-              onSuccess={() => { onRefetch(); setEditingEvent(null); }}
+              onSuccess={() => { refetch(); setEditingEvent(null); }}
             />
           </DialogContent>
         </Dialog>
@@ -916,7 +1058,23 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
-  const { create, update, uploadImage } = useEvents(accessToken);
+  const create = async (data: EventPayload): Promise<number> => {
+    if (!accessToken) throw new Error('Not authenticated');
+    const res = await authFetch('/api/events/events/', accessToken, { method: 'POST', body: JSON.stringify(data) });
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(JSON.stringify(body)); }
+    return (await res.json()).id;
+  };
+  const update = async (id: number, data: EventPayload): Promise<void> => {
+    if (!accessToken) return;
+    const res = await authFetch(`/api/events/events/${id}/`, accessToken, { method: 'PUT', body: JSON.stringify(data) });
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(JSON.stringify(body)); }
+  };
+  const uploadImage = async (id: number, file: File): Promise<void> => {
+    if (!accessToken) return;
+    const form = new FormData(); form.append('image', file);
+    const res = await authFetchFile(`/api/events/events/${id}/`, accessToken, form);
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(JSON.stringify(body)); }
+  };
 
   const parseDate = (iso: string) => iso ? iso.slice(0, 10) : '';
   const parseTime = (iso: string) => iso ? iso.slice(11, 16) : '';
@@ -941,6 +1099,17 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   );
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(
     initialData?.styles ?? []
+  );
+  const [paymentDays, setPaymentDays] = useState(initialData?.payment_days?.toString() ?? '7');
+  const [warningThreshold, setWarningThreshold] = useState(initialData?.warning_threshold?.toString() ?? '5');
+  const [extras, setExtras] = useState((initialData?.extras ?? 0).toString());
+  const [selectedRoles, setSelectedRoles] = useState<{ id: number; name: string }[]>(
+    initialData?.accepted_roles ?? []
+  );
+  const { partnerRoles, loading: loadingRoles } = usePartnerRoles(accessToken);
+  const { memberships, loading: loadingMemberships } = useMemberships(accessToken);
+  const [selectedMemberships, setSelectedMemberships] = useState<{ id: number; name: string }[]>(
+    initialData?.memberships?.map(m => ({ id: m.id, name: m.name })) ?? []
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialData?.effective_image ?? null);
@@ -983,6 +1152,11 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
       artist_ids: selectedArtists.map(a => a.id),
       genre_ids: selectedGenres.map(g => g.id),
       style_ids: selectedStyles.map(s => s.id),
+      payment_days: Number(paymentDays),
+      warning_threshold: Number(warningThreshold),
+      extras: Number(extras) || 0,
+      accepted_role_ids: selectedRoles.map(r => r.id),
+      membership_ids: selectedMemberships.map(m => m.id),
     };
     try {
       if (isEdit) {
@@ -1103,6 +1277,43 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
 
         <div className="col-span-2">
           <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style..." onChange={setSelectedStyles} />
+        </div>
+
+        <div className="col-span-2 space-y-2">
+          <Label htmlFor="extras">Extras</Label>
+          <Input id="extras" type="number" min={0} value={extras} onChange={e => setExtras(e.target.value)} placeholder="0" />
+        </div>
+
+        <div className="col-span-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Registration</p>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="space-y-2">
+              <Label htmlFor="payment_days">Payment deadline (days)</Label>
+              <Input id="payment_days" type="number" min={1} value={paymentDays} onChange={e => setPaymentDays(e.target.value)} placeholder="7" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="warning_threshold">Warning threshold (spots)</Label>
+              <Input id="warning_threshold" type="number" min={0} value={warningThreshold} onChange={e => setWarningThreshold(e.target.value)} placeholder="5" />
+            </div>
+          </div>
+          <MultiSearchSelect
+            label="Accepted Roles"
+            items={partnerRoles}
+            selected={selectedRoles}
+            loading={loadingRoles}
+            placeholder="Search role…"
+            onChange={setSelectedRoles}
+          />
+          <div className="mt-4">
+            <MultiSearchSelect
+              label="Memberships"
+              items={memberships.map(m => ({ id: m.id, name: m.name }))}
+              selected={selectedMemberships}
+              loading={loadingMemberships}
+              placeholder="Search membership…"
+              onChange={setSelectedMemberships}
+            />
+          </div>
         </div>
 
         <div className="col-span-2 space-y-2">

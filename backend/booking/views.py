@@ -1,18 +1,21 @@
 import datetime
 
 from dateutil.relativedelta import relativedelta
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
+from django.conf import settings
 from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from .models import Booking, Contribution, ContributionStatus
-from .serializers import ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
+from .serializers import BookingSerializer, ContributionOverviewSerializer, ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
+from utils.tasks import send_email
 
 
 class UserBookingViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -32,15 +35,54 @@ class UserBookingViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         )
 
 
+class BookingViewSet(viewsets.ModelViewSet):
+    serializer_class = BookingSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = Booking.objects.select_related(
+            'user', 'event', 'role', 'partner', 'partner_role', 'contribution',
+        )
+        user_id = self.request.query_params.get('user')
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        event_id = self.request.query_params.get('event')
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+        return qs
+
+
 class ContributionViewSet(viewsets.ModelViewSet):
     serializer_class = ContributionSerializer
     permission_classes = [IsAdminUser]
 
     def get_queryset(self):
-        qs = Contribution.objects.select_related('user', 'membership').prefetch_related('events')
+        qs = Contribution.objects.select_related('user', 'membership').prefetch_related('events', 'discounts')
         user_id = self.request.query_params.get('user')
         if user_id:
             qs = qs.filter(user_id=user_id)
+        return qs
+
+
+class ContributionOverviewViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = ContributionOverviewSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = (
+            Contribution.objects
+            .select_related('user', 'role', 'original_contribution__user', 'original_contribution__role')
+            .prefetch_related(
+                Prefetch('twin_contributions', queryset=Contribution.objects.select_related('user', 'role')),
+            )
+            .order_by('-date')
+        )
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+        event_id = self.request.query_params.get('event')
+        if event_id:
+            qs = qs.filter(events=event_id)
         return qs
 
 
@@ -48,6 +90,7 @@ class UserContributionViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = UserContributionSerializer
@@ -57,8 +100,22 @@ class UserContributionViewSet(
         return (
             Contribution.objects
             .filter(user=self.request.user)
-            .select_related('membership')
-            .prefetch_related('events', 'membership__membershiprule_set__event_type')
+            .select_related(
+                'membership', 'role',
+                'original_contribution__membership',
+                'original_contribution__role',
+            )
+            .prefetch_related(
+                'events', 'discounts',
+                'original_contribution__events',
+                'original_contribution__discounts',
+                'twin_contributions',
+                'twin_contributions__events',
+                'twin_contributions__discounts',
+                'twin_contributions__membership',
+                'twin_contributions__role',
+                'membership__membershiprule_set__event_type',
+            )
         )
 
     def perform_create(self, serializer):
@@ -129,3 +186,20 @@ class UserContributionViewSet(
         new_contribution.events.set(old_contribution.events.all())
 
         return Response(self.get_serializer(new_contribution).data, status=status.HTTP_201_CREATED)
+
+    def perform_destroy(self, instance):
+        if instance.status == ContributionStatus.PAYED:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Paid contributions cannot be cancelled.')
+        instance.status = ContributionStatus.CANCELLED
+        instance.save(update_fields=['status'])
+        first_event = instance.events.first()
+        send_email.delay(
+            instance.user.id,
+            template='cancellation_email',
+            context={
+                'first_name': instance.user.first_name,
+                'event_name': first_event.name if first_event else (instance.membership.name if instance.membership else '—'),
+                'url': settings.FRONTEND_URL + '/contacts',
+            },
+        )

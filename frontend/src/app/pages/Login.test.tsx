@@ -6,9 +6,22 @@ import { http, HttpResponse } from 'msw'
 import { Login } from './Login'
 import { renderWithProviders } from '../../test/renderWithProviders'
 
+// AuthContext decodes the access token to read role/user_id/email, so the
+// mocked token must be a structurally valid JWT with a base64 payload
+function makeFakeJwt(role: string): string {
+  const payload = btoa(JSON.stringify({
+    user_id: 1,
+    email: 'user@test.com',
+    role,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  }))
+  return `header.${payload}.signature`
+}
+
 // helper to fill and submit the login form
+// findBy* waits for AuthProvider to finish its async session restore, which renders nothing until done
 async function submitLoginForm(email: string, password: string) {
-  await userEvent.type(screen.getByLabelText(/email/i), email)
+  await userEvent.type(await screen.findByLabelText(/email/i), email)
   await userEvent.type(screen.getByLabelText(/password/i), password)
   await userEvent.click(screen.getByRole('button', { name: /accedi/i }))
 }
@@ -19,7 +32,7 @@ test('admin user is redirected to /admin after login', async () => {
   server.use(
     http.post('/api/auth/token/', () => {
       return HttpResponse.json({
-        access: 'fake-access-token',
+        access: makeFakeJwt('admin'),
         refresh: 'fake-refresh-token',
       })
     })
@@ -32,11 +45,11 @@ test('admin user is redirected to /admin after login', async () => {
   expect(await screen.findByText('Admin Page')).toBeInTheDocument()
 })
 
-test('student user is redirected to /student after login', async () => {
+test('student user is redirected to the home dashboard after login', async () => {
   server.use(
     http.post('/api/auth/token/', () => {
       return HttpResponse.json({
-        access: 'fake-access-token',
+        access: makeFakeJwt('student'),
         refresh: 'fake-refresh-token',
       })
     })
@@ -45,7 +58,7 @@ test('student user is redirected to /student after login', async () => {
   renderWithProviders(<Login />)
   await submitLoginForm('student@example.com', 'anypassword')
 
-  expect(await screen.findByText('Student Page')).toBeInTheDocument()
+  expect(await screen.findByText('Home Page')).toBeInTheDocument()
 })
 
 // --- error cases ---
@@ -66,13 +79,12 @@ test('shows error message when credentials are wrong', async () => {
   expect(await screen.findByText(/invalid email or password/i)).toBeInTheDocument()
 })
 
-test('shows generic error message on server error', async () => {
+test('shows generic error message on network error', async () => {
+  // login() maps any non-ok HTTP status to "invalid credentials";
+  // only a failed fetch reaches the generic error path
   server.use(
     http.post('/api/auth/token/', () => {
-      return HttpResponse.json(
-        { detail: 'Internal server error' },
-        { status: 500 }
-      )
+      return HttpResponse.error()
     })
   )
 

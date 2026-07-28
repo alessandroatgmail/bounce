@@ -1,8 +1,8 @@
 from django.db import models
+from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
 from colorfield.fields import ColorField
 from users.models import City
-
 
 class Status(models.TextChoices):
     DRAFT = "draft", "Draft"
@@ -19,10 +19,17 @@ class Type(models.TextChoices):
     MEMBERS = "members", "Members"
     COLLABORATION = "collaboration", "Collaboration"
 
+class PartnerRole(models.Model):
+    name = models.CharField(max_length=55)
+    def __str__(self):
+        return self.name
+
 class EventType(models.Model):
     name = models.CharField(max_length=55)
     frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.SINGLE)
     partners = models.IntegerField()
+    partner_roles = models.ManyToManyField(PartnerRole, blank=True, null=True)
+    party = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
@@ -97,6 +104,14 @@ class Event(models.Model):
     info = models.TextField(blank=True, null=True)
     color = ColorField(format="hex", null=True, blank=True)
     image = models.ImageField(upload_to="events/", blank=True, null=True)
+    payment_days = models.IntegerField(verbose_name="Giorni per pagare", default=7)
+    payment_days_waiting = models.IntegerField(verbose_name="Giorni per pagare rientrati dalla waiting list", default=1)
+    accepted_roles = models.ManyToManyField(PartnerRole, blank=True, null=True)
+    warning_threshold = models.IntegerField(verbose_name="Warning Threshold", default=5)
+    extras = models.IntegerField(default=0)
+    multi_events = models.BooleanField(default=False)
+    free = models.BooleanField(default=False)
+    memberships = models.ManyToManyField("membership.membership", blank=True, related_name="events")
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"
@@ -105,12 +120,64 @@ class Event(models.Model):
     def effective_image(self):
         if self.image:
             return self.image
-        parent = self.event_set.first()
+        parents = getattr(self, "prefetched_parents", None)
+        if parents is None:
+            parent = self.event_set.first()
+        else:
+            parent = parents[0] if parents else None
         if parent and parent.image:
             return parent.image
         return None
 
+    @property
+    def available_spot(self):
+        from booking.models import ContributionStatus as CS
 
+        if self.event_set.all().exists():
+            if self.event_set.first().multi_events and not self.event_set.first().free:
+                return self.capacity - self.event_set.first().contributions.filter(
+                    Q(level=self.level),
+                    Q(status=CS.PAYED) | Q(status=CS.ACCEPTED)
+                ).count()
 
+        return self.capacity - self.contributions.filter(Q(status=CS.PAYED) | Q(status=CS.ACCEPTED)).count()
 
+    @property
+    def spot_booked(self):
+        from booking.models import ContributionStatus as CS
+
+        return self.contributions.filter(status=CS.RECEIVED).count()
+
+    @property
+    def spot_accepted(self):
+        from booking.models import ContributionStatus as CS
+
+        return self.contributions.filter(status=CS.ACCEPTED).count()
+
+    @property
+    def role_count(self):
+        from booking.models import ContributionStatus as CS
+        from collections import Counter
+
+        if self.event_set.all().exists():
+            if self.event_set.first().multi_events and not self.event_set.first().free:
+                parent = self.event_set.first()
+                roles = list (parent.contributions.filter(
+                    status__in=[CS.ACCEPTED, CS.PAYED], level=self.level,
+                ).values("role__name")
+                )
+                roles = dict(Counter([r["role__name"] for r in roles]))
+                for role in self.event_type.partner_roles.all():
+                    if role.name not in roles:
+                        roles[role.name] = 0
+                return roles
+        roles = list(
+            self.contributions.filter(status__in=[CS.ACCEPTED, CS.PAYED]).values("role__name")
+        )
+        roles = dict(Counter([r["role__name"] for r in roles]))
+
+        for role in self.event_type.partner_roles.all():
+            if role.name not in roles:
+                roles[role.name] = 0
+        return roles
 

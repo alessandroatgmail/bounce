@@ -5,11 +5,27 @@ export type UserRole = 'guest' | 'student' | 'admin';
 
 export interface User {
   id: string;
+  uuid: string;
   email: string;
   name: string;
+  first_name?: string;
+  last_name?: string;
   role: UserRole;
   phone?: string;
+  date_of_birth?: string | null;
+  place_of_birth?: { id: number; name: string } | null;
+  ci?: string;
+  address?: string;
+  city?: { id: number; name: string } | null;
+  postal_code?: string;
+  country?: { id: number; name: string } | null;
+  acsi?: boolean;
+  acsi_number?: number | null;
+  acsi_expiration_date?: string | null;
+  privacy_consent?: boolean;
+  marketing_consent?: boolean;
   joinedDate?: string;
+  profile_image?: string | null;
 }
 
 interface AuthContextType {
@@ -20,6 +36,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   adminViewMode: 'admin' | 'student';
   setAdminViewMode: (mode: 'admin' | 'student') => void;
+  updateUser: (partial: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -64,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const role = mapRole(payload['role'] as string);
     const newUser: User = {
       id: String(payload['user_id']),
+      uuid: '',
       email: payload['email'] as string,
       name: '',
       role,
@@ -79,7 +97,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearRefreshTimer();
     refreshTimerRef.current = setTimeout(() => tryRefreshRef.current?.(), msUntilRefresh);
 
+    // Enrich with full profile data (name, uuid, profile_image, etc.)
+    fetch(apiUrl('/api/auth/me/'), {
+      headers: { Authorization: `Bearer ${access}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        setUser(u => u ? {
+          ...u,
+          uuid: data.uuid ?? '',
+          name: `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim(),
+          first_name: data.first_name ?? '',
+          last_name: data.last_name ?? '',
+          phone: data.phone ?? undefined,
+          date_of_birth: data.date_of_birth ?? null,
+          place_of_birth: data.place_of_birth ?? null,
+          ci: data.ci ?? '',
+          address: data.address ?? '',
+          city: data.city ?? null,
+          postal_code: data.postal_code ?? '',
+          country: data.country ?? null,
+          acsi: data.acsi ?? false,
+          acsi_number: data.acsi_number ?? null,
+          acsi_expiration_date: data.acsi_expiration_date ?? null,
+          privacy_consent: data.privacy_consent ?? false,
+          marketing_consent: data.marketing_consent ?? false,
+          joinedDate: data.date_joined ?? undefined,
+          profile_image: data.profile_image ?? null,
+        } : u);
+      })
+      .catch(() => {/* non-critical */});
+
     return newUser;
+  };
+
+  const updateUser = (partial: Partial<User>) => {
+    setUser(u => u ? { ...u, ...partial } : u);
   };
 
   const tryRefresh = async (): Promise<string | null> => {
@@ -143,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: user !== null,
       adminViewMode,
       setAdminViewMode,
+      updateUser,
     }}>
       {children}
     </AuthContext.Provider>

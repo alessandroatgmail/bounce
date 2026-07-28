@@ -1,11 +1,19 @@
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, Navigate } from 'react-router';
+import { useAuth } from './contexts/AuthContext';
 import { Home } from './pages/Home';
 import { Events } from './pages/Events';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { StudentDashboard } from './pages/StudentDashboard';
+import { Activate } from './pages/Activate';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 import { Layout } from './components/Layout';
+import { CheckoutPage } from './pages/CheckoutPage';
+import { PaymentSuccess } from './pages/PaymentSuccess';
+import { FestivalSchedulePage } from './pages/FestivalSchedulePage';
+import { EventRegisterPage } from './pages/EventRegisterPage';
 
 export const router = createBrowserRouter([
   {
@@ -14,7 +22,7 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        Component: Home,
+        Component: HomeRoute,
       },
       {
         path: 'events',
@@ -29,12 +37,40 @@ export const router = createBrowserRouter([
         Component: Register,
       },
       {
+        path: 'activate/:uidb64/:token',
+        Component: Activate,
+      },
+      {
+        path: 'forgot-password',
+        Component: ForgotPassword,
+      },
+      {
+        path: 'reset-password/:uid/:token',
+        Component: ResetPassword,
+      },
+      {
+        path: 'festival/:id',
+        Component: FestivalSchedulePage,
+      },
+      {
+        path: 'checkout',
+        Component: CheckoutPage,
+      },
+      {
+        path: 'payment/success',
+        Component: PaymentSuccess,
+      },
+      {
         path: 'admin',
         Component: AdminDashboard,
       },
       {
+        path: 'admin/events/:eventId/register',
+        Component: EventRegisterPage,
+      },
+      {
         path: 'student',
-        Component: StudentDashboard,
+        element: <Navigate to="/" replace />,
       },
       {
         path: '*',
@@ -43,6 +79,15 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
+
+// Logged-in students (and admins in student view) get the dashboard at /;
+// the public landing page is only shown when logged out
+function HomeRoute() {
+  const { user, adminViewMode } = useAuth();
+  const showDashboard =
+    user?.role === 'student' || (user?.role === 'admin' && adminViewMode === 'student');
+  return showDashboard ? <StudentDashboard /> : <Home />;
+}
 
 function NotFound() {
   return (

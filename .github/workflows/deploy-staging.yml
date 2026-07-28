@@ -1,0 +1,43 @@
+name: Deploy to Staging
+
+# Trigger: runs when code is pushed to the staging branch
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Checkout code ────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Connect to VPS and deploy ─────────────────────────────────
+      - name: Deploy to staging VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/deploy/bounce
+            
+            git pull origin staging
+            
+            # Build new images and recreate containers FIRST,
+            # so 'web' contains the new code and dependencies
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              up -d --build
+            
+            # Now migrate inside the NEW container
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              exec -T web python manage.py migrate --noinput
+            
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              exec -T web python manage.py collectstatic --noinput
+            
+            docker image prune -f
