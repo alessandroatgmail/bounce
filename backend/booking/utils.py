@@ -21,43 +21,52 @@ def add_payed_bookings(contribution):
         contribution.original_contribution_id is not None
         or contribution.twin_contributions.exists()
     )
+    event = contribution.events.first()
 
-    for event in contribution.events.all():
-        for target in [event, *event.events.all()]:
-            booking, _ = Booking.objects.get_or_create(
-                user=contribution.user,
-                event=target,
-                defaults={
-                    "role": contribution.role,
-                    "partner_email": partner_email,
-                    "partner": contribution.partner,
-                    "partner_role": contribution.events.first().event_type.partner_roles.all().exclude(pk=contribution.role.pk).first() if partner_email else None,
-                    "contribution": contribution,
-                    "couple": couple,
-                },
-            )
-            if booking.partner_email or booking.role_id is None:
-                continue
-            free_partner = (
-                Booking.objects
-                .filter(event=target, role__isnull=False)
-                .filter(Q(partner_email__isnull=True) | Q(partner_email=''))
-                .exclude(role=booking.role)
-                .exclude(pk=booking.pk)
-                .select_related('user')
-                .order_by('id')
-                .first()
-            )
-            if free_partner:
-                booking.partner_email = free_partner.user.email
-                booking.partner = free_partner.user
-                booking.contribution = contribution
-                booking.partner_role = free_partner.role
-                booking.save(update_fields=['partner_email', 'partner', 'contribution', 'partner_role'])
-                free_partner.partner_email = booking.user.email
-                free_partner.partner = booking.user
-                free_partner.partner_role = booking.role
-                free_partner.save(update_fields=['partner_email', 'partner', 'partner_role'])
+    if not event:
+        return
+    if event.multi_events and not event.free:
+        events = event.events.filter(level=contribution.level).all()
+    else:
+        events = event.events.all()
+
+    for event in [event, *events]:
+
+        booking, _ = Booking.objects.get_or_create(
+            user=contribution.user,
+            event=event,
+            defaults={
+                "role": contribution.role,
+                "partner_email": partner_email,
+                "partner": contribution.partner,
+                "partner_role": contribution.events.first().event_type.partner_roles.all().exclude(pk=contribution.role.pk).first() if partner_email else None,
+                "contribution": contribution,
+                "couple": couple,
+                "role": contribution.role if contribution.role else None,
+            },
+        )
+        if booking.partner_email or booking.role_id is None:
+            continue
+        free_partner = (
+            Booking.objects
+            .filter(event=event, role__isnull=False)
+            .filter(Q(partner_email__isnull=True) | Q(partner_email=''))
+            .exclude(role=booking.role)
+            .exclude(pk=booking.pk)
+            .select_related('user')
+            .order_by('id')
+            .first()
+        )
+        if free_partner:
+            booking.partner_email = free_partner.user.email
+            booking.partner = free_partner.user
+            booking.contribution = contribution
+            booking.partner_role = free_partner.role
+            booking.save(update_fields=['partner_email', 'partner', 'contribution', 'partner_role'])
+            free_partner.partner_email = booking.user.email
+            free_partner.partner = booking.user
+            free_partner.partner_role = booking.role
+            free_partner.save(update_fields=['partner_email', 'partner', 'partner_role'])
 
 
 def sync_bookings(user, added_events, removed_events):

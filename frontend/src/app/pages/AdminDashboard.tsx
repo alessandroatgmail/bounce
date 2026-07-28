@@ -1,4 +1,4 @@
-import { Navigate, useNavigate } from 'react-router';
+import { Navigate, useNavigate, useLocation, useSearchParams } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -729,16 +729,18 @@ export function AdminDashboard() {
 
 function EventsPanel({ accessToken }: { accessToken: string | null }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
 
-  const [filterName, setFilterName] = useState('');
-  const [filterParent, setFilterParent] = useState(false);
-  const [filterActive, setFilterActive] = useState(false);
-  const [filterStyleId, setFilterStyleId] = useState<string>('');
-  const [filterLevelId, setFilterLevelId] = useState<string>('');
-  const [filterAccess, setFilterAccess] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<string>('');
-  const [filterCityId, setFilterCityId] = useState<string>('');
+  const [filterName, setFilterName] = useState(searchParams.get('name') ?? '');
+  const [filterParent, setFilterParent] = useState(searchParams.get('parent') === '1');
+  const [filterActive, setFilterActive] = useState(searchParams.get('active') === '1');
+  const [filterStyleId, setFilterStyleId] = useState<string>(searchParams.get('style') ?? '');
+  const [filterLevelId, setFilterLevelId] = useState<string>(searchParams.get('level') ?? '');
+  const [filterAccess, setFilterAccess] = useState<string>(searchParams.get('access') ?? '');
+  const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') ?? '');
+  const [filterCityId, setFilterCityId] = useState<string>(searchParams.get('city') ?? '');
 
   const { styles } = useStyles(accessToken);
   const { levels } = useLevels(accessToken);
@@ -768,7 +770,18 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
       active: filterActive || undefined,
       parent_only: filterParent || undefined,
     });
-  }, [filterName, filterStyleId, filterLevelId, filterAccess, filterStatus, filterCityId, filterActive, filterParent, setFilters]);
+
+    const params = new URLSearchParams();
+    if (filterName) params.set('name', filterName);
+    if (filterStyleId) params.set('style', filterStyleId);
+    if (filterLevelId) params.set('level', filterLevelId);
+    if (filterAccess) params.set('access', filterAccess);
+    if (filterStatus) params.set('status', filterStatus);
+    if (filterCityId) params.set('city', filterCityId);
+    if (filterParent) params.set('parent', '1');
+    if (filterActive) params.set('active', '1');
+    setSearchParams(params, { replace: true });
+  }, [filterName, filterStyleId, filterLevelId, filterAccess, filterStatus, filterCityId, filterActive, filterParent, setFilters, setSearchParams]);
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize));
 
@@ -925,7 +938,7 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                 <TableRow
                   key={event.id}
                   className="cursor-pointer"
-                  onClick={() => navigate(`/admin/events/${event.id}/register`)}
+                  onClick={() => navigate(`/admin/events/${event.id}/register`, { state: { from: `${location.pathname}${location.search}` } })}
                 >
                   <TableCell className="font-medium">{event.name}</TableCell>
                   <TableCell><Badge variant="outline">{event.event_type_name}</Badge></TableCell>
@@ -941,7 +954,7 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                         size="sm"
                         variant="ghost"
                         title="Register"
-                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/events/${event.id}/register`); }}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/events/${event.id}/register`, { state: { from: `${location.pathname}${location.search}` } }); }}
                       >
                         <ClipboardList className="size-4" />
                       </Button>

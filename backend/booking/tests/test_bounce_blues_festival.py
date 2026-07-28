@@ -41,7 +41,7 @@ from django.utils import timezone
 from rest_framework import status as http_status
 from rest_framework.test import APIClient
 
-from booking.models import Contribution, ContributionStatus
+from booking.models import Contribution, ContributionStatus, Booking
 from event.models import Event
 from users.models import User, City
 
@@ -369,13 +369,23 @@ class TestPartnerRegistration:
 
 class TestSingleRegistration:
 
-    def test_solo_booking_is_accepted(self, september, blues_festival):
+    def test_solo_booking_is_accepted(self, september, blues_festival, admin_client):
         emma = make_student("emma@test.com")
         response = book(emma, blues_festival, "early", role="Leader", level="Improvers")
         assert response.status_code == http_status.HTTP_201_CREATED, response.data
         contribution = contribution_of(emma)
         assert contribution.status == ContributionStatus.ACCEPTED
         assert contribution.amount == 135
+        response = admin_client.patch(
+            f"/api/booking/contributions/{contribution.id}/",
+            {"status": ContributionStatus.PAYED},
+            format="json",
+        )
+        levels = set(Booking.objects.filter(user=emma).values_list("event__level__name", flat=True))
+        print (levels)
+        print (Booking.objects.filter(user=emma, event__level__name__in=levels).values())
+        assert len(levels) == 2
+        assert response.status_code == http_status.HTTP_200_OK
 
     def test_role_is_required(self, september, blues_festival):
         emma = make_student("emma@test.com")
