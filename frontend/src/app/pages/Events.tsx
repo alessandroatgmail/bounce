@@ -14,7 +14,6 @@ import { type EventItem } from '../hooks/useEvents';
 import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useLevels } from '../hooks/useLevels';
-import { useMemberships, type Membership } from '../hooks/useMemberships';
 
 export function Events() {
   const { t } = useLanguage();
@@ -42,7 +41,6 @@ export function EventsBrowser({
 }) {
   const { t, language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
-  const { memberships, loading: membershipsLoading } = useMemberships(isAuthenticated ? accessToken : null);
 
   const [filterType, setFilterType] = useState<string>('all');
   const [filterLevel, setFilterLevel] = useState<string>('all');
@@ -136,7 +134,7 @@ export function EventsBrowser({
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filtered.map(event => (
-                  <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
+                  <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} showAvailableSpots={showAvailableSpots} />
                 ))}
               </div>
             )}
@@ -223,7 +221,7 @@ export function EventsBrowser({
                 <div className="space-y-4">
                   {eventsOnSelectedDate.length > 0 ? (
                     eventsOnSelectedDate.map(event => (
-                      <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} memberships={memberships} membershipsLoading={membershipsLoading} showAvailableSpots={showAvailableSpots} />
+                      <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} showAvailableSpots={showAvailableSpots} />
                     ))
                   ) : (
                     <Card>
@@ -248,15 +246,11 @@ function EventCard({
   event,
   isAuthenticated,
   language,
-  memberships,
-  membershipsLoading,
   showAvailableSpots = false,
 }: {
   event: EventItem;
   isAuthenticated: boolean;
   language: string;
-  memberships: Membership[];
-  membershipsLoading: boolean;
   showAvailableSpots?: boolean;
 }) {
   const { accessToken } = useAuth();
@@ -568,14 +562,8 @@ function EventCard({
                     </button>
                   )}
                 </div>
-                {!event.multi_events && membershipsLoading ? (
-                  <div className="flex justify-center py-2">
-                    <Loader2 className="size-4 animate-spin text-[#e67e22]" />
-                  </div>
-                ) : (() => {
-                  const eligible = event.multi_events
-                    ? event.memberships
-                    : memberships.filter(m => m.rules.some(r => r.event_type.id === event.event_type.id));
+                {(() => {
+                  const eligible = event.memberships;
                   return eligible.length === 0 ? (
                     <p className="text-xs text-gray-500">
                       {it ? 'Nessun abbonamento disponibile per questo tipo di evento.' : 'No memberships available for this event type.'}

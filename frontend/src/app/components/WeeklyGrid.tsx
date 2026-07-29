@@ -10,6 +10,7 @@ import { useStyles } from '../hooks/useStyles';
 import { useRooms } from '../hooks/useRooms';
 import { useLevels } from '../hooks/useLevels';
 import { usePartnerRoles } from '../hooks/usePartnerRoles';
+import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -143,6 +144,7 @@ function WeeklyEventDialog({
   const { rooms, loading: loadingRooms } = useRooms(accessToken);
   const { levels, loading: loadingLevels } = useLevels(accessToken);
   const { partnerRoles, loading: loadingRoles } = usePartnerRoles(accessToken);
+  const { memberships, loading: loadingMemberships } = useMemberships(accessToken);
 
   const isEdit = !!editEvent;
   const slotDayIndex = slot?.dayIndex ?? getDayIndex(editEvent!.start_date);
@@ -168,6 +170,9 @@ function WeeklyEventDialog({
   const [selectedGenres, setSelectedGenres] = useState<{ id: number; name: string }[]>(editEvent?.genres ?? []);
   const [selectedStyles, setSelectedStyles] = useState<{ id: number; name: string }[]>(editEvent?.styles ?? []);
   const [selectedRoles, setSelectedRoles] = useState<{ id: number; name: string }[]>(editEvent?.accepted_roles ?? []);
+  const [selectedMemberships, setSelectedMemberships] = useState<{ id: number; name: string }[]>(
+    editEvent?.memberships?.map(m => ({ id: m.id, name: m.name })) ?? []
+  );
   const [paymentDays, setPaymentDays] = useState(editEvent?.payment_days?.toString() ?? '7');
   const [warningThreshold, setWarningThreshold] = useState(editEvent?.warning_threshold?.toString() ?? '5');
   const [extras, setExtras] = useState((editEvent?.extras ?? 0).toString());
@@ -228,6 +233,7 @@ function WeeklyEventDialog({
         warning_threshold: Number(warningThreshold) || 5,
         extras: Number(extras) || 0,
         accepted_role_ids: selectedRoles.map(r => r.id),
+        membership_ids: selectedMemberships.map(m => m.id),
       };
 
       const url = isEdit ? `/api/events/events/${editEvent!.id}/` : '/api/events/events/';
@@ -345,6 +351,14 @@ function WeeklyEventDialog({
           <MultiSearchSelect label="Genres" items={genres} selected={selectedGenres} loading={loadingGenres} placeholder="Search genre…" onChange={setSelectedGenres} />
           <MultiSearchSelect label="Styles" items={styles} selected={selectedStyles} loading={loadingStyles} placeholder="Search style…" onChange={setSelectedStyles} />
           <MultiSearchSelect label="Accepted Roles" items={partnerRoles} selected={selectedRoles} loading={loadingRoles} placeholder="Search role…" onChange={setSelectedRoles} />
+          <MultiSearchSelect
+            label="Memberships"
+            items={memberships.map(m => ({ id: m.id, name: m.name }))}
+            selected={selectedMemberships}
+            loading={loadingMemberships}
+            placeholder="Search membership…"
+            onChange={setSelectedMemberships}
+          />
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Payment days</Label>

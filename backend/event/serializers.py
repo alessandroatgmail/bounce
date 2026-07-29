@@ -1,5 +1,4 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Prefetch
 from rest_framework import serializers
 from users.models import City
 from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole
@@ -278,31 +277,15 @@ class EventSerializer(serializers.ModelSerializer):
 
     def get_memberships(self, obj):
         from membership.serializers import MembershipSerializer
-        from membership.models import MembershipRule, available_memberships
+        # Memberships are only ever those explicitly attached to this event
+        # via membership_ids; admins attach them per event rather than
+        # relying on the event_type's MembershipRule to imply them.
         request = self.context.get("request")
         is_staff = bool(request and request.user and request.user.is_staff)
-        if obj.multi_events:
-            # Filter in Python to keep the memberships prefetch warm.
-            memberships = obj.memberships.all()
-            if not is_staff:
-                memberships = [m for m in memberships if m.is_available]
-            return MembershipSerializer(memberships, many=True).data
-        # One query per event_type on the page instead of one per event.
-        cache = self.context.setdefault("_memberships_by_event_type", {})
-        if obj.event_type_id not in cache:
-            memberships = Membership.objects.filter(
-                membershiprule__event_type_id=obj.event_type_id
-            ).prefetch_related(
-                Prefetch(
-                    "membershiprule_set",
-                    queryset=MembershipRule.objects.select_related("event_type")
-                    .prefetch_related("event_type__partner_roles"),
-                )
-            ).distinct()
-            if not is_staff:
-                memberships = available_memberships(memberships)
-            cache[obj.event_type_id] = MembershipSerializer(memberships, many=True).data
-        return cache[obj.event_type_id]
+        memberships = obj.memberships.all()
+        if not is_staff:
+            memberships = [m for m in memberships if m.is_available]
+        return MembershipSerializer(memberships, many=True).data
 
     def get_children_levels(self, obj):
         # Iterate the (possibly prefetched) children instead of issuing a
