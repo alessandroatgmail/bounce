@@ -514,6 +514,72 @@ class TestEventMemberships:
         event.refresh_from_db()
         assert event.memberships.count() == 0
 
+    def test_admin_can_clear_memberships_via_put_on_published_event(self, staff_client, world_data):
+        """
+        Regression: the admin dashboard edits an event through a full PUT (not
+        PATCH) that always includes membership_ids, even when empty. Removing
+        the last membership chip sends membership_ids=[], which must detach
+        it from a published event, not just from a draft one.
+        """
+        m = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=True)
+        event.memberships.set([m])
+
+        payload = make_event_payload(status=Status.PUBLISHED, multi_events=True, membership_ids=[])
+        response = staff_client.put(detail_url(event.pk), payload, format="json")
+        assert response.status_code == http_status.HTTP_200_OK, response.data
+        assert response.data["memberships"] == []
+        response = staff_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK, response.data
+        assert response.data["memberships"] == []
+        event.refresh_from_db()
+        assert event.memberships.count() == 0
+
+
+class TestEventMembershipAssociation:
+    """
+    Memberships are attached to an event explicitly, via membership_ids —
+    for regular events exactly as for multi_events ones. A MembershipRule
+    only governs booking quotas; it no longer implies an event "has" a
+    membership for display purposes.
+    """
+
+    def test_admin_can_add_and_remove_memberships_on_a_regular_event(self, staff_client, world_data):
+        m = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+
+        response = staff_client.patch(detail_url(event.pk), {"membership_ids": [m.pk]}, format="json")
+        assert response.status_code == http_status.HTTP_200_OK, response.data
+        assert [x["id"] for x in response.data["memberships"]] == [m.pk]
+
+        response = staff_client.patch(detail_url(event.pk), {"membership_ids": []}, format="json")
+        assert response.status_code == http_status.HTTP_200_OK, response.data
+        assert response.data["memberships"] == []
+
+    def test_student_sees_only_memberships_associated_with_the_event(self, student_client, world_data):
+        associated = create_membership()
+        unrelated = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        # `unrelated` has a rule for this event_type but was never attached — must not show.
+        MembershipRule.objects.create(event_type=event.event_type, membership=unrelated)
+        event.memberships.set([associated])
+
+        response = student_client.get(detail_url(event.pk))
+        assert response.status_code == http_status.HTTP_200_OK
+        assert [x["id"] for x in response.data["memberships"]] == [associated.pk]
+
+    def test_student_can_book_the_event_with_its_associated_membership(self, student_client, world_data):
+        membership = create_membership()
+        event = create_event(status=Status.PUBLISHED, multi_events=False)
+        event.memberships.set([membership])
+
+        response = student_client.post(
+            "/api/booking/my-memberships/",
+            {"event_id": event.pk, "membership_id": membership.pk},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED, response.data
+
 
 class TestEventMembershipsStudentAccess:
 
@@ -574,45 +640,10 @@ class TestEventMembershipWindowVisibility:
         assert len(response.data["memberships"]) == 1
         assert response.data["memberships"][0]["id"] == m.pk
 
-    def test_student_does_not_see_expired_membership_on_regular_event(self, student_client, world_data):
-        m = create_membership(**self._window(end=-1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        response = student_client.get(detail_url(event.pk))
-        assert response.data["memberships"] == []
-
-    def test_student_does_not_see_future_membership_on_regular_event(self, student_client, world_data):
-        m = create_membership(**self._window(start=1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        response = student_client.get(detail_url(event.pk))
-        assert response.data["memberships"] == []
-
-    def test_student_sees_in_window_membership_on_regular_event(self, student_client, world_data):
-        m = create_membership(**self._window(start=-1, end=1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        response = student_client.get(detail_url(event.pk))
-        assert len(response.data["memberships"]) == 1
-
-    def test_student_sees_membership_without_window_on_regular_event(self, student_client, world_data):
-        m = create_membership()
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        response = student_client.get(detail_url(event.pk))
-        assert len(response.data["memberships"]) == 1
-
     def test_staff_still_sees_out_of_window_membership_on_festival(self, staff_client, world_data):
         m = create_membership(**self._window(end=-1))
         event = create_event(status=Status.PUBLISHED, multi_events=True)
         event.memberships.set([m])
-        response = staff_client.get(detail_url(event.pk))
-        assert len(response.data["memberships"]) == 1
-
-    def test_staff_still_sees_out_of_window_membership_on_regular_event(self, staff_client, world_data):
-        m = create_membership(**self._window(end=-1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
         response = staff_client.get(detail_url(event.pk))
         assert len(response.data["memberships"]) == 1
 
@@ -624,52 +655,11 @@ class TestEventMembershipWindowVisibility:
         results = response.json()["results"]
         return next(e["memberships"] for e in results if e["id"] == event_pk)
 
-    def test_student_list_does_not_include_expired_membership_on_regular_event(self, student_client, world_data):
-        m = create_membership(**self._window(end=-1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        assert self._list_memberships(student_client, event.pk) == []
-
-    def test_student_list_does_not_include_future_membership_on_regular_event(self, student_client, world_data):
-        m = create_membership(**self._window(start=1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        assert self._list_memberships(student_client, event.pk) == []
-
-    def test_student_list_includes_in_window_membership_on_regular_event(self, student_client, world_data):
-        m = create_membership(**self._window(start=-1, end=1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        memberships = self._list_memberships(student_client, event.pk)
-        assert [x["id"] for x in memberships] == [m.pk]
-
     def test_student_list_does_not_include_expired_membership_on_festival(self, student_client, world_data):
         m = create_membership(**self._window(end=-1))
         event = create_event(status=Status.PUBLISHED, multi_events=True)
         event.memberships.set([m])
         assert self._list_memberships(student_client, event.pk) == []
-
-    def test_student_list_filters_only_out_of_window_memberships(self, student_client, world_data):
-        available = create_membership(**self._window(start=-1, end=1))
-        expired = create_membership(**self._window(end=-1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=available)
-        MembershipRule.objects.create(event_type=event.event_type, membership=expired)
-        memberships = self._list_memberships(student_client, event.pk)
-        assert [x["id"] for x in memberships] == [available.pk]
-
-    def test_anonymous_list_does_not_include_expired_membership(self, client, world_data):
-        m = create_membership(**self._window(end=-1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        assert self._list_memberships(client, event.pk) == []
-
-    def test_staff_list_still_includes_out_of_window_membership(self, staff_client, world_data):
-        m = create_membership(**self._window(end=-1))
-        event = create_event(status=Status.PUBLISHED, multi_events=False)
-        MembershipRule.objects.create(event_type=event.event_type, membership=m)
-        memberships = self._list_memberships(staff_client, event.pk)
-        assert [x["id"] for x in memberships] == [m.pk]
 
 
 # ── Solo workshop (one-shot, no partner) ──────────────────────────────────────
