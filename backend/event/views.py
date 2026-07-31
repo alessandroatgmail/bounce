@@ -12,8 +12,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .paginations import EventPagination
 from .filters import EventFilter
 
-from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventAdminListSerializer, PartnerRoleSerializer
+from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole, EventDescription
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer
 import logging
 logger = logging.getLogger('event view')
 logger.setLevel(logging.INFO)
@@ -119,6 +119,18 @@ class LevelViewSet(viewsets.ModelViewSet):
     queryset = Level.objects.all()
     serializer_class = LevelSerializer
     permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
+        return [IsAdminUser()]
+
+
+class EventDescriptionViewSet(viewsets.ModelViewSet):
+    queryset = EventDescription.objects.all()
+    serializer_class = EventDescriptionSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["event", "language"]
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):

@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck, UserCheck, UserX, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Users, Filter, MapPin, Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck, UserCheck, UserX, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { type EventItem } from '../hooks/useEvents';
+import type { EventItem } from '../hooks/useEvents';
 import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useLevels } from '../hooks/useLevels';
@@ -364,6 +364,14 @@ function EventCard({
         <CardTitle className="text-xl text-[#2b2b2b] group-hover:text-[#e67e22] transition-colors">
           {event.name}
         </CardTitle>
+        <button
+          type="button"
+          onClick={() => navigate(`/events/${event.id}`)}
+          className="flex items-center gap-1 text-sm text-[#e67e22] hover:underline w-fit"
+        >
+          <Info className="size-3.5" />
+          {it ? 'Dettagli' : 'Details'}
+        </button>
         {artistLine && (
           <CardDescription className="text-[#6b6b6b]">
             {it ? 'con' : 'with'} {artistLine}

@@ -14,6 +14,8 @@ import { CheckoutPage } from './pages/CheckoutPage';
 import { PaymentSuccess } from './pages/PaymentSuccess';
 import { FestivalSchedulePage } from './pages/FestivalSchedulePage';
 import { EventRegisterPage } from './pages/EventRegisterPage';
+import { EventDescriptionEditorPage } from './pages/EventDescriptionEditorPage';
+import { EventDetailPage } from './pages/EventDetailPage';
 
 export const router = createBrowserRouter([
   {
@@ -27,6 +29,10 @@ export const router = createBrowserRouter([
       {
         path: 'events',
         Component: Events,
+      },
+      {
+        path: 'events/:id',
+        Component: EventDetailRoute,
       },
       {
         path: 'login',
@@ -69,6 +75,10 @@ export const router = createBrowserRouter([
         Component: EventRegisterPage,
       },
       {
+        path: 'admin/events/:eventId/description',
+        Component: EventDescriptionEditorPage,
+      },
+      {
         path: 'student',
         element: <Navigate to="/" replace />,
       },
@@ -80,13 +90,23 @@ export const router = createBrowserRouter([
   },
 ]);
 
+function useDashboardMode(): boolean {
+  const { user, adminViewMode } = useAuth();
+  return user?.role === 'student' || (user?.role === 'admin' && adminViewMode === 'student');
+}
+
 // Logged-in students (and admins in student view) get the dashboard at /;
 // the public landing page is only shown when logged out
 function HomeRoute() {
-  const { user, adminViewMode } = useAuth();
-  const showDashboard =
-    user?.role === 'student' || (user?.role === 'admin' && adminViewMode === 'student');
-  return showDashboard ? <StudentDashboard /> : <Home />;
+  return useDashboardMode() ? <StudentDashboard /> : <Home />;
+}
+
+// Same split for an event's detail page: dashboard users get it nested
+// inside AppShell (via StudentDashboard, which reads the :id param), so it
+// keeps the dashboard's sidebar/bottom tab bar; everyone else gets the
+// standalone public page.
+function EventDetailRoute() {
+  return useDashboardMode() ? <StudentDashboard /> : <EventDetailPage />;
 }
 
 function NotFound() {

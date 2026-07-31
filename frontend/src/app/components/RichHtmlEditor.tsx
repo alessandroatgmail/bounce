@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import type { Editor, Extensions } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Link as LinkExt } from '@tiptap/extension-link';
 import { Image as ImageExt } from '@tiptap/extension-image';
@@ -20,9 +21,20 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from './ui/select';
 
+interface EditorBlock {
+  label: string;
+  icon: React.ReactNode;
+  onInsert: (editor: Editor) => void;
+}
+
 interface Props {
   value: string;
   onChange: (html: string) => void;
+  // Extra Tiptap node/mark extensions, for callers embedding custom content
+  // (e.g. the event description editor's dynamic Schedule block).
+  extraExtensions?: Extensions;
+  // Toolbar buttons that insert the extra extensions' content.
+  blocks?: EditorBlock[];
 }
 
 const HEADING_OPTIONS = [
@@ -33,7 +45,7 @@ const HEADING_OPTIONS = [
   { value: 'h4', label: 'Heading 4' },
 ];
 
-export function RichHtmlEditor({ value, onChange }: Props) {
+export function RichHtmlEditor({ value, onChange, extraExtensions = [], blocks = [] }: Props) {
   const [tab, setTab] = useState<'visual' | 'html'>('visual');
   const syncing = useRef(false);
 
@@ -46,6 +58,7 @@ export function RichHtmlEditor({ value, onChange }: Props) {
       LinkExt.configure({ openOnClick: false }),
       ImageExt,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      ...extraExtensions,
     ],
     content: value,
     onUpdate({ editor }) {
@@ -214,6 +227,13 @@ export function RichHtmlEditor({ value, onChange }: Props) {
               <ToolBtn active={false} onClick={() => editor.chain().focus().redo().run()} title="Redo" disabled={!editor.can().redo()}>
                 <Redo className="size-3.5" />
               </ToolBtn>
+
+              {blocks.length > 0 && <div className="w-px h-5 bg-border mx-1" />}
+              {blocks.map(b => (
+                <ToolBtn key={b.label} active={false} onClick={() => b.onInsert(editor)} title={b.label}>
+                  {b.icon}
+                </ToolBtn>
+              ))}
             </div>
           )}
           {tab === 'html' && <span className="text-xs text-muted-foreground px-1">HTML source</span>}

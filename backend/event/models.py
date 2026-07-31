@@ -3,6 +3,7 @@ from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
 from colorfield.fields import ColorField
 from users.models import City
+from django.conf import settings
 
 class Status(models.TextChoices):
     DRAFT = "draft", "Draft"
@@ -181,3 +182,10 @@ class Event(models.Model):
                 roles[role.name] = 0
         return roles
 
+class EventDescription(models.Model):
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="descriptions")
+    language = models.CharField(max_length=10, choices=settings.LANGUAGES)
+    desc = models.TextField()
+
+    class Meta:
+        unique_together = [("event", "language")]

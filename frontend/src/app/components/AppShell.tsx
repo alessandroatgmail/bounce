@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router';
+import { useNavigate, useLocation, useParams } from 'react-router';
 import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone, QrCode } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
@@ -7,6 +7,7 @@ import { Badge } from './ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { EventsSection } from './EventsSection';
+import { EventDetailContent } from './EventDetailContent';
 import { PaymentsSection } from './PaymentsSection';
 import { ProfileSection } from './ProfileSection';
 import { ContactsSection } from './ContactsSection';
@@ -29,6 +30,7 @@ export function AppShell() {
   const { language } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
+  const { id: eventId } = useParams();
 
   const initialSection = (() => {
     const s = new URLSearchParams(location.search).get('section') as Section | null;
@@ -36,6 +38,17 @@ export function AppShell() {
   })();
 
   const [activeSection, setActiveSection] = useState<Section>(initialSection);
+  // A matched /events/:id route always shows that event's detail, regardless
+  // of whichever section tab was last active.
+  const effectiveSection: Section = eventId ? 'events' : activeSection;
+
+  function selectSection(section: Section) {
+    if (eventId) {
+      navigate(`/?section=${section}`);
+    } else {
+      setActiveSection(section);
+    }
+  }
 
   const isGuest = !user;
   const initials = user?.name.split(' ').map(n => n[0]).join('').toUpperCase() ?? '';
@@ -55,7 +68,7 @@ export function AppShell() {
     { id: 'contacts' as Section, label: SECTION_LABELS.contacts[lang], icon: Phone  },
   ];
 
-  const sectionTitle = SECTION_LABELS[activeSection][lang];
+  const sectionTitle = SECTION_LABELS[effectiveSection][lang];
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -83,9 +96,9 @@ export function AppShell() {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveSection(tab.id)}
+                    onClick={() => selectSection(tab.id)}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                      activeSection === tab.id
+                      effectiveSection === tab.id
                         ? 'bg-[#e67e22] text-white'
                         : 'text-gray-300 hover:bg-gray-800'
                     }`}
@@ -109,9 +122,9 @@ export function AppShell() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveSection(tab.id)}
+                  onClick={() => selectSection(tab.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                    activeSection === tab.id
+                    effectiveSection === tab.id
                       ? 'bg-[#e67e22] text-white'
                       : 'text-gray-300 hover:bg-gray-800'
                   }`}
@@ -167,11 +180,17 @@ export function AppShell() {
           className="flex-1 overflow-auto p-4 md:p-6 md:pb-6"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
         >
-          {activeSection === 'events'   && <EventsSection />}
-          {activeSection === 'payments' && !isGuest && <PaymentsSection />}
-          {activeSection === 'profile'  && !isGuest && <ProfileSection />}
-          {activeSection === 'contacts' && <ContactsSection />}
-          {activeSection === 'qrcode'   && !isGuest && <QRCodeSection />}
+          {eventId ? (
+            <EventDetailContent eventId={Number(eventId)} onBack={() => navigate('/?section=events')} />
+          ) : (
+            <>
+              {activeSection === 'events'   && <EventsSection />}
+              {activeSection === 'payments' && !isGuest && <PaymentsSection />}
+              {activeSection === 'profile'  && !isGuest && <ProfileSection />}
+              {activeSection === 'contacts' && <ContactsSection />}
+              {activeSection === 'qrcode'   && !isGuest && <QRCodeSection />}
+            </>
+          )}
         </main>
       </div>
 
@@ -185,9 +204,9 @@ export function AppShell() {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveSection(tab.id)}
+              onClick={() => selectSection(tab.id)}
               className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs transition-colors ${
-                activeSection === tab.id ? 'text-[#e67e22]' : 'text-gray-500'
+                effectiveSection === tab.id ? 'text-[#e67e22]' : 'text-gray-500'
               }`}
             >
               <Icon className="size-5" />
