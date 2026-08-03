@@ -18,7 +18,7 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList, PanelTop } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
 import { useState, useRef, useMemo, useEffect } from 'react';
@@ -957,6 +957,14 @@ function EventsPanel({ accessToken }: { accessToken: string | null }) {
                         onClick={(e) => { e.stopPropagation(); navigate(`/admin/events/${event.id}/register`, { state: { from: `${location.pathname}${location.search}` } }); }}
                       >
                         <ClipboardList className="size-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Description"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/events/${event.id}/description`, { state: { from: `${location.pathname}${location.search}` } }); }}
+                      >
+                        <PanelTop className="size-4" />
                       </Button>
                       <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openEdit(event.id); }}>
                         <Pencil className="size-4" />

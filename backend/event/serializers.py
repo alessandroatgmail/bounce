@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from users.models import City
-from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole
+from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole, EventDescription
 from membership.models import Membership
 
 
@@ -390,3 +390,14 @@ class EventSerializer(serializers.ModelSerializer):
         if memberships is not None:
             instance.memberships.set(memberships)
         return instance
+
+
+class EventDescriptionSerializer(serializers.ModelSerializer):
+    event = serializers.PrimaryKeyRelatedField(read_only=True)
+    event_id = serializers.PrimaryKeyRelatedField(
+        queryset=Event.objects.all(), source="event", write_only=True
+    )
+
+    class Meta:
+        model = EventDescription
+        fields = ["id", "event", "event_id", "language", "desc"]

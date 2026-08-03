@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router';
-import { Calendar, Clock, Users, Loader2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
+import { Calendar, Clock, Users, Loader2, Info } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -10,6 +10,7 @@ import { useEvents } from '../hooks/useEvents';
 
 export function Home() {
   const { t, language } = useLanguage();
+  const navigate = useNavigate();
   // public page: fetch events anonymously
   const { events, loading } = useEvents(null);
 
@@ -113,6 +114,14 @@ export function Home() {
                         )}
                       </div>
                       <CardTitle className="text-xl text-[#2b2b2b] group-hover:text-[#e67e22] transition-colors">{event.name}</CardTitle>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/events/${event.id}`)}
+                        className="flex items-center gap-1 text-sm text-[#e67e22] hover:underline w-fit"
+                      >
+                        <Info className="size-3.5" />
+                        {language === 'it' ? 'Dettagli' : 'Details'}
+                      </button>
                       {artistLine && (
                         <CardDescription className="text-[#6b6b6b]">
                           {language === 'it' ? 'con' : 'with'} {artistLine}
