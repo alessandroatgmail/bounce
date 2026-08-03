@@ -4,15 +4,37 @@ import { useAuth } from '../contexts/AuthContext';
 import { useFestivalDays } from '../hooks/useFestivalDays';
 import { useUserBookings } from '../hooks/useUserBookings';
 import type { EventItem } from '../hooks/useEvents';
+import type { FestivalDay } from '../hooks/useFestivalDays';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 
 function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 'en-GB') {
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(locale, opts);
 }
 
+function ClassCard({ cls, purchased }: { cls: EventItem; purchased: boolean }) {
+  return (
+    <div
+      className="rounded-lg p-2 text-white shadow-sm h-full"
+      style={{ backgroundColor: cls.color ?? '#e67e22', opacity: purchased ? 1 : 0.35 }}
+    >
+      <div className="text-sm font-medium flex items-center gap-1 leading-tight">
+        {purchased && <CheckCircle2 className="size-3.5 flex-shrink-0" />}
+        <span className="truncate">{cls.name}</span>
+      </div>
+      <div className="text-xs opacity-90 mt-0.5">
+        {cls.start_date.slice(11, 16)}–{cls.end_date.slice(11, 16)}
+        {cls.level && ` · ${cls.level.name}`}
+      </div>
+    </div>
+  );
+}
+
 // Read-only schedule for a multi-event (festival): same day → room structure
-// as FestivalGrid/FestivalSchedulePage (via useFestivalDays), but laid out as
-// a discrete time-row table instead of a continuous pixel-positioned grid.
+// as FestivalGrid/FestivalSchedulePage (via useFestivalDays). Desktop shows a
+// day/room/time grid; below md it switches to a day → room accordion, each
+// room listing its classes as a stacked list, since a wide grid doesn't fit
+// a phone screen.
 // Requires login — festival-days is an authenticated-only endpoint.
 export function EventScheduleTable({
   festival,
@@ -35,6 +57,17 @@ export function EventScheduleTable({
     [userBookings],
   );
 
+  const dayBlocks = useMemo(() => {
+    return days
+      .map(day => {
+        const dayEvents = childEvents.filter(e => e.start_date.slice(0, 10) === day.date);
+        if (dayEvents.length === 0 || day.rooms.length === 0) return null;
+        const times = [...new Set(dayEvents.map(e => e.start_date.slice(11, 16)))].sort();
+        return { day, dayEvents, times };
+      })
+      .filter((b): b is { day: FestivalDay; dayEvents: EventItem[]; times: string[] } => b !== null);
+  }, [days, childEvents]);
+
   if (!accessToken) return null;
 
   if (loadingDays || loadingBookings) {
@@ -45,18 +78,15 @@ export function EventScheduleTable({
     );
   }
 
-  if (days.length === 0) return null;
+  if (dayBlocks.length === 0) return null;
 
   return (
-    <div className="space-y-8">
-      <h2 className="text-xl font-bold text-[#2b2b2b]">{it ? 'Programma' : 'Schedule'}</h2>
-      {days.map(day => {
-        const dayEvents = childEvents.filter(e => e.start_date.slice(0, 10) === day.date);
-        if (dayEvents.length === 0 || day.rooms.length === 0) return null;
+    <div>
+      <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">{it ? 'Programma' : 'Schedule'}</h2>
 
-        const times = [...new Set(dayEvents.map(e => e.start_date.slice(11, 16)))].sort();
-
-        return (
+      {/* Desktop / tablet: full day → room → time grid */}
+      <div className="hidden md:block space-y-8">
+        {dayBlocks.map(({ day, dayEvents, times }) => (
           <div key={day.id}>
             <h3 className="font-semibold text-[#2b2b2b] mb-2">
               {formatDate(day.date, { weekday: 'long', day: 'numeric', month: 'long' }, locale)}
@@ -82,27 +112,9 @@ export function EventScheduleTable({
                       const cls = dayEvents.find(
                         e => e.room.id === fr.room.id && e.start_date.slice(11, 16) === time
                       );
-                      const purchased = cls ? purchasedIds.has(cls.id) : false;
                       return (
                         <div key={`${time}-${fr.id}`}>
-                          {cls && (
-                            <div
-                              className="rounded-lg p-2 text-white shadow-sm h-full"
-                              style={{
-                                backgroundColor: cls.color ?? '#e67e22',
-                                opacity: purchased ? 1 : 0.35,
-                              }}
-                            >
-                              <div className="text-sm font-medium flex items-center gap-1 leading-tight">
-                                {purchased && <CheckCircle2 className="size-3.5 flex-shrink-0" />}
-                                <span className="truncate">{cls.name}</span>
-                              </div>
-                              <div className="text-xs opacity-90 mt-0.5">
-                                {cls.start_date.slice(11, 16)}–{cls.end_date.slice(11, 16)}
-                                {cls.level && ` · ${cls.level.name}`}
-                              </div>
-                            </div>
-                          )}
+                          {cls && <ClassCard cls={cls} purchased={purchasedIds.has(cls.id)} />}
                         </div>
                       );
                     })}
@@ -111,8 +123,48 @@ export function EventScheduleTable({
               </div>
             </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
+
+      {/* Mobile: day → room accordion, classes listed chronologically per room */}
+      <Accordion type="multiple" defaultValue={dayBlocks.map(({ day }) => `day-${day.id}`)} className="md:hidden">
+        {dayBlocks.map(({ day, dayEvents }) => {
+          const roomsWithEvents = day.rooms
+            .map(fr => ({
+              room: fr,
+              events: dayEvents
+                .filter(e => e.room.id === fr.room.id)
+                .sort((a, b) => a.start_date.localeCompare(b.start_date)),
+            }))
+            .filter(r => r.events.length > 0);
+
+          return (
+            <AccordionItem key={day.id} value={`day-${day.id}`}>
+              <AccordionTrigger className="text-[#2b2b2b]">
+                {formatDate(day.date, { weekday: 'long', day: 'numeric', month: 'long' }, locale)}
+              </AccordionTrigger>
+              <AccordionContent>
+                <Accordion type="multiple" defaultValue={roomsWithEvents.map(r => `room-${r.room.id}`)}>
+                  {roomsWithEvents.map(({ room, events }) => (
+                    <AccordionItem key={room.id} value={`room-${room.id}`}>
+                      <AccordionTrigger className="text-sm text-gray-700">
+                        {room.room.name}
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-2">
+                          {events.map(cls => (
+                            <ClassCard key={cls.id} cls={cls} purchased={purchasedIds.has(cls.id)} />
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              </AccordionContent>
+            </AccordionItem>
+          );
+        })}
+      </Accordion>
     </div>
   );
 }
