@@ -7,6 +7,8 @@ import { useEvents, type EventItem } from '../hooks/useEvents';
 import { useEventDescription } from '../hooks/useEventDescription';
 import { renderEventDescriptionHtml } from '../../lib/eventDescriptionBlocks';
 import { Button } from './ui/button';
+import { EventJoinPanel } from './EventJoinPanel';
+import { EventScheduleTable } from './EventScheduleTable';
 
 // The event's full description (image, title, rendered HTML), with a back
 // arrow. Used both as a standalone page (public visitors) and nested inside
@@ -14,7 +16,7 @@ import { Button } from './ui/button';
 // of its own — the caller decides what wraps it.
 export function EventDetailContent({ eventId, onBack }: { eventId: number; onBack: () => void }) {
   const { language } = useLanguage();
-  const { accessToken } = useAuth();
+  const { accessToken, isAuthenticated } = useAuth();
   const it = language === 'it';
 
   const [event, setEvent] = useState<EventItem | null>(null);
@@ -96,6 +98,16 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
             <p className="text-sm text-gray-500">
               {it ? 'Nessuna descrizione disponibile per questo evento.' : 'No description available for this event.'}
             </p>
+          )}
+
+          <div className="mt-8">
+            <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} />
+          </div>
+
+          {event.multi_events && (
+            <div className="mt-8">
+              <EventScheduleTable festival={event} childEvents={children} language={language} />
+            </div>
           )}
         </>
       )}
