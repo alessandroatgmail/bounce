@@ -11,8 +11,10 @@ export interface CheckoutItem {
   id: number;
   eventName: string;
   membershipName: string;
-  role: string | null;
-  partner: string | null;
+  payerEmail: string;
+  payerRole: string | null;
+  partnerEmail: string | null;
+  partnerRole: string | null;
   amount: string;
   discounted_amount: string;
   discounts: Array<{ id: number; name: string; name_ext: string | null }>;
@@ -120,11 +122,18 @@ export function CheckoutPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-[#2b2b2b] truncate">{item.eventName}</p>
                   <p className="text-sm text-gray-500">{item.membershipName}</p>
-                  {(item.role || item.partner) && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {[item.role, item.partner].filter(Boolean).join(' · ')}
+                  <div className="text-xs text-gray-400 mt-0.5 space-y-0.5">
+                    <p>
+                      <span className="font-medium text-gray-500">{lang === 'it' ? 'Paga per:' : 'Pay for:'}</span>{' '}
+                      {item.payerEmail}{item.payerRole ? ` · ${item.payerRole}` : ''}
                     </p>
-                  )}
+                    {item.partnerEmail && (
+                      <p>
+                        <span className="font-medium text-gray-500">{lang === 'it' ? 'Partner:' : 'Partner:'}</span>{' '}
+                        {item.partnerEmail}{item.partnerRole ? ` · ${item.partnerRole}` : ''}
+                      </p>
+                    )}
+                  </div>
                   {item.discounts.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {item.discounts.map(d => (

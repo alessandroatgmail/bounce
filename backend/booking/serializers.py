@@ -201,11 +201,12 @@ class LinkedContributionSerializer(serializers.ModelSerializer):
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     role = serializers.StringRelatedField(read_only=True)
     partner = serializers.StringRelatedField(read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
 
     class Meta:
         model = Contribution
         fields = ['id', 'status', 'amount', 'discounted_amount', 'events',
-                  'membership', 'discounts', 'role', 'partner']
+                  'membership', 'discounts', 'role', 'partner', 'user_email']
 
 
 class UserContributionSerializer(serializers.ModelSerializer):
@@ -241,11 +242,12 @@ class UserContributionSerializer(serializers.ModelSerializer):
     level = serializers.StringRelatedField(read_only=True)
     discounts = DiscountSerializer(many=True, read_only=True)
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
 
     class Meta:
         model = Contribution
         fields = [
-            'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
+            'id', 'status', 'user_email', 'membership', 'membership_id', 'events', 'event_id',
             'amount', 'start_date', 'end_date', 'upgraded_from', 'original_contribution',
             'twin_contributions', 'partner_email',
             'partner_id', 'role_id', 'role', 'partner',

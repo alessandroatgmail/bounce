@@ -11,6 +11,7 @@ export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed'
 export interface LinkedContribution {
   id: number;
   status: ContributionStatus;
+  user_email: string;
   amount: string;
   discounted_amount: string;
   events: number[];
@@ -23,6 +24,7 @@ export interface LinkedContribution {
 export interface UserMembership {
   id: number;
   status: ContributionStatus;
+  user_email: string;
   membership: Membership | null;
   events: number[];
   amount: string;
