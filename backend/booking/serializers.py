@@ -15,7 +15,7 @@ from event.serializers import EventSerializer
 from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
 from .models import Booking, Contribution, ContributionStatus
-from .utils import sync_bookings
+from .utils import sync_bookings, book_events_for_contribution
 
 
 
@@ -201,14 +201,22 @@ class LinkedContributionSerializer(serializers.ModelSerializer):
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     role = serializers.StringRelatedField(read_only=True)
     partner = serializers.StringRelatedField(read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
 
     class Meta:
         model = Contribution
         fields = ['id', 'status', 'amount', 'discounted_amount', 'events',
-                  'membership', 'discounts', 'role', 'partner']
+                  'membership', 'discounts', 'role', 'partner', 'user_email']
 
 
 class UserContributionSerializer(serializers.ModelSerializer):
+    # Whether this serializer accepts / requires a fixed-choice festival
+    # event (multi_events=True, free=False). The base serializer rejects
+    # that shape — book it through FestivalContributionSerializer
+    # (POST .../book-festival/) instead, which flips both flags.
+    allows_multi_event_festival = False
+    requires_multi_event_festival = False
+
     membership = MembershipSerializer(read_only=True)
     membership_id = serializers.PrimaryKeyRelatedField(
         queryset=Membership.objects.all(), source='membership', write_only=True,
@@ -234,11 +242,12 @@ class UserContributionSerializer(serializers.ModelSerializer):
     level = serializers.StringRelatedField(read_only=True)
     discounts = DiscountSerializer(many=True, read_only=True)
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
 
     class Meta:
         model = Contribution
         fields = [
-            'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
+            'id', 'status', 'user_email', 'membership', 'membership_id', 'events', 'event_id',
             'amount', 'start_date', 'end_date', 'upgraded_from', 'original_contribution',
             'twin_contributions', 'partner_email',
             'partner_id', 'role_id', 'role', 'partner',
@@ -273,6 +282,18 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 'membership_id': f"Membership '{membership.name}' is not available for booking."
             })
         if event:
+            is_fixed_festival = event.multi_events and not event.free
+            if is_fixed_festival and not self.allows_multi_event_festival:
+                raise serializers.ValidationError({
+                    'event_id': (
+                        'This is a multi-event festival with a fixed level choice — '
+                        'book it through the festival booking endpoint.'
+                    )
+                })
+            if self.requires_multi_event_festival and not is_fixed_festival:
+                raise serializers.ValidationError({
+                    'event_id': 'This endpoint only books multi-event festivals with a fixed level choice.'
+                })
             _validate_membership_events(membership, [event])
             if event.event_type.partners > 1:
                 if not role:
@@ -346,6 +367,12 @@ class UserContributionSerializer(serializers.ModelSerializer):
                         new_status=ContributionStatus.ACCEPTED,
                     )
 
+            # Booking rows are created immediately, regardless of the
+            # status the contribution ends up in (ACCEPTED or WAITING) —
+            # the admin register page + Consolidate handle cleaning up
+            # no-shows/non-payers, not a payment/status gate.
+            book_events_for_contribution(contribution)
+
         return contribution
 
     def update(self, instance, validated_data):
@@ -360,3 +387,19 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     new_status=validated_data["status"],
                 )
         return instance
+
+
+class FestivalContributionSerializer(UserContributionSerializer):
+    """Case 3 — festival, fixed choice: level + role + partner chosen once,
+    applied to every child event at that level. event_id and level_id are
+    both mandatory here (optional on the base serializer), and the target
+    event must be a multi_events, non-free festival."""
+    allows_multi_event_festival = True
+    requires_multi_event_festival = True
+
+    event_id = serializers.PrimaryKeyRelatedField(
+        queryset=Event.objects.all(), write_only=True,
+    )
+    level_id = serializers.PrimaryKeyRelatedField(
+        queryset=Level.objects.all(), source='level', write_only=True,
+    )

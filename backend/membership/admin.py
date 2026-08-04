@@ -13,6 +13,7 @@ class MembershipAdmin(admin.ModelAdmin):
     list_filter = ("type",)
     search_fields = ("name",)
     ordering = ("name",)
+    filter_horizontal = ("fix_events",)
     inlines = [MembershipRuleInline]
 
 

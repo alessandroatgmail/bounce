@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Loader2, ChevronDown, ChevronUp, CheckCircle, AlertCircle, BookCheck, UserCheck, UserX } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, UserCheck, UserX, CreditCard } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useAuth } from '../contexts/AuthContext';
 import type { EventItem } from '../hooks/useEvents';
+import { useUserMemberships } from '../hooks/useUserMemberships';
+import type { CheckoutItem } from '../pages/CheckoutPage';
 
 // The join/booking flow for an event: role + partner + level selection,
 // membership pick, and the resulting booking call. Shared between the
@@ -23,6 +25,7 @@ export function EventJoinPanel({
 }) {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
+  const { userMemberships } = useUserMemberships(accessToken);
   const [showPanel, setShowPanel] = useState(false);
   const [bookingStep, setBookingStep] = useState<'role' | 'membership'>('membership');
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
@@ -31,13 +34,36 @@ export function EventJoinPanel({
   const [partnerId, setPartnerId] = useState<number | null>(null);
   const [partnerName, setPartnerName] = useState('');
   const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
-  const [joined, setJoined] = useState(false);
   const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
+  const [includePartner, setIncludePartner] = useState(true);
 
   const hasRoles = event.event_type.partners > 0 && event.event_type.partner_roles.length > 0;
-  const hasLevelChoice = event.multi_events && !event.free && event.children_levels.length > 0;
+  // Case 3 — festival, fixed choice: level + role + partner chosen once,
+  // applied to every child event at that level. Books through the
+  // dedicated /book-festival/ endpoint, which requires level_id.
+  const isFixedFestival = event.multi_events && !event.free;
+  const hasLevelChoice = isFixedFestival && event.children_levels.length > 0;
+  // A fixed-choice festival with no levels configured on its children has
+  // no level to submit — the endpoint requires one, so booking it isn't
+  // possible until an admin assigns levels.
+  const festivalHasNoLevels = isFixedFestival && event.children_levels.length === 0;
   const needsExtraStep = hasRoles || hasLevelChoice;
   const it = language === 'it';
+  // Accepted but unpaid contribution of the current user for this event —
+  // when present, offer a direct shortcut to checkout instead of making
+  // them find it in the payments section.
+  const myAcceptedContribution = userMemberships.find(
+    um => um.status === 'accepted' && um.events.includes(event.id)
+  );
+  // The partner's mirrored contribution for the same booking (couple
+  // registrations create a twin on each side) — whichever of the two is
+  // still accepted/unpaid, regardless of who originally booked.
+  const partnerContribution = myAcceptedContribution && (
+    myAcceptedContribution.twin_contributions.find(tc => tc.status === 'accepted')
+    ?? (myAcceptedContribution.original_contribution?.status === 'accepted'
+        ? myAcceptedContribution.original_contribution
+        : undefined)
+  );
 
   useEffect(() => {
     const email = partnerEmail.trim();
@@ -84,19 +110,52 @@ export function EventJoinPanel({
         // anyway so the couple is stored on the contribution.
         body.partner_email = trimmedPartnerEmail;
       }
-      if (selectedLevelId) body.level_id = selectedLevelId;
-      const res = await fetch('/api/booking/my-memberships/', {
+      const url = isFixedFestival
+        ? '/api/booking/my-memberships/book-festival/'
+        : '/api/booking/my-memberships/';
+      if (isFixedFestival || selectedLevelId) body.level_id = selectedLevelId;
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error();
-      setJoined(true);
-      setShowPanel(false);
-      setJoinStatus('idle');
+      // Full reload rather than local state — the schedule (bookings,
+      // available spots) lives in sibling components/hooks that don't
+      // share state with this panel, so a reload is the reliable way to
+      // bring everything back in sync.
+      window.location.reload();
     } catch {
       setJoinStatus('error');
     }
+  }
+
+  function goToCheckout() {
+    if (!myAcceptedContribution) return;
+    type Payable = {
+      id: number;
+      user_email: string;
+      membership: { name: string } | null;
+      role: string | null;
+      amount: string;
+      discounted_amount: string;
+      discounts: { id: number; name: string; name_ext: string }[];
+    };
+    const toItem = (payer: Payable, partner?: Payable): CheckoutItem => ({
+      id: payer.id,
+      eventName: event.name,
+      membershipName: payer.membership?.name ?? '—',
+      payerEmail: payer.user_email,
+      payerRole: payer.role,
+      partnerEmail: partner?.user_email ?? null,
+      partnerRole: partner?.role ?? null,
+      amount: payer.amount,
+      discounted_amount: payer.discounted_amount,
+      discounts: payer.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
+    });
+    const items = [toItem(myAcceptedContribution, partnerContribution)];
+    if (includePartner && partnerContribution) items.push(toItem(partnerContribution, myAcceptedContribution));
+    navigate('/checkout', { state: { items } });
   }
 
   function handleJoinClick() {
@@ -113,14 +172,6 @@ export function EventJoinPanel({
   return (
     <div>
       <div className="pt-4 border-t border-[#d4b896]/20 space-y-2">
-        {joined && (
-          <div className="flex items-start gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">
-            <CheckCircle className="size-4 mt-0.5 flex-shrink-0 text-green-600" />
-            {it
-              ? "L'abbonamento è stato aggiunto al tuo account, puoi vederlo nella sezione abbonamenti."
-              : 'Membership has been added to your account, you can see it in the membership section.'}
-          </div>
-        )}
         {joinStatus === 'error' && (
           <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
             <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-500" />
@@ -128,8 +179,8 @@ export function EventJoinPanel({
           </div>
         )}
         <div className="flex justify-end">
-          {event.already_booked && !joined ? (
-            <div className="flex flex-col items-end gap-0.5">
+          {event.already_booked ? (
+            <div className="flex flex-col items-end gap-1">
               <div className="flex items-center gap-1.5 text-sm text-green-700 font-medium">
                 <BookCheck className="size-4" />
                 {it ? 'Già prenotato' : 'Already booked'}
@@ -139,16 +190,45 @@ export function EventJoinPanel({
                   {it ? `Prenotato da ${event.booked_by}` : `Booked by ${event.booked_by}`}
                 </p>
               )}
+              {myAcceptedContribution && (
+                <>
+                  {partnerContribution && (
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includePartner}
+                        onChange={e => setIncludePartner(e.target.checked)}
+                      />
+                      {it
+                        ? `Includi anche ${partnerContribution.user_email} (€${partnerContribution.discounted_amount})`
+                        : `Also pay for ${partnerContribution.user_email} (€${partnerContribution.discounted_amount})`}
+                    </label>
+                  )}
+                  <Button
+                    size="sm"
+                    className="bg-[#e67e22] hover:bg-[#d47420] text-white flex items-center gap-1"
+                    onClick={goToCheckout}
+                  >
+                    <CreditCard className="size-3.5" />
+                    {it ? 'Paga ora' : 'Pay now'}
+                  </Button>
+                </>
+              )}
             </div>
+          ) : festivalHasNoLevels ? (
+            <p className="text-xs text-gray-500">
+              {it
+                ? 'Nessun livello configurato per questo festival: contatta la scuola per iscriverti.'
+                : 'No levels configured for this festival yet — contact the school to register.'}
+            </p>
           ) : isAuthenticated ? (
             <Button
               size="sm"
-              disabled={joined}
-              className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white flex items-center gap-1 disabled:opacity-50"
+              className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white flex items-center gap-1"
               onClick={handleJoinClick}
             >
               {it ? 'Iscriviti' : 'Join'}
-              {!joined && (showPanel ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />)}
+              {showPanel ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
             </Button>
           ) : (
             <Link to="/login">
@@ -160,7 +240,7 @@ export function EventJoinPanel({
         </div>
       </div>
 
-      {isAuthenticated && showPanel && !joined && (
+      {isAuthenticated && showPanel && (
         <div className="mt-3 border-t border-[#d4b896]/20 pt-3 space-y-3">
 
           {/* Step 1: role + partner email + level */}

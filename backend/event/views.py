@@ -156,13 +156,15 @@ class EventViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = Event.objects.all() if user.is_staff else Event.objects.filter(status=Status.PUBLISHED)
 
-        # MembershipSerializer nests rules -> event_type -> partner_roles
+        # MembershipSerializer nests rules -> event_type -> partner_roles,
+        # plus fix_events (the events always bundled with the membership).
         membership_qs = Membership.objects.prefetch_related(
             Prefetch(
                 "membershiprule_set",
                 queryset=MembershipRule.objects.select_related("event_type")
                 .prefetch_related("event_type__partner_roles"),
-            )
+            ),
+            "fix_events",
         )
 
         qs = qs.select_related(

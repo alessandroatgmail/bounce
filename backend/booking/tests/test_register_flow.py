@@ -6,16 +6,18 @@ public API wherever an endpoint exists:
     POST /api/events/events/ and publishes it via PATCH.
 2.  Two students are created and activated directly (no endpoint).
 3.  One student books the event through POST /api/booking/my-memberships/
-    naming the other student as partner → two contributions, one each.
+    naming the other student as partner → two contributions, one each,
+    and a Booking record for BOTH of them already (registration books
+    the partner's mirrored contribution too, regardless of payment).
 4.  Staff flips the booker's contribution to payed via
-    PATCH /api/booking/contributions/<pk>/ → a Booking record appears
-    for the payer only.
+    PATCH /api/booking/contributions/<pk>/ — this doesn't add or remove
+    any Booking, both already exist from registration.
 5.  GET /api/events/register/<event_pk>/ shows the couple on ONE row —
     Leader and Follower cells each carrying their own contribution
     status and contribution id.
 6.  Re-consolidating that very grid (consolidate_register) must change
     nothing: the register still has one row and the Booking model still
-    holds only the payer's record.
+    holds both partners' records.
 """
 import pytest
 from rest_framework import status as http_status
@@ -124,11 +126,14 @@ class TestWeeklyPartnerEventRegisterFlow:
         anna_contribution.refresh_from_db()
         assert anna_contribution.status == ContributionStatus.PAYED
 
-        # Paying created the Booking record — for the payer only.
-        booking = Booking.objects.get(event_id=event_id)
-        assert booking.user == anna
-        assert booking.partner == bruno
-        assert booking.partner_email == bruno.email
+        # Both partners already have a Booking from registration (step 3)
+        # — paying doesn't create anything new, just flips Anna's status.
+        assert Booking.objects.filter(event_id=event_id).count() == 2
+        anna_booking = Booking.objects.get(event_id=event_id, user=anna)
+        assert anna_booking.partner == bruno
+        assert anna_booking.partner_email == bruno.email
+        bruno_booking = Booking.objects.get(event_id=event_id, user=bruno)
+        assert bruno_booking.partner == anna
 
         # ── 5. The register shows the couple on a single row, both roles
         # carrying their own contribution info (status + contribution id) ─────
@@ -159,7 +164,9 @@ class TestWeeklyPartnerEventRegisterFlow:
         assert response.status_code == http_status.HTTP_200_OK
         assert len(response.json()["rows"]) == 1
 
-        # The Booking model still holds only the first student's record.
-        assert Booking.objects.filter(event_id=event_id).count() == 1
+        # The Booking model still holds both partners' records —
+        # registration created them, payment and consolidation didn't add
+        # or remove anything.
+        assert Booking.objects.filter(event_id=event_id).count() == 2
         assert Booking.objects.filter(event_id=event_id, user=anna).exists()
-        assert not Booking.objects.filter(user=bruno).exists()
+        assert Booking.objects.filter(event_id=event_id, user=bruno).exists()

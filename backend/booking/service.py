@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from utils.tasks import  send_email
 from event.models import Event
 from .tasks import send_email_accept_email
+from .utils import book_events_for_contribution
 
 def _create_partner_contribution(original: Contribution, partner: get_user_model()) -> Contribution:
     """
@@ -32,6 +33,7 @@ def _create_partner_contribution(original: Contribution, partner: get_user_model
         )
         # link the same events
         partner_contribution.events.set(original.events.all())
+        book_events_for_contribution(partner_contribution)
     return partner_contribution
 
 def create_partner_contributions_for_user(user) -> list[Contribution]:
