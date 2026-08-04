@@ -35,7 +35,15 @@ export function EventJoinPanel({
   const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
 
   const hasRoles = event.event_type.partners > 0 && event.event_type.partner_roles.length > 0;
-  const hasLevelChoice = event.multi_events && !event.free && event.children_levels.length > 0;
+  // Case 3 — festival, fixed choice: level + role + partner chosen once,
+  // applied to every child event at that level. Books through the
+  // dedicated /book-festival/ endpoint, which requires level_id.
+  const isFixedFestival = event.multi_events && !event.free;
+  const hasLevelChoice = isFixedFestival && event.children_levels.length > 0;
+  // A fixed-choice festival with no levels configured on its children has
+  // no level to submit — the endpoint requires one, so booking it isn't
+  // possible until an admin assigns levels.
+  const festivalHasNoLevels = isFixedFestival && event.children_levels.length === 0;
   const needsExtraStep = hasRoles || hasLevelChoice;
   const it = language === 'it';
 
@@ -84,8 +92,11 @@ export function EventJoinPanel({
         // anyway so the couple is stored on the contribution.
         body.partner_email = trimmedPartnerEmail;
       }
-      if (selectedLevelId) body.level_id = selectedLevelId;
-      const res = await fetch('/api/booking/my-memberships/', {
+      const url = isFixedFestival
+        ? '/api/booking/my-memberships/book-festival/'
+        : '/api/booking/my-memberships/';
+      if (isFixedFestival || selectedLevelId) body.level_id = selectedLevelId;
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
@@ -140,6 +151,12 @@ export function EventJoinPanel({
                 </p>
               )}
             </div>
+          ) : festivalHasNoLevels ? (
+            <p className="text-xs text-gray-500">
+              {it
+                ? 'Nessun livello configurato per questo festival: contatta la scuola per iscriverti.'
+                : 'No levels configured for this festival yet — contact the school to register.'}
+            </p>
           ) : isAuthenticated ? (
             <Button
               size="sm"

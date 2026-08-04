@@ -19,8 +19,10 @@ which have no admin endpoint):
       - "Normal Rate" €165, bookable Sep 15 → Oct 15 2026
     (the Normal Rate price is not part of the spec — any value works).
 
-Booking flow under test (the payload the real frontend sends: parent
-festival as event_id + membership_id + role_id + level_id):
+Booking flow under test, through POST /api/booking/my-memberships/book-festival/
+(parent festival as event_id + membership_id + role_id + level_id — the
+dedicated endpoint for a fixed-choice festival; level_id is mandatory
+there and the generic booking endpoint rejects this event shape):
 
   * membership window: students only see/book the pass whose window covers
     now (time is frozen inside a window with mocker).
@@ -56,6 +58,10 @@ ROOMS_URL = "/api/events/rooms/"
 ARTISTS_URL = "/api/events/artists/"
 MEMBERSHIPS_URL = "/api/membership/memberships/"
 MY_MEMBERSHIPS_URL = "/api/booking/my-memberships/"
+# The festival in this fixture is multi_events, non-free, fixed-choice
+# (case 3) — it now books through the dedicated endpoint, which requires
+# level_id and rejects everything that isn't this exact event shape.
+BOOK_FESTIVAL_URL = "/api/booking/my-memberships/book-festival/"
 
 SATURDAY = "2026-10-31"
 SUNDAY = "2026-11-01"
@@ -116,7 +122,7 @@ def book(student, festival, membership, role=None, level=None, partner=None):
     if partner:
         payload["partner_id"] = partner.id
         payload["partner_email"] = partner.email
-    return client_for(student).post(MY_MEMBERSHIPS_URL, payload, format="json")
+    return client_for(student).post(BOOK_FESTIVAL_URL, payload, format="json")
 
 
 def contribution_of(user):
@@ -511,3 +517,88 @@ class TestCancellation:
         response = client_for(emma).delete(f"{MY_MEMBERSHIPS_URL}{contribution_id}/")
         assert response.status_code == http_status.HTTP_403_FORBIDDEN
         assert contribution_of(emma).status == ContributionStatus.PAYED
+
+
+# ── Membership fix_events ("socials") ──────────────────────────────────────────
+#
+# A membership's fix_events are events always bundled with that pass —
+# e.g. three evening socials attached to the Early Bird pass — regardless
+# of which level the student books. Built on top of blues_festival rather
+# than changing it, so the base fixture and its existing assertions
+# (16 published classes, etc.) stay untouched.
+
+@pytest.fixture
+def blues_festival_with_socials(blues_festival, admin_client):
+    """Adds 3 "social" events (no partner role) as children of the
+    festival and attaches them to the Early Bird pass as fix_events."""
+    social_type = post(admin_client, EVENT_TYPES_URL, {
+        "name": "Blues Social", "frequency": "single", "partners": 0,
+    })
+    social_ids = []
+    for i in range(3):
+        social = post(admin_client, EVENTS_URL, {
+            "name": f"Social {i + 1}",
+            "status": "published",
+            "event_type_id": social_type["id"],
+            "type": "members",
+            "room_id": blues_festival["rooms"]["room1"],
+            "start_date": f"{SATURDAY}T20:00:00",
+            "end_date": f"{SATURDAY}T23:00:00",
+            "duration": 180,
+            "capacity": 100,
+        })
+        social_ids.append(social["id"])
+
+    response = admin_client.patch(
+        f"{EVENTS_URL}{blues_festival['festival_id']}/",
+        {"event_ids": blues_festival["child_ids"] + social_ids},
+        format="json",
+    )
+    assert response.status_code == http_status.HTTP_200_OK, response.data
+
+    response = admin_client.patch(
+        f"{MEMBERSHIPS_URL}{blues_festival['memberships']['early']}/",
+        {"fix_event_ids": social_ids},
+        format="json",
+    )
+    assert response.status_code == http_status.HTTP_200_OK, response.data
+
+    return {**blues_festival, "social_ids": social_ids}
+
+
+class TestFixEventSocials:
+
+    def test_booking_creates_bookings_for_the_memberships_fix_events(
+        self, september, blues_festival_with_socials,
+    ):
+        emma = make_student("emma@test.com")
+        response = book(emma, blues_festival_with_socials, "early",
+                        role="Leader", level="Improvers")
+        assert response.status_code == http_status.HTTP_201_CREATED, response.data
+
+        for social_id in blues_festival_with_socials["social_ids"]:
+            assert Booking.objects.filter(user=emma, event_id=social_id).exists()
+
+    def test_socials_are_booked_regardless_of_the_chosen_level(
+        self, september, blues_festival_with_socials,
+    ):
+        gina = make_student("gina@test.com")
+        response = book(gina, blues_festival_with_socials, "early",
+                        role="Leader", level="Advance")
+        assert response.status_code == http_status.HTTP_201_CREATED, response.data
+
+        for social_id in blues_festival_with_socials["social_ids"]:
+            assert Booking.objects.filter(user=gina, event_id=social_id).exists()
+
+    def test_membership_without_fix_events_does_not_book_socials(
+        self, mocker, blues_festival_with_socials,
+    ):
+        # The Normal Rate pass was never given fix_events — only Early Bird was.
+        freeze(mocker, IN_NORMAL_RATE_WINDOW)
+        frank = make_student("frank@test.com")
+        response = book(frank, blues_festival_with_socials, "normal",
+                        role="Leader", level="Improvers")
+        assert response.status_code == http_status.HTTP_201_CREATED, response.data
+
+        for social_id in blues_festival_with_socials["social_ids"]:
+            assert not Booking.objects.filter(user=frank, event_id=social_id).exists()

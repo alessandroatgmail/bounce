@@ -32,6 +32,7 @@ class Membership(models.Model):
     duration = models.IntegerField(default=0, verbose_name="duration (months)")
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
+    fix_events = models.ManyToManyField(Event, blank=True, related_name='included_in_memberships')
 
     class Meta:
         verbose_name = "Pack"
