@@ -13,7 +13,7 @@ from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from .models import Booking, Contribution, ContributionStatus
-from .serializers import BookingSerializer, ContributionOverviewSerializer, ContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
+from .serializers import BookingSerializer, ContributionOverviewSerializer, ContributionSerializer, FestivalContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
 from utils.tasks import send_email
 
@@ -120,6 +120,20 @@ class UserContributionViewSet(
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='book-festival')
+    def book_festival(self, request):
+        """Case 3 — festival, fixed choice: level_id is mandatory and the
+        event must be a multi_events, non-free festival (see
+        FestivalContributionSerializer)."""
+        serializer = FestivalContributionSerializer(
+            data=request.data, context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+        contribution = serializer.save(user=request.user)
+        return Response(
+            self.get_serializer(contribution).data, status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=['post'], url_path='add-event')
     def add_event(self, request, pk=None):

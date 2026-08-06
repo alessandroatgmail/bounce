@@ -12,8 +12,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .paginations import EventPagination
 from .filters import EventFilter
 
-from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventAdminListSerializer, PartnerRoleSerializer
+from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole, EventDescription
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer
 import logging
 logger = logging.getLogger('event view')
 logger.setLevel(logging.INFO)
@@ -126,6 +126,18 @@ class LevelViewSet(viewsets.ModelViewSet):
         return [IsAdminUser()]
 
 
+class EventDescriptionViewSet(viewsets.ModelViewSet):
+    queryset = EventDescription.objects.all()
+    serializer_class = EventDescriptionSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["event", "language"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
+        return [IsAdminUser()]
+
+
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
     pagination_class = EventPagination
@@ -144,13 +156,15 @@ class EventViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = Event.objects.all() if user.is_staff else Event.objects.filter(status=Status.PUBLISHED)
 
-        # MembershipSerializer nests rules -> event_type -> partner_roles
+        # MembershipSerializer nests rules -> event_type -> partner_roles,
+        # plus fix_events (the events always bundled with the membership).
         membership_qs = Membership.objects.prefetch_related(
             Prefetch(
                 "membershiprule_set",
                 queryset=MembershipRule.objects.select_related("event_type")
                 .prefetch_related("event_type__partner_roles"),
-            )
+            ),
+            "fix_events",
         )
 
         qs = qs.select_related(

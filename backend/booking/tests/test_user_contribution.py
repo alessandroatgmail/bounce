@@ -17,6 +17,7 @@ from utils.mock_event_type import make_event_type_payload
 from booking.models import ContributionStatus
 
 LIST_URL = "/api/booking/my-memberships/"
+BOOK_FESTIVAL_URL = "/api/booking/my-memberships/book-festival/"
 EVENT_LIST_URL = "/api/events/events/"
 
 
@@ -160,11 +161,16 @@ class TestUserContributionCreate:
         res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": parent.pk}, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
 
-    def test_create_with_event_does_not_sync_bookings_until_confirmed(self, student_client, student_user, world_data):
+    def test_create_with_event_creates_bookings_immediately(self, student_client, student_user, world_data):
+        """Booking rows are created eagerly at registration time now,
+        regardless of the resulting contribution status — the admin
+        register page and Consolidate are the safety net for cleaning up
+        no-shows/non-payers, not a payment/confirmation gate."""
         m = make_membership()
         parent, children = make_parent_with_future_children(3)
         student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": parent.pk}, format="json")
-        assert Booking.objects.filter(user=student_user).count() == 0
+        for target in [parent, *children]:
+            assert Booking.objects.filter(user=student_user, event=target).exists()
 
     def test_create_missing_membership_id_returns_400(self, student_client, db):
         res = student_client.post(LIST_URL, {}, format="json")
@@ -1579,7 +1585,10 @@ class TestMultiEventsFestivalValidation:
     """
     For a multi_events festival _validate_membership_events must only verify
     that the membership is linked to the festival and skip all type-rule and
-    max-events checks.
+    max-events checks. A fixed-choice festival now books through the
+    dedicated book-festival endpoint, which requires level_id — these tests
+    don't exercise level-scoped children/capacity, so festival.level_id
+    (set by make_event_with_type) is enough to satisfy the field.
     """
 
     def _make_festival(self):
@@ -1593,14 +1602,22 @@ class TestMultiEventsFestivalValidation:
         festival = self._make_festival()
         m = make_membership()
         festival.memberships.add(m)
-        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        res = student_client.post(
+            BOOK_FESTIVAL_URL,
+            {"membership_id": m.pk, "event_id": festival.pk, "level_id": festival.level_id},
+            format="json",
+        )
         assert res.status_code == http_status.HTTP_201_CREATED
 
     def test_unlinked_membership_returns_400(self, student_client, world_data):
         festival = self._make_festival()
         m = make_membership()
         # m is NOT linked to festival.memberships
-        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        res = student_client.post(
+            BOOK_FESTIVAL_URL,
+            {"membership_id": m.pk, "event_id": festival.pk, "level_id": festival.level_id},
+            format="json",
+        )
         assert res.status_code == http_status.HTTP_400_BAD_REQUEST
 
     def test_type_rules_skipped_for_multi_events(self, student_client, world_data):
@@ -1612,13 +1629,21 @@ class TestMultiEventsFestivalValidation:
         # Rule covers only other_et, not the festival's event type
         MembershipRule.objects.create(membership=m, event_type=other_et, max_events=1)
         festival.memberships.add(m)
-        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        res = student_client.post(
+            BOOK_FESTIVAL_URL,
+            {"membership_id": m.pk, "event_id": festival.pk, "level_id": festival.level_id},
+            format="json",
+        )
         assert res.status_code == http_status.HTTP_201_CREATED
 
     def test_error_message_mentions_membership_name(self, student_client, world_data):
         festival = self._make_festival()
         m = make_membership(name="FestivalPass")
-        res = student_client.post(LIST_URL, {"membership_id": m.pk, "event_id": festival.pk}, format="json")
+        res = student_client.post(
+            BOOK_FESTIVAL_URL,
+            {"membership_id": m.pk, "event_id": festival.pk, "level_id": festival.level_id},
+            format="json",
+        )
         assert res.status_code == http_status.HTTP_400_BAD_REQUEST
         assert "FestivalPass" in str(res.data)
 

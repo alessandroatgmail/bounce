@@ -56,8 +56,19 @@ interface RegisterData {
   event_id: number;
   roles: string[];
   rows: RegisterRow[];
-  /** False when the event is a child of another event. */
+  /**
+   * False when the event is a child of a regular (non-festival) parent.
+   * True for genuine top-level events AND for a multi-events festival's
+   * own child events (level classes, fix_events socials) — both are
+   * directly editable.
+   */
   parent: boolean;
+  /**
+   * True only for a genuine top-level event — narrower than `parent`.
+   * A festival's child events are `parent` (editable) but never
+   * `can_consolidate`: they're leaves, nothing to push bookings onto.
+   */
+  can_consolidate: boolean;
   /** True when the rows come from Booking records instead of contributions. */
   consolidated: boolean;
 }
@@ -257,8 +268,10 @@ export function EventRegisterPage() {
   const [consolidateError, setConsolidateError] = useState<string | null>(null);
   const [consolidateResult, setConsolidateResult] = useState<{ created: number; deleted: number } | null>(null);
 
-  // Grid editing (parent events only): pick a member, then a destination
-  // cell to swap them; couples booked together stay locked on their row.
+  // Grid editing (any editable register — a genuine parent or a
+  // multi_events festival's own child event): pick a member, then a
+  // destination cell to swap them; couples booked together stay locked
+  // on their row.
   const [moveSource, setMoveSource] = useState<CellRef | null>(null);
   const [addTarget, setAddTarget] = useState<CellRef | null>(null);
   // Adds/removes are persisted immediately through the staff bookings
@@ -627,7 +640,7 @@ export function EventRegisterPage() {
               {eventName && <p className="text-sm text-gray-600">{eventName}</p>}
             </div>
           </div>
-          {data?.parent && (
+          {data?.can_consolidate && (
             <div className="flex items-center gap-3">
               {dirty && (
                 <span className="text-sm text-amber-700">
@@ -648,7 +661,7 @@ export function EventRegisterPage() {
           )}
         </div>
 
-        {data?.parent && hasUnregisteredPartner && (
+        {data?.can_consolidate && hasUnregisteredPartner && (
           <div
             role="alert"
             className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 mb-6 text-sm text-amber-800"
@@ -734,7 +747,7 @@ export function EventRegisterPage() {
                                 <MemberCell
                                   member={member}
                                   language={language}
-                                  showAttended={!data.parent && data.consolidated}
+                                  showAttended={data.consolidated}
                                 />
                                 {editable && (
                                   <div className="flex flex-col items-end gap-1 shrink-0">

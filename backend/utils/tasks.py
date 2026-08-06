@@ -1,3 +1,4 @@
+
 from celery import shared_task
 from kafka import KafkaProducer
 from django.contrib.auth import get_user_model
@@ -35,12 +36,14 @@ def send_to_kafka(self, type: str, data: dict) -> None:
 
 @shared_task
 def send_activation_email(user_id: int, template: str,) -> None:
+    from django.conf import settings
     User = get_user_model()
     user = User.objects.get(pk=user_id)
 
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
-    activation_link = f"http://localhost:5173/activate/{uid}/{token}/"
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+    activation_link = f"http://{frontend_url}/activate/{uid}/{token}/"
     mail.send(
         user.email,
         template=template,

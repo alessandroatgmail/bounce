@@ -41,39 +41,101 @@ function statusBadge(status: ContributionStatus, lang: 'it' | 'en') {
   );
 }
 
-function getRelatedContribs(c: UserMembership, contribMap: Map<number, UserMembership>): LinkedContribution[] {
-  const seen = new Set<number>();
-  const result: LinkedContribution[] = [];
+interface RelatedEntry {
+  contribution: LinkedContribution;
+  // 'partner' = the other half of a couple booking (same event, other user).
+  // 'upgrade' = the same user's contribution before an upgrade — not a partner.
+  kind: 'partner' | 'upgrade';
+}
 
-  const add = (item: LinkedContribution) => {
-    if (!seen.has(item.id)) { seen.add(item.id); result.push(item); }
+function getRelatedContribs(c: UserMembership, contribMap: Map<number, UserMembership>): RelatedEntry[] {
+  const seen = new Set<number>();
+  const result: RelatedEntry[] = [];
+
+  const add = (item: LinkedContribution, kind: RelatedEntry['kind']) => {
+    if (!seen.has(item.id)) { seen.add(item.id); result.push({ contribution: item, kind }); }
   };
 
   // upgraded_from is always the same user — look it up in contribMap
   if (c.upgraded_from != null) {
     const uc = contribMap.get(c.upgraded_from);
-    if (uc) add(uc as unknown as LinkedContribution);
+    if (uc) add(uc as unknown as LinkedContribution, 'upgrade');
   }
   // original_contribution and twin_contributions are embedded (may be another user)
-  if (c.original_contribution != null) add(c.original_contribution);
-  (c.twin_contributions ?? []).forEach(add);
+  if (c.original_contribution != null) add(c.original_contribution, 'partner');
+  (c.twin_contributions ?? []).forEach(item => add(item, 'partner'));
 
   return result;
+}
+
+/** Who pays this contribution, and — for couple bookings — who their partner is. */
+interface PayerPartnerInfo {
+  payerEmail: string;
+  payerRole: string | null;
+  partnerEmail: string | null;
+  partnerRole: string | null;
+}
+
+/** Maps every contribution id (the viewer's own plus any embedded twin/original) to its payer/partner identity. */
+function buildPayerPartnerMap(userMemberships: UserMembership[]): Map<number, PayerPartnerInfo> {
+  const map = new Map<number, PayerPartnerInfo>();
+  userMemberships.forEach(c => {
+    const partner = c.twin_contributions[0] ?? c.original_contribution ?? null;
+    map.set(c.id, {
+      payerEmail: c.user_email,
+      payerRole: c.role,
+      partnerEmail: partner?.user_email ?? null,
+      partnerRole: partner?.role ?? null,
+    });
+    if (partner) {
+      map.set(partner.id, {
+        payerEmail: partner.user_email,
+        payerRole: partner.role,
+        partnerEmail: c.user_email,
+        partnerRole: c.role,
+      });
+    }
+  });
+  return map;
+}
+
+function PayerPartnerLines({
+  info, lang, className = 'text-xs text-gray-400',
+}: { info: PayerPartnerInfo | undefined; lang: 'it' | 'en'; className?: string }) {
+  if (!info) return null;
+  return (
+    <div className={`${className} space-y-0.5`}>
+      <p>
+        <span className="font-medium text-gray-500">{lang === 'it' ? 'Paga per:' : 'Pay for:'}</span>{' '}
+        {info.payerEmail}{info.payerRole ? ` · ${info.payerRole}` : ''}
+      </p>
+      {info.partnerEmail && (
+        <p>
+          <span className="font-medium text-gray-500">Partner:</span>{' '}
+          {info.partnerEmail}{info.partnerRole ? ` · ${info.partnerRole}` : ''}
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ─── Related contribution mini-row ───────────────────────────────────────────
 
 interface RelatedRowProps {
-  c: LinkedContribution;
+  entry: RelatedEntry;
   eventMap: Map<number, { name: string; end_date: string }>;
+  payerPartnerMap: Map<number, PayerPartnerInfo>;
   selected: Set<number>;
   onToggle: (id: number) => void;
   lang: 'it' | 'en';
 }
 
-function RelatedContribRow({ c, eventMap, selected, onToggle, lang }: RelatedRowProps) {
+function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggle, lang }: RelatedRowProps) {
+  const c = entry.contribution;
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
   const canPay = c.status === 'accepted';
+  // Upgrade history rows are the same user, not a couple — no "Partner" line.
+  const info = entry.kind === 'partner' ? payerPartnerMap.get(c.id) : { payerEmail: c.user_email, payerRole: c.role, partnerEmail: null, partnerRole: null };
   return (
     <div className="flex items-center gap-3 p-2 bg-gray-50 rounded border">
       <Checkbox
@@ -88,11 +150,7 @@ function RelatedContribRow({ c, eventMap, selected, onToggle, lang }: RelatedRow
             {firstEvent?.name ?? c.membership?.name ?? `#${c.id}`}
           </span>
         </div>
-        {(c.role || c.partner) && (
-          <span className="text-xs text-gray-400 ml-5">
-            {[c.role, c.partner].filter(Boolean).join(' · ')}
-          </span>
-        )}
+        <PayerPartnerLines info={info} lang={lang} className="text-xs text-gray-400 ml-5" />
       </div>
       <span className="text-sm font-semibold shrink-0">€{c.discounted_amount}</span>
       {statusBadge(c.status, lang === 'it' ? 'it' : 'en')}
@@ -106,6 +164,7 @@ interface ReadyCardProps {
   c: UserMembership;
   contribMap: Map<number, UserMembership>;
   eventMap: Map<number, { name: string; end_date: string }>;
+  payerPartnerMap: Map<number, PayerPartnerInfo>;
   selected: Set<number>;
   expanded: Set<number>;
   onToggleSelect: (id: number) => void;
@@ -114,7 +173,7 @@ interface ReadyCardProps {
 }
 
 function ReadyCard({
-  c, contribMap, eventMap, selected, expanded,
+  c, contribMap, eventMap, payerPartnerMap, selected, expanded,
   onToggleSelect, onToggleExpand, lang,
 }: ReadyCardProps) {
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
@@ -140,11 +199,7 @@ function ReadyCard({
               <span className="font-bold truncate">{firstEvent?.name ?? '—'}</span>
             </div>
             <span className="text-sm text-gray-500 ml-5 block">{c.membership?.name ?? '—'}</span>
-            {(c.role || c.partner) && (
-              <span className="text-xs text-gray-400 ml-5 block">
-                {[c.role, c.partner].filter(Boolean).join(' · ')}
-              </span>
-            )}
+            <PayerPartnerLines info={payerPartnerMap.get(c.id)} lang={lang} className="text-xs text-gray-400 ml-5" />
           </div>
           {related.length > 0 && (
             <button
@@ -189,11 +244,12 @@ function ReadyCard({
             <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
               {lang === 'it' ? 'Iscrizioni collegate' : 'Related contributions'}
             </p>
-            {related.map(rc => (
+            {related.map(entry => (
               <RelatedContribRow
-                key={rc.id}
-                c={rc}
+                key={entry.contribution.id}
+                entry={entry}
                 eventMap={eventMap}
+                payerPartnerMap={payerPartnerMap}
                 selected={selected}
                 onToggle={onToggleSelect}
                 lang={lang}
@@ -248,6 +304,9 @@ export function PaymentsSection() {
     return map;
   }, [userMemberships]);
 
+  // who pays each contribution and, for couple bookings, who their partner is
+  const payerPartnerMap = useMemo(() => buildPayerPartnerMap(userMemberships), [userMemberships]);
+
   const readyToPay = userMemberships.filter(c => c.status === 'accepted');
   const activeUserMemberships = userMemberships.filter(c =>
     c.events.length === 0 || c.events.some(eid => (eventMap.get(eid)?.end_date ?? '') >= today)
@@ -281,12 +340,15 @@ export function PaymentsSection() {
       if (!c) return null;
       const firstEventId = c.events[0];
       const eventName = firstEventId != null ? (eventMap.get(firstEventId)?.name ?? `#${id}`) : `#${id}`;
+      const info = payerPartnerMap.get(id);
       return {
         id: c.id,
         eventName,
         membershipName: c.membership?.name ?? '—',
-        role: c.role,
-        partner: c.partner,
+        payerEmail: info?.payerEmail ?? c.user_email,
+        payerRole: info?.payerRole ?? c.role,
+        partnerEmail: info?.partnerEmail ?? null,
+        partnerRole: info?.partnerRole ?? null,
         amount: c.amount,
         discounted_amount: c.discounted_amount,
         discounts: c.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
@@ -582,6 +644,7 @@ export function PaymentsSection() {
                     c={c}
                     contribMap={contribMap}
                     eventMap={eventMap as Map<number, { name: string; end_date: string }>}
+                    payerPartnerMap={payerPartnerMap}
                     selected={selected}
                     expanded={expanded}
                     onToggleSelect={toggleSelect}
