@@ -88,6 +88,7 @@ class RegisterDict(TypedDict):
     consolidated: bool
     event_id: int
     parent: bool
+    can_consolidate: bool
     roles: list[str]
     rows: list[RegisterStudents]
 
@@ -190,26 +191,47 @@ def build_register(event):
     Return the attendee grid {event_id, roles, rows, parent, consolidated}
     for an event.
 
-    ``parent`` is False when the event is a child of another event.
+    ``parent`` is False when the event is a child of another event — with
+    one exception: a child of a multi_events festival (a level class or a
+    fix_events social) is treated as its own parent, since each of those
+    is independently editable rather than only reachable by consolidating
+    down from somewhere else.
+    ``can_consolidate`` is narrower than ``parent``: only a genuine
+    top-level event (no parent at all) can consolidate its bookings down
+    onto children. A multi_events festival's own child events are
+    ``parent`` (editable) but never ``can_consolidate`` — they're leaves,
+    there's nothing beneath them to push bookings onto.
     ``consolidated`` is True when the event has Booking records. The rows
     come straight from the bookings (see _rows_from_bookings) — an event
     without bookings has an empty register, since paying is what books a
     user in.
     """
     roles = [r.name for r in event.event_type.partner_roles.all()]
-    is_parent = not type(event).events.through.objects.filter(to_event=event).exists()
+    parent_event = event.event_set.first()
+    is_parent = parent_event is None or parent_event.multi_events
 
     bookings = list(
         Booking.objects.filter(event=event)
         .select_related("user", "role")
         .order_by("id")
     )
+    if roles:
+        rows = _get_rows_by_sql(event.id)
+    else:
+        # This event's own type declares no partner roles (e.g. a
+        # fix_events "social" bundled with a festival pass, or any other
+        # no-partner event) — role pairing doesn't apply, so skip it
+        # entirely and just list whoever is registered, one row per
+        # contribution, driven by their contribution status.
+        rows = _get_roster_rows(event.id)
+        roles = ["Member"] if rows else []
     return {
         "event_id": event.id,
         "roles": roles,
         # "rows": _rows_from_bookings(event, bookings, roles),
-        "rows": _get_rows_by_sql(event.id),
+        "rows": rows,
         "parent": is_parent,
+        "can_consolidate": parent_event is None,
         "consolidated": bool(bookings),
     }
 
@@ -272,6 +294,30 @@ def consolidate_register(event, rows=None, removed_user_ids=None):
         Booking.objects.bulk_create(copies)
     return len(copies), deleted
 
+def _get_roster_rows(event_id):
+    """One row per booking, no role pairing — for events whose own type
+    declares no partner roles. Read from Booking rather than
+    Contribution.events: a festival's fix_events children get a Booking
+    at registration time (book_events_for_contribution) without ever
+    being added to the contribution's own `events` M2M, so filtering on
+    Contribution.events would miss them entirely. Status comes from the
+    linked Contribution (accepted/waiting/payed/...), not just
+    payed-or-not, so the grid still shows who's pending vs. confirmed."""
+    visible_statuses = {
+        ContributionStatus.PAYED, ContributionStatus.ACCEPTED, ContributionStatus.WAITING,
+    }
+    bookings = (
+        Booking.objects
+        .filter(event_id=event_id, contribution__status__in=visible_statuses)
+        .select_related("contribution__user")
+        .order_by("id")
+    )
+    return [
+        {"couple": False, "members": {"Member": _member_cell(b.contribution)}}
+        for b in bookings
+    ]
+
+
 def _get_rows_by_sql(event_id):
     from django.db import connection
     import json
@@ -289,8 +335,10 @@ def _get_rows_by_sql(event_id):
             bb.partner_id,
             bb.partner_email,
             bb.partner_role_id,
+            bb.contribution_id AS contribution_id,
             bb2.id      AS partner_booking_id,
             bb2.role_id AS partner_actual_role_id,
+            bb2.contribution_id AS partner_contribution_id,
             bb.attended as partner_attended
         FROM booking_booking bb
         LEFT JOIN booking_booking bb2
@@ -358,30 +406,14 @@ def _get_rows_by_sql(event_id):
         ON u1.id = c.user_id
     LEFT JOIN event_partnerrole r1
         ON r1.id = c.role_id
-    LEFT JOIN LATERAL (
-        SELECT bc.id, bc.status
-        FROM booking_contribution bc
-        JOIN booking_contribution_events bce
-            ON bce.contribution_id = bc.id
-        WHERE bce.event_id = c.event_id
-          AND bc.user_id = c.user_id
-        ORDER BY (bc.status = 'payed') DESC
-        LIMIT 1
-    ) co1 ON true
+    LEFT JOIN booking_contribution co1
+        ON co1.id = c.contribution_id
     LEFT JOIN users_user u2
         ON u2.id = c.partner_id
     LEFT JOIN event_partnerrole r2
         ON r2.id = COALESCE(c.partner_actual_role_id, c.partner_role_id)
-    LEFT JOIN LATERAL (
-        SELECT bc.id, bc.status
-        FROM booking_contribution bc
-        JOIN booking_contribution_events bce
-            ON bce.contribution_id = bc.id
-        WHERE bce.event_id = c.event_id
-          AND bc.user_id = c.partner_id
-        ORDER BY (bc.status = 'payed') DESC
-        LIMIT 1
-    ) co2 ON true;
+    LEFT JOIN booking_contribution co2
+        ON co2.id = c.partner_contribution_id;
     """
 
     with connection.cursor() as cursor:
