@@ -1,6 +1,8 @@
 from django.urls import path
 from rest_framework.routers import SimpleRouter
-from .views import EventTypeViewSet, LocationViewSet, RoomViewSet, StyleViewSet, GenreViewSet, ArtistTypeViewSet, ArtistViewSet, LevelViewSet, EventViewSet, EventAdminListView, PartnerRoleViewSet, EventRegisterView, EventDescriptionViewSet
+from .views import EventTypeViewSet, LocationViewSet, RoomViewSet, StyleViewSet, GenreViewSet, ArtistTypeViewSet, \
+    ArtistViewSet, LevelViewSet, EventViewSet, EventAdminListView, PartnerRoleViewSet, EventRegisterView, \
+    EventDescriptionViewSet
 
 router = SimpleRouter()
 router.register("partner-roles", PartnerRoleViewSet, basename="partner-role")

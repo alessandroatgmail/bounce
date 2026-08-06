@@ -12,7 +12,7 @@ endpoint itself: permissions and the response shape.
 import pytest
 from rest_framework import status as http_status
 
-from booking.models import Booking
+from booking.models import Booking, Contribution, ContributionStatus
 from event.models import Event, PartnerRole, Status
 from users.models import User
 from utils.mock_event import make_event_payload
@@ -93,6 +93,7 @@ class TestEventRegisterShape:
         assert data["rows"] == []
         assert data["consolidated"] is False
         assert data["parent"] is True
+        assert data["can_consolidate"] is True
 
     def test_booked_member_cell_contains_user_fields(self, staff_client, world_data):
         event, (leader_role, _) = make_event_with_roles()
@@ -115,3 +116,55 @@ class TestEventRegisterShape:
         data = staff_client.get(register_url(child.pk)).json()
 
         assert data["parent"] is False
+        assert data["can_consolidate"] is False
+
+    def test_multi_event_child_is_parent_but_cannot_consolidate(self, staff_client, world_data):
+        """A multi_events festival's own child event (a level class or a
+        fix_events social) is directly editable — same as a regular
+        parent — but it's a leaf: there's nothing beneath it to push
+        bookings onto, so it can never consolidate."""
+        festival, _ = make_event_with_roles()
+        festival.multi_events = True
+        festival.save()
+        level_class, _ = make_event_with_roles()
+        festival.events.set([level_class])
+
+        data = staff_client.get(register_url(level_class.pk)).json()
+
+        assert data["parent"] is True
+        assert data["can_consolidate"] is False
+
+    def test_roleless_event_lists_students_by_contribution_status(self, staff_client, world_data):
+        """A fix_events "social" (partners=0, no roles configured on its
+        event type) skips role pairing entirely — the grid just lists
+        whoever is registered, one row per booking, driven by their
+        contribution status rather than a Leader/Follower column.
+
+        Seeded via Booking (not Contribution.events): a festival's
+        fix_events children get a Booking at registration time without
+        ever being added to the contribution's own `events` M2M (see
+        booking.utils.book_events_for_contribution), so the register must
+        read from Booking to see them — this is what the real flow
+        produces, exercised end-to-end in
+        booking/tests/test_bounce_blues_festival.py."""
+        event, _ = make_event_with_roles(())
+        anna = make_user("anna@bounce.com")
+        contribution = Contribution.objects.create(
+            user=anna, status=ContributionStatus.ACCEPTED, amount=0,
+        )
+        Booking.objects.create(user=anna, event=event, contribution=contribution)
+
+        data = staff_client.get(register_url(event.pk)).json()
+
+        assert data["roles"] == ["Member"]
+        cell = data["rows"][0]["members"]["Member"]
+        assert cell["email"] == anna.email
+        assert cell["status"] == ContributionStatus.ACCEPTED
+
+    def test_roleless_event_without_contributions_has_empty_register(self, staff_client, world_data):
+        event, _ = make_event_with_roles(())
+
+        data = staff_client.get(register_url(event.pk)).json()
+
+        assert data["roles"] == []
+        assert data["rows"] == []

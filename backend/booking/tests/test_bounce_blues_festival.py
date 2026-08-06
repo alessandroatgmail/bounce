@@ -58,6 +58,7 @@ ROOMS_URL = "/api/events/rooms/"
 ARTISTS_URL = "/api/events/artists/"
 MEMBERSHIPS_URL = "/api/membership/memberships/"
 MY_MEMBERSHIPS_URL = "/api/booking/my-memberships/"
+REGISTER_URL = "/api/events/register/"
 # The festival in this fixture is multi_events, non-free, fixed-choice
 # (case 3) — it now books through the dedicated endpoint, which requires
 # level_id and rejects everything that isn't this exact event shape.
@@ -370,6 +371,34 @@ class TestPartnerRegistration:
         response = book(bruno, blues_festival, "early", role="Follower", level="Improvers")
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
+    def test_register_shows_status_for_a_couple_booked_into_a_level_class(
+        self, september, blues_festival, admin_client,
+    ):
+        """Regression test: the register grid for a level class (a
+        role-paired child event of a multi_events festival) derived each
+        member's status/contribution_id by joining through
+        Contribution.events — an M2M that's only ever populated with the
+        festival itself, never its children (only Booking.contribution is,
+        via book_events_for_contribution). So a couple booked into a level
+        class showed up with status and contribution_id both null, even
+        though they were genuinely accepted."""
+        anna = make_student("anna@test.com")
+        bruno = make_student("bruno@test.com")
+        book(anna, blues_festival, "early",
+            role="Leader", level="Improvers", partner=bruno)
+
+        level_class_id = Booking.objects.get(user=anna).event_id
+        response = admin_client.get(f"{REGISTER_URL}{level_class_id}/")
+
+        assert response.status_code == http_status.HTTP_200_OK, response.data
+        row = response.data["rows"][0]
+        anna_c = contribution_of(anna)
+        bruno_c = contribution_of(bruno)
+        assert row["members"]["Leader"]["status"] == ContributionStatus.ACCEPTED
+        assert row["members"]["Leader"]["contribution_id"] == anna_c.id
+        assert row["members"]["Follower"]["status"] == ContributionStatus.ACCEPTED
+        assert row["members"]["Follower"]["contribution_id"] == bruno_c.id
+
 
 # ── Single registration ───────────────────────────────────────────────────────
 
@@ -602,3 +631,23 @@ class TestFixEventSocials:
 
         for social_id in blues_festival_with_socials["social_ids"]:
             assert not Booking.objects.filter(user=frank, event_id=social_id).exists()
+
+    def test_register_lists_the_booked_student_for_a_social(
+        self, september, blues_festival_with_socials, admin_client,
+    ):
+        """The register grid for a fix_events social (no partner role)
+        must list whoever got booked into it. Regression test: the
+        register used to read from Contribution.events, which is never
+        touched for fix_events (only Booking is — see
+        book_events_for_contribution), so the grid stayed empty even
+        though the student was genuinely booked."""
+        emma = make_student("emma@test.com")
+        book(emma, blues_festival_with_socials, "early", role="Leader", level="Improvers")
+
+        social_id = blues_festival_with_socials["social_ids"][0]
+        response = admin_client.get(f"{REGISTER_URL}{social_id}/")
+
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data["roles"] == ["Member"]
+        cell = response.data["rows"][0]["members"]["Member"]
+        assert cell["email"] == emma.email
