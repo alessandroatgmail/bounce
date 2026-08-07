@@ -3,6 +3,7 @@ import { Header } from './Header';
 import { Footer } from './Footer';
 import { Toaster } from './ui/sonner';
 import { ScrollToTop } from './ScrollToTop';
+import { CookieBanner } from './CookieBanner';
 
 export function Layout() {
   return (
@@ -14,6 +15,7 @@ export function Layout() {
       <Footer />
       <Toaster />
       <ScrollToTop />
+      <CookieBanner />
     </div>
   );
 }
