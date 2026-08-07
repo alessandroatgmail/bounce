@@ -1,5 +1,5 @@
 from rest_framework import viewsets
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 
 from .models import FestivalDay, FesivalRoom
 from .serializers import FestivalDaySerializer, FestivalRoomSerializer
@@ -10,7 +10,7 @@ class FestivalDayViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated()]
+            return [AllowAny()]
         return [IsAdminUser()]
 
     def get_queryset(self):
