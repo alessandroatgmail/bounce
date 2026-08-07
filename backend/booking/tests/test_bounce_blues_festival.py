@@ -387,7 +387,7 @@ class TestPartnerRegistration:
         book(anna, blues_festival, "early",
             role="Leader", level="Improvers", partner=bruno)
 
-        level_class_id = Booking.objects.get(user=anna).event_id
+        level_class_id = Booking.objects.filter(user=anna).first().event_id
         response = admin_client.get(f"{REGISTER_URL}{level_class_id}/")
 
         assert response.status_code == http_status.HTTP_200_OK, response.data

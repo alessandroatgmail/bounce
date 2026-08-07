@@ -34,8 +34,8 @@ function ClassCard({ cls, purchased }: { cls: EventItem; purchased: boolean }) {
 // as FestivalGrid/FestivalSchedulePage (via useFestivalDays). Desktop shows a
 // day/room/time grid; below md it switches to a day → room accordion, each
 // room listing its classes as a stacked list, since a wide grid doesn't fit
-// a phone screen.
-// Requires login — festival-days is an authenticated-only endpoint.
+// a phone screen. Visible to anonymous visitors too — festival-days is a
+// public endpoint; only the "purchased" highlight depends on being logged in.
 export function EventScheduleTable({
   festival,
   childEvents,
@@ -67,8 +67,6 @@ export function EventScheduleTable({
       })
       .filter((b): b is { day: FestivalDay; dayEvents: EventItem[]; times: string[] } => b !== null);
   }, [days, childEvents]);
-
-  if (!accessToken) return null;
 
   if (loadingDays || loadingBookings) {
     return (

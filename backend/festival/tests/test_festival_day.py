@@ -43,14 +43,16 @@ def make_payload(event: Event | None = None, **overrides):
 
 class TestFestivalDayAuthentication:
 
-    def test_unauthenticated_list_returns_401(self, client, world_data):
+    def test_unauthenticated_list_returns_200(self, client, world_data):
+        """The event detail page shows the festival schedule to logged-out
+        visitors too, so list/retrieve must be publicly readable."""
         response = client.get(LIST_URL)
-        assert response.status_code == http_status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == http_status.HTTP_200_OK
 
-    def test_unauthenticated_retrieve_returns_401(self, client, world_data):
+    def test_unauthenticated_retrieve_returns_200(self, client, world_data):
         day = make_festival_day()
         response = client.get(detail_url(day.pk))
-        assert response.status_code == http_status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == http_status.HTTP_200_OK
 
     def test_unauthenticated_create_returns_401(self, client, world_data):
         response = client.post(LIST_URL, make_payload(), format='json')

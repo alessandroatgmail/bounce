@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Calendar, Clock, Users, Loader2, Info } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -6,21 +5,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Badge } from '../components/ui/badge';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useEvents } from '../hooks/useEvents';
+import { useEventsPaginated } from '../hooks/useEventsPaginated';
 
 export function Home() {
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  // public page: fetch events anonymously
-  const { events, loading } = useEvents(null);
-
-  const upcomingEvents = useMemo(
-    () =>
-      events
-        .filter(e => new Date(e.start_date) >= new Date())
-        .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
-        .slice(0, 6),
-    [events],
+  // public page: fetch events anonymously, same filters as the Events page
+  const { events: upcomingEvents, loading } = useEventsPaginated(
+    null,
+    { upcoming: true, exclude_children: true },
+    6,
   );
 
   return (

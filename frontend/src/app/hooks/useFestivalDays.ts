@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authFetch } from '../../lib/api';
+import { authFetch, apiUrl } from '../../lib/api';
 
 const BASE = '/api/festival/festival-days/';
 
@@ -20,10 +20,13 @@ export function useFestivalDays(token: string | null, eventId: number | null) {
   const [loading, setLoading] = useState(false);
 
   const fetchDays = useCallback(async () => {
-    if (!token || !eventId) return;
+    if (!eventId) return;
     setLoading(true);
     try {
-      const res = await authFetch(`${BASE}?event_id=${eventId}`, token);
+      const url = `${BASE}?event_id=${eventId}`;
+      const res = token
+        ? await authFetch(url, token)
+        : await fetch(apiUrl(url), { headers: { 'Content-Type': 'application/json' } });
       if (!res.ok) return;
       setDays(await res.json());
     } finally {
