@@ -377,9 +377,6 @@ export function EventJoinPanel({
                         )}
                         <div>
                           <p className="text-sm font-medium text-[#2b2b2b]">{m.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {m.duration} {it ? 'gg' : 'days'} · {m.max_events} {it ? 'eventi' : 'events'}
-                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
