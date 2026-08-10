@@ -93,7 +93,7 @@ export function Home() {
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {upcomingEvents.map((event) => {
-                const artistLine = event.artists.map(a => a.full_name).join(' & ');
+                const artistLine = event.artists.map(a => a.full_name).join(', ');
                 return (
                   <Card key={event.id} className="hover:shadow-2xl transition-all duration-300 border-[#d4b896]/20 overflow-hidden group">
                     <div className="h-2 shrink-0" style={{ background: event.color ?? 'linear-gradient(to right, #d4b896, #e67e22)' }} />
@@ -134,7 +134,7 @@ export function Home() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Clock className="size-4 text-[#d4b896]" />
-                          {event.start_date.slice(11, 16)} ({event.duration} min)
+                          {event.start_date.slice(11, 16)}{!event.multi_events && ` (${event.duration} min)`}
                         </div>
                         <div className="flex items-center gap-2">
                           <Users className="size-4 text-[#d4b896]" />
