@@ -1,10 +1,10 @@
 import { Fragment, useMemo } from 'react';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFestivalDays } from '../hooks/useFestivalDays';
 import { useUserBookings } from '../hooks/useUserBookings';
 import type { EventItem } from '../hooks/useEvents';
-import type { FestivalDay } from '../hooks/useFestivalDays';
+import type { FestivalDay, FestivalRoom } from '../hooks/useFestivalDays';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 
 function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 'en-GB') {
@@ -12,11 +12,38 @@ function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 
   return new Date(y, m - 1, d).toLocaleDateString(locale, opts);
 }
 
-function ClassCard({ cls, purchased }: { cls: EventItem; purchased: boolean }) {
+function formatLocation(location: FestivalRoom['room']['location']) {
+  return `${location.name}, ${location.address}, ${location.city.name}, ${location.city.country}`;
+}
+
+function mapUrl(location: FestivalRoom['room']['location']) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formatLocation(location))}`;
+}
+
+// Opens the room's address in a new tab. Kept as its own component since it's
+// used both in a plain div (desktop header) and nested inside an
+// AccordionTrigger button (mobile) — stopPropagation keeps the click from
+// also toggling the accordion.
+function MapLink({ location, className }: { location: FestivalRoom['room']['location']; className?: string }) {
+  return (
+    <a
+      href={mapUrl(location)}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={e => e.stopPropagation()}
+      className={className ?? 'text-white/80 hover:text-white'}
+      aria-label="Open in maps"
+    >
+      <MapPin className="size-3.5" />
+    </a>
+  );
+}
+
+function ClassCard({ cls, purchased, dimmed }: { cls: EventItem; purchased: boolean; dimmed: boolean }) {
   return (
     <div
       className="rounded-lg p-2 text-white shadow-sm h-full"
-      style={{ backgroundColor: cls.color ?? '#e67e22', opacity: purchased ? 1 : 0.35 }}
+      style={{ backgroundColor: cls.color ?? '#e67e22', opacity: dimmed ? 0.35 : 1 }}
     >
       <div className="text-sm font-medium flex items-center gap-1 leading-tight">
         {purchased && <CheckCircle2 className="size-3.5 flex-shrink-0" />}
@@ -78,10 +105,14 @@ export function EventScheduleTable({
 
   if (dayBlocks.length === 0) return null;
 
+  // Only dim non-purchased classes once the user has actually booked into
+  // this festival — otherwise (anonymous visitor, or logged-in but hasn't
+  // booked yet) every class shows in its full color instead of looking
+  // washed out.
+  const dimUnpurchased = festival.already_booked;
+
   return (
     <div>
-      <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">{it ? 'Programma' : 'Schedule'}</h2>
-
       {/* Desktop / tablet: full day → room → time grid */}
       <div className="hidden md:block space-y-8">
         {dayBlocks.map(({ day, dayEvents, times }) => (
@@ -91,13 +122,17 @@ export function EventScheduleTable({
             </h3>
             <div className="overflow-x-auto">
               <div
-                className="grid gap-2 min-w-max"
+                className="grid gap-2"
                 style={{ gridTemplateColumns: `72px repeat(${day.rooms.length}, minmax(150px, 1fr))` }}
               >
                 <div />
                 {day.rooms.map(fr => (
-                  <div key={fr.id} className="px-2 py-1.5 rounded bg-[#2b2b2b] text-white text-sm font-medium text-center">
-                    {fr.room.name}
+                  <div key={fr.id} className="min-w-0 px-2 py-1.5 rounded bg-[#2b2b2b] text-white text-center">
+                    <div className="text-sm font-medium flex items-center justify-center gap-1">
+                      <span>{fr.room.name}</span>
+                      <MapLink location={fr.room.location} />
+                    </div>
+                    <div className="text-xs opacity-75 whitespace-normal break-words">{formatLocation(fr.room.location)}</div>
                   </div>
                 ))}
 
@@ -110,9 +145,10 @@ export function EventScheduleTable({
                       const cls = dayEvents.find(
                         e => e.room.id === fr.room.id && e.start_date.slice(11, 16) === time
                       );
+                      const purchased = cls ? purchasedIds.has(cls.id) : false;
                       return (
                         <div key={`${time}-${fr.id}`}>
-                          {cls && <ClassCard cls={cls} purchased={purchasedIds.has(cls.id)} />}
+                          {cls && <ClassCard cls={cls} purchased={purchased} dimmed={dimUnpurchased && !purchased} />}
                         </div>
                       );
                     })}
@@ -146,13 +182,24 @@ export function EventScheduleTable({
                   {roomsWithEvents.map(({ room, events }) => (
                     <AccordionItem key={room.id} value={`room-${room.id}`}>
                       <AccordionTrigger className="text-sm text-gray-700">
-                        {room.room.name}
+                        <span>
+                          <span className="flex items-center gap-1">
+                            {room.room.name}
+                            <MapLink location={room.room.location} className="text-gray-400 hover:text-[#e67e22]" />
+                          </span>
+                          <span className="block text-xs text-gray-500 font-normal">
+                            {formatLocation(room.room.location)}
+                          </span>
+                        </span>
                       </AccordionTrigger>
                       <AccordionContent>
                         <div className="space-y-2">
-                          {events.map(cls => (
-                            <ClassCard key={cls.id} cls={cls} purchased={purchasedIds.has(cls.id)} />
-                          ))}
+                          {events.map(cls => {
+                            const purchased = purchasedIds.has(cls.id);
+                            return (
+                              <ClassCard key={cls.id} cls={cls} purchased={purchased} dimmed={dimUnpurchased && !purchased} />
+                            );
+                          })}
                         </div>
                       </AccordionContent>
                     </AccordionItem>

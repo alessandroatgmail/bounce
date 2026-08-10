@@ -259,7 +259,7 @@ function EventCard({
   const isAlmostFull = spotsLeft <= 5;
   const date = new Date(event.start_date);
   const time = event.start_date.slice(11, 16);
-  const artistLine = event.artists.map(a => a.full_name).join(' & ');
+  const artistLine = event.artists.map(a => a.full_name).join(', ');
   const it = language === 'it';
 
   return (
@@ -300,7 +300,7 @@ function EventCard({
           </div>
           <div className="flex items-center gap-2">
             <Clock className="size-4 text-[#d4b896]" />
-            {time} ({event.duration} min)
+            {time}{!event.multi_events && ` (${event.duration} min)`}
           </div>
           <div className="flex items-center gap-2">
             <Users className="size-4 text-[#d4b896]" />

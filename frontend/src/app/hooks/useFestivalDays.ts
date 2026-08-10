@@ -6,7 +6,16 @@ const BASE = '/api/festival/festival-days/';
 export interface FestivalRoom {
   id: number;
   festival_day: number;
-  room: { id: number; name: string; location: { id: number; name: string } };
+  room: {
+    id: number;
+    name: string;
+    location: {
+      id: number;
+      name: string;
+      address: string;
+      city: { id: number; name: string; country: string };
+    };
+  };
 }
 
 export interface FestivalDay {
