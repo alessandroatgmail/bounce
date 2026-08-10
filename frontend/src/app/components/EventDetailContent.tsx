@@ -7,6 +7,7 @@ import { useEvents, type EventItem } from '../hooks/useEvents';
 import { useEventDescription } from '../hooks/useEventDescription';
 import { renderEventDescriptionHtml } from '../../lib/eventDescriptionBlocks';
 import { Button } from './ui/button';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { EventJoinPanel } from './EventJoinPanel';
 import { EventScheduleTable } from './EventScheduleTable';
 
@@ -76,39 +77,71 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
         </p>
       ) : (
         <>
-          {event.effective_image && (
-            <img src={event.effective_image} alt={event.name} className="w-full h-auto rounded-lg mb-6" />
-          )}
           <h1 className="text-3xl font-bold text-[#2b2b2b] mb-6">{event.name}</h1>
 
-          {descLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="size-5 animate-spin text-[#e67e22]" />
+          <div className="mb-8">
+            <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} />
+          </div>
+
+          {event.effective_image && (
+            <Accordion type="single" collapsible defaultValue="image" className="mb-2">
+              <AccordionItem value="image" className="border-none">
+                <AccordionTrigger className="text-[#2b2b2b] text-base font-semibold py-2">
+                  {it ? 'Immagine' : 'Image'}
+                </AccordionTrigger>
+                <AccordionContent>
+                  <img src={event.effective_image} alt={event.name} className="w-full h-auto rounded-lg" />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
+
+          <Accordion type="single" collapsible defaultValue="description" className="mb-2">
+            <AccordionItem value="description" className="border-none">
+              <AccordionTrigger className="text-[#2b2b2b] text-base font-semibold py-2">
+                {it ? 'Descrizione' : 'Description'}
+              </AccordionTrigger>
+              <AccordionContent>
+                {descLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="size-5 animate-spin text-[#e67e22]" />
+                  </div>
+                ) : descError ? (
+                  <p className="text-sm text-red-600">
+                    {it ? 'Impossibile caricare la descrizione.' : 'Failed to load the description.'}
+                  </p>
+                ) : desc ? (
+                  <div
+                    className="prose prose-sm max-w-none text-gray-700 [&_.event-schedule-table]:w-full [&_.event-schedule-table]:border-collapse [&_.event-schedule-table_td]:border [&_.event-schedule-table_th]:border [&_.event-schedule-table_td]:p-2 [&_.event-schedule-table_th]:p-2 [&_.event-schedule-table_th]:bg-[#d4b896]/20 [&_.event-schedule-table_th]:text-left"
+                    dangerouslySetInnerHTML={{ __html: renderEventDescriptionHtml(desc, children) }}
+                  />
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {it ? 'Nessuna descrizione disponibile per questo evento.' : 'No description available for this event.'}
+                  </p>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          {event.multi_events && (
+            <div className="mt-8">
+              <Accordion type="single" collapsible defaultValue="schedule">
+                <AccordionItem value="schedule" className="border-none">
+                  <AccordionTrigger className="text-[#2b2b2b] text-base font-semibold py-2">
+                    {it ? 'Programma' : 'Schedule'}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <EventScheduleTable festival={event} childEvents={children} language={language} />
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
-          ) : descError ? (
-            <p className="text-sm text-red-600">
-              {it ? 'Impossibile caricare la descrizione.' : 'Failed to load the description.'}
-            </p>
-          ) : desc ? (
-            <div
-              className="prose prose-sm max-w-none text-gray-700 [&_.event-schedule-table]:w-full [&_.event-schedule-table]:border-collapse [&_.event-schedule-table_td]:border [&_.event-schedule-table_th]:border [&_.event-schedule-table_td]:p-2 [&_.event-schedule-table_th]:p-2 [&_.event-schedule-table_th]:bg-[#d4b896]/20 [&_.event-schedule-table_th]:text-left"
-              dangerouslySetInnerHTML={{ __html: renderEventDescriptionHtml(desc, children) }}
-            />
-          ) : (
-            <p className="text-sm text-gray-500">
-              {it ? 'Nessuna descrizione disponibile per questo evento.' : 'No description available for this event.'}
-            </p>
           )}
 
           <div className="mt-8">
             <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} />
           </div>
-
-          {event.multi_events && (
-            <div className="mt-8">
-              <EventScheduleTable festival={event} childEvents={children} language={language} />
-            </div>
-          )}
         </>
       )}
     </div>
