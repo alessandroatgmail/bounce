@@ -80,7 +80,7 @@ export function ProfileSection() {
   const [acsiDraft, setAcsiDraft] = useState({
     acsi: false,
     acsi_number: '',
-    acsi_expiration_date: '',
+    acsi_starting_date: '',
   });
 
   const [consentsDraft, setConsentsDraft] = useState({
@@ -150,7 +150,7 @@ export function ProfileSection() {
       setAcsiDraft({
         acsi: user.acsi ?? false,
         acsi_number: user.acsi_number ? String(user.acsi_number) : '',
-        acsi_expiration_date: user.acsi_expiration_date ?? '',
+        acsi_starting_date: user.acsi_starting_date ?? '',
       });
     } else if (section === 'consents') {
       setConsentsDraft({
@@ -190,7 +190,7 @@ export function ProfileSection() {
       payload = {
         acsi: acsiDraft.acsi,
         acsi_number: acsiDraft.acsi_number ? Number(acsiDraft.acsi_number) : null,
-        acsi_expiration_date: acsiDraft.acsi_expiration_date || null,
+        acsi_starting_date: acsiDraft.acsi_starting_date || null,
       };
     } else if (section === 'consents') {
       payload = {
@@ -225,6 +225,7 @@ export function ProfileSection() {
           country: data.country,
           acsi: data.acsi,
           acsi_number: data.acsi_number,
+          acsi_starting_date: data.acsi_starting_date,
           acsi_expiration_date: data.acsi_expiration_date,
           privacy_consent: data.privacy_consent,
           marketing_consent: data.marketing_consent,
@@ -616,7 +617,7 @@ export function ProfileSection() {
                             ...p,
                             acsi: v,
                             acsi_number: v ? p.acsi_number : '',
-                            acsi_expiration_date: v ? p.acsi_expiration_date : '',
+                            acsi_starting_date: v ? p.acsi_starting_date : '',
                           }))
                         }
                       />
@@ -633,11 +634,20 @@ export function ProfileSection() {
                           />
                         </div>
                         <div>
+                          <Label>{t('Data Iscrizione', 'Starting Date')}</Label>
+                          <Input
+                            type="date"
+                            value={acsiDraft.acsi_starting_date}
+                            onChange={e => setAcsiDraft(p => ({ ...p, acsi_starting_date: e.target.value }))}
+                          />
+                        </div>
+                        <div>
                           <Label>{t('Data Scadenza', 'Expiry Date')}</Label>
                           <Input
                             type="date"
-                            value={acsiDraft.acsi_expiration_date}
-                            onChange={e => setAcsiDraft(p => ({ ...p, acsi_expiration_date: e.target.value }))}
+                            value={user.acsi_expiration_date ?? ''}
+                            disabled
+                            readOnly
                           />
                         </div>
                       </div>
@@ -655,6 +665,10 @@ export function ProfileSection() {
                         <FieldRow
                           label={t('Numero Tessera', 'Membership Number')}
                           value={user.acsi_number ?? null}
+                        />
+                        <FieldRow
+                          label={t('Data Iscrizione', 'Starting Date')}
+                          value={formatDate(user.acsi_starting_date)}
                         />
                         <FieldRow
                           label={t('Scadenza', 'Expiry Date')}

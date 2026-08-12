@@ -12,7 +12,6 @@ Usage:
 """
 
 import random
-from datetime import date, timedelta
 
 from faker import Faker
 
@@ -35,8 +34,6 @@ def make_user_payload(**overrides) -> dict:
     Any field can be overridden via kwargs.
     """
     acsi = random.choice([True, False])
-    start = date.today() - timedelta(days=365)
-    end = date.today()
     password = _fake.password(length=12, special_chars=True, digits=True, upper_case=True)
     place_of_birth = _random_city()
     city = _random_city()
@@ -57,7 +54,7 @@ def make_user_payload(**overrides) -> dict:
         "country": city.country.pk,
         "acsi": acsi,
         "acsi_number": _fake.random_number(digits=5) if acsi else None,
-        "acsi_expiration_date": _fake.date_between(start_date=start, end_date=end).isoformat() if acsi else None,
+        "acsi_starting_date": _fake.date_between(start_date="-2y", end_date="today").isoformat() if acsi else None,
         "privacy_consent": True,
         "marketing_consent": False,
     }

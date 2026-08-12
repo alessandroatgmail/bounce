@@ -45,7 +45,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             "country",
             "acsi",
             "acsi_number",
-            "acsi_expiration_date",
+            "acsi_starting_date",
             "privacy_consent",
             "marketing_consent",
         ]
@@ -80,8 +80,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         if attrs.get("acsi"):
             if not attrs.get("acsi_number"):
                 raise serializers.ValidationError({"acsi_number": "Required when ACSI membership is active."})
-            if not attrs.get("acsi_expiration_date"):
-                raise serializers.ValidationError({"acsi_expiration_date": "Required when ACSI membership is active."})
+            if not attrs.get("acsi_starting_date"):
+                raise serializers.ValidationError({"acsi_starting_date": "Required when ACSI membership is active."})
 
         return attrs
 
@@ -132,6 +132,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "country",
             "acsi",
             "acsi_number",
+            "acsi_starting_date",
             "acsi_expiration_date",
             "privacy_consent",
             "marketing_consent",
@@ -213,7 +214,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             'first_name', 'last_name', 'phone',
             'date_of_birth', 'place_of_birth', 'ci',
             'address', 'city', 'postal_code', 'country',
-            'acsi', 'acsi_number', 'acsi_expiration_date',
+            'acsi', 'acsi_number', 'acsi_starting_date',
             'privacy_consent', 'marketing_consent',
         ]
 
@@ -222,11 +223,11 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
         acsi = attrs.get('acsi', getattr(instance, 'acsi', False) if instance else False)
         if acsi:
             acsi_number = attrs.get('acsi_number', getattr(instance, 'acsi_number', None) if instance else None)
-            acsi_exp = attrs.get('acsi_expiration_date', getattr(instance, 'acsi_expiration_date', None) if instance else None)
+            acsi_start = attrs.get('acsi_starting_date', getattr(instance, 'acsi_starting_date', None) if instance else None)
             if not acsi_number:
                 raise serializers.ValidationError({'acsi_number': 'Required when ACSI membership is active.'})
-            if not acsi_exp:
-                raise serializers.ValidationError({'acsi_expiration_date': 'Required when ACSI membership is active.'})
+            if not acsi_start:
+                raise serializers.ValidationError({'acsi_starting_date': 'Required when ACSI membership is active.'})
         return attrs
 
 
