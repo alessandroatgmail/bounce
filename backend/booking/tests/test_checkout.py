@@ -13,6 +13,7 @@ from rest_framework import status as http_status
 
 from booking.models import Contribution, ContributionStatus
 from membership.models import Membership
+from payments.models import Transaction, PaymentMethod
 
 CHECKOUT_URL = "/api/booking/checkout-session/"
 WEBHOOK_URL = "/api/booking/stripe-webhook/"
@@ -211,7 +212,7 @@ class TestStripeWebhook:
 
         assert res.status_code == 400
 
-    @patch("booking.views_checkout.send_email_task.delay")
+    @patch("booking.utils.send_email_task.delay")
     @patch("booking.views_checkout.stripe.Webhook.construct_event")
     def test_completed_event_sends_payment_email(
         self, mock_construct, mock_send_email, client, accepted_contribution
@@ -294,3 +295,86 @@ class TestPaymentSuccess:
     def test_unauthenticated_returns_401(self, client):
         res = client.get(SUCCESS_URL, {"session_id": "cs_test_123"})
         assert res.status_code == http_status.HTTP_401_UNAUTHORIZED
+
+
+# ── stripe_webhook registers a Transaction ─────────────────────────────────────
+
+def _mock_payment_event(contribution_ids, session_id="cs_test_txn", amount_total=10000,
+                         currency="eur", payment_intent="pi_test_txn",
+                         customer_email="student@bounce.com", event_type="checkout.session.completed"):
+    metadata = MagicMock()
+    metadata.__contains__ = lambda self, k: k == "contribution_ids"
+    metadata.__getitem__ = lambda self, k: ",".join(str(i) for i in contribution_ids)
+
+    session_obj = MagicMock()
+    session_obj.metadata = metadata
+    session_obj.id = session_id
+    session_obj.amount_total = amount_total
+    session_obj.currency = currency
+    session_obj.payment_intent = payment_intent
+    session_obj.customer_email = customer_email
+
+    event = MagicMock()
+    event.__getitem__ = lambda self, k: {
+        "type": event_type,
+        "data": {"object": session_obj},
+    }[k]
+    return event
+
+
+@pytest.mark.integration
+class TestStripeWebhookTransaction:
+
+    @patch("booking.views_checkout.stripe.Webhook.construct_event")
+    def test_completed_event_creates_transaction(
+        self, mock_construct, client, accepted_contribution
+    ):
+        mock_construct.return_value = _mock_payment_event([accepted_contribution.id])
+
+        client.post(
+            WEBHOOK_URL,
+            data=json.dumps({}),
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="t=1,v1=abc",
+        )
+
+        transaction = Transaction.objects.get(stripe_session_id="cs_test_txn")
+        assert transaction.method == PaymentMethod.STRIPE
+        assert transaction.user == accepted_contribution.user
+        assert transaction.stripe_payment_intent_id == "pi_test_txn"
+        assert transaction.amount_total == Decimal("100.00")
+        assert transaction.currency == "eur"
+        assert list(transaction.contributions.all()) == [accepted_contribution]
+
+    @patch("booking.views_checkout.stripe.Webhook.construct_event")
+    def test_retried_webhook_does_not_duplicate_transaction(
+        self, mock_construct, client, accepted_contribution
+    ):
+        mock_construct.return_value = _mock_payment_event([accepted_contribution.id])
+
+        for _ in range(2):
+            client.post(
+                WEBHOOK_URL,
+                data=json.dumps({}),
+                content_type="application/json",
+                HTTP_STRIPE_SIGNATURE="t=1,v1=abc",
+            )
+
+        assert Transaction.objects.filter(stripe_session_id="cs_test_txn").count() == 1
+
+    @patch("booking.views_checkout.stripe.Webhook.construct_event")
+    def test_non_completed_event_does_not_create_transaction(
+        self, mock_construct, client, accepted_contribution
+    ):
+        mock_construct.return_value = _mock_payment_event(
+            [accepted_contribution.id], event_type="payment_intent.created"
+        )
+
+        client.post(
+            WEBHOOK_URL,
+            data=json.dumps({}),
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="t=1,v1=abc",
+        )
+
+        assert Transaction.objects.count() == 0
