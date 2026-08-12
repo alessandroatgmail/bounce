@@ -22,7 +22,7 @@ const backendToFrontend: Record<string, string> = {
   date_of_birth: 'dateOfBirth',
   ci: 'fiscalCode',
   acsi_number: 'acsiNumber',
-  acsi_expiration_date: 'acsiExpirationDate',
+  acsi_starting_date: 'acsiStartingDate',
   privacy_consent: 'termsAccepted',
   marketing_consent: 'marketingConsent',
 };
@@ -49,7 +49,7 @@ export function Register() {
     dateOfBirth: '',
     fiscalCode: '',
     acsiNumber: '',
-    acsiExpirationDate: '',
+    acsiStartingDate: '',
     isAcsiMember: false,
     termsAccepted: false,
     marketingConsent: false,
@@ -76,7 +76,7 @@ export function Register() {
       ...prev,
       isAcsiMember: checked,
       acsiNumber: checked ? prev.acsiNumber : '',
-      acsiExpirationDate: checked ? prev.acsiExpirationDate : '',
+      acsiStartingDate: checked ? prev.acsiStartingDate : '',
     }));
   };
 
@@ -127,8 +127,8 @@ export function Register() {
       if (!formData.acsiNumber.trim()) {
         newErrors.acsiNumber = language === 'it' ? 'Numero ACSI richiesto' : 'ACSI number required';
       }
-      if (!formData.acsiExpirationDate) {
-        newErrors.acsiExpirationDate = language === 'it' ? 'Data scadenza ACSI richiesta' : 'ACSI expiration date required';
+      if (!formData.acsiStartingDate) {
+        newErrors.acsiStartingDate = language === 'it' ? 'Data iscrizione ACSI richiesta' : 'ACSI starting date required';
       }
     }
     if (!formData.termsAccepted) {
@@ -163,7 +163,7 @@ export function Register() {
       country: Number(formData.country),
       acsi: formData.isAcsiMember,
       acsi_number: formData.acsiNumber ? Number(formData.acsiNumber) : undefined,
-      acsi_expiration_date: formData.acsiExpirationDate || undefined,
+      acsi_starting_date: formData.acsiStartingDate || undefined,
       privacy_consent: formData.termsAccepted,
       marketing_consent: formData.marketingConsent,
     };
@@ -511,18 +511,18 @@ export function Register() {
                         {errors.acsiNumber && <p className="text-sm text-red-500 mt-1">{errors.acsiNumber}</p>}
                       </div>
                       <div>
-                        <Label htmlFor="acsiExpirationDate">
-                          {language === 'it' ? 'Data Scadenza Tessera' : 'Membership Expiration Date'} <span className="text-red-500">*</span>
+                        <Label htmlFor="acsiStartingDate">
+                          {language === 'it' ? 'Data Iscrizione Tessera' : 'Membership Starting Date'} <span className="text-red-500">*</span>
                         </Label>
                         <Input
-                          id="acsiExpirationDate"
-                          name="acsiExpirationDate"
+                          id="acsiStartingDate"
+                          name="acsiStartingDate"
                           type="date"
-                          value={formData.acsiExpirationDate}
+                          value={formData.acsiStartingDate}
                           onChange={handleChange}
-                          className={errors.acsiExpirationDate ? 'border-red-500' : ''}
+                          className={errors.acsiStartingDate ? 'border-red-500' : ''}
                         />
-                        {errors.acsiExpirationDate && <p className="text-sm text-red-500 mt-1">{errors.acsiExpirationDate}</p>}
+                        {errors.acsiStartingDate && <p className="text-sm text-red-500 mt-1">{errors.acsiStartingDate}</p>}
                       </div>
                     </div>
                   ) : (

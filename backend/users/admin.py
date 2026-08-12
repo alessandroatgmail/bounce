@@ -33,12 +33,13 @@ class BounceUserAdmin(BaseUserAdmin):
     list_filter = ("role", "is_active", "is_staff", "acsi")
     search_fields = ("email", "first_name", "last_name", "phone", "ci")
     ordering = ("email",)
+    readonly_fields = ("acsi_expiration_date",)
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         ("Personal info", {"fields": ("first_name", "last_name", "phone", "date_of_birth", "place_of_birth", "ci")}),
         ("Address", {"fields": ("address", "city", "postal_code", "country")}),
-        ("ACSI", {"fields": ("acsi", "acsi_number", "acsi_expiration_date")}),
+        ("ACSI", {"fields": ("acsi", "acsi_number", "acsi_starting_date", "acsi_expiration_date")}),
         ("Consents", {"fields": ("privacy_consent", "marketing_consent")}),
         ("Role & access", {"fields": ("role", "is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
     )
