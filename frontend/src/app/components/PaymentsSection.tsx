@@ -12,7 +12,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useUserMemberships, type ContributionStatus, type UserMembership, type LinkedContribution } from '../hooks/useUserMemberships';
 import { useEvents } from '../hooks/useEvents';
-import { mockPayments } from '../data/mockData';
+import { useMyTransactions, type MyTransaction } from '../hooks/useMyTransactions';
+import type { PaymentMethod } from '../hooks/usePayments';
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
@@ -39,6 +40,19 @@ function statusBadge(status: ContributionStatus, lang: 'it' | 'en') {
       {STATUS_LABEL[status][lang]}
     </Badge>
   );
+}
+
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, { it: string; en: string }> = {
+  stripe: { it: 'Carta', en: 'Card' },
+  cash:   { it: 'Contanti', en: 'Cash' },
+  bank:   { it: 'Bonifico', en: 'Bank transfer' },
+};
+
+function transactionCoverageLabel(t: MyTransaction): string {
+  const names = t.contributions.flatMap(c =>
+    c.events.length > 0 ? c.events.map(e => e.name) : (c.membership_name ? [c.membership_name] : [])
+  );
+  return names.length > 0 ? names.join(', ') : '—';
 }
 
 interface RelatedEntry {
@@ -265,7 +279,7 @@ function ReadyCard({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function PaymentsSection() {
-  const { user, accessToken } = useAuth();
+  const { accessToken } = useAuth();
   const { language } = useLanguage();
   const lang = language === 'it' ? 'it' : 'en';
   const navigate = useNavigate();
@@ -280,6 +294,7 @@ export function PaymentsSection() {
 
   const { userMemberships, loading: contribLoading, cancel: cancelContribution } = useUserMemberships(accessToken);
   const { events: allEvents } = useEvents(accessToken);
+  const { transactions: myTransactions, loading: transactionsLoading } = useMyTransactions(accessToken);
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -314,8 +329,6 @@ export function PaymentsSection() {
   const pastUserMemberships = userMemberships.filter(c =>
     c.events.length > 0 && c.events.every(eid => (eventMap.get(eid)?.end_date ?? '') < today)
   );
-
-  const userPayments = user ? mockPayments.filter(p => p.userId === user.id) : [];
 
   const toggleSelect = (id: number) => setSelected(prev => {
     const next = new Set(prev);
@@ -384,51 +397,53 @@ export function PaymentsSection() {
               <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
                 {lang === 'it' ? 'Storico Pagamenti' : 'Payment History'}
               </h2>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{lang === 'it' ? 'ID Transazione' : 'Transaction ID'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Data' : 'Date'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Importo' : 'Amount'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Metodo' : 'Method'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Stato' : 'Status'}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {userPayments.map(payment => (
-                    <TableRow key={payment.id}>
-                      <TableCell className="font-mono text-sm">{payment.id}</TableCell>
-                      <TableCell>
-                        {new Date(payment.date).toLocaleDateString(
-                          lang === 'it' ? 'it-IT' : 'en-GB',
-                          { month: 'short', day: 'numeric', year: 'numeric' },
-                        )}
-                      </TableCell>
-                      <TableCell className="font-semibold">€{payment.amount}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="size-4" />
-                          {payment.method.replace('_', ' ')}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            payment.status === 'completed' ? 'default'
-                            : payment.status === 'pending' ? 'secondary'
-                            : 'destructive'
-                          }
-                        >
-                          {lang === 'it'
-                            ? (payment.status === 'completed' ? 'Completato'
-                               : payment.status === 'pending' ? 'In Attesa' : 'Annullato')
-                            : payment.status}
-                        </Badge>
-                      </TableCell>
+              {transactionsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="size-6 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{lang === 'it' ? 'Data' : 'Date'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Per' : 'For'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Importo' : 'Amount'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Metodo' : 'Method'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Ricevuta' : 'Receipt'}</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {myTransactions.map(t => (
+                      <TableRow key={t.id}>
+                        <TableCell>
+                          {new Date(t.date).toLocaleDateString(
+                            lang === 'it' ? 'it-IT' : 'en-GB',
+                            { month: 'short', day: 'numeric', year: 'numeric' },
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm max-w-xs">{transactionCoverageLabel(t)}</TableCell>
+                        <TableCell className="font-semibold">
+                          €{t.amount_total} {t.currency.toUpperCase() !== 'EUR' ? t.currency.toUpperCase() : ''}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="size-4" />
+                            {PAYMENT_METHOD_LABEL[t.method]?.[lang] ?? t.method}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-500">{t.receipt_number || '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                    {myTransactions.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-gray-400 py-8">
+                          {lang === 'it' ? 'Nessun pagamento.' : 'No payments yet.'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

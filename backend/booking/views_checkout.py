@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 import stripe
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db.models import Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -7,23 +10,40 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Contribution, ContributionStatus
-from utils.tasks import send_email as send_email_task
+from .utils import mark_contributions_payed, send_payment_emails
+from payments.models import Transaction, PaymentMethod
 
 
-def _send_payment_emails(contributions):
-    for c in contributions:
-        first_event = c.events.first()
-        send_email_task.delay(
-            c.user.id,
-            template='payment_success_email',
-            context={
-                'first_name': c.user.first_name,
-                'event_name': first_event.name if first_event else '—',
-                'membership_name': c.membership.name if c.membership else '—',
-                'amount': str(c.discounted_amount),
-                'url': settings.FRONTEND_URL + '/?section=payments',
-            },
-        )
+def _register_stripe_transaction(session, contributions):
+    """Create the payment record for a completed Stripe checkout session.
+
+    Guards against Stripe re-delivering the same webhook (get_or_create on
+    stripe_session_id) and against amount_total not being a real number,
+    which happens only in tests that don't set it on their mock session.
+    """
+    amount_total_cents = getattr(session, 'amount_total', None)
+    if not isinstance(amount_total_cents, (int, float)):
+        return
+
+    User = get_user_model()
+    payer = User.objects.filter(email=getattr(session, 'customer_email', None)).first()
+    if payer is None and contributions:
+        payer = contributions[0].user
+    if payer is None:
+        return
+
+    transaction, created = Transaction.objects.get_or_create(
+        stripe_session_id=session.id,
+        defaults={
+            'user': payer,
+            'method': PaymentMethod.STRIPE,
+            'stripe_payment_intent_id': getattr(session, 'payment_intent', '') or '',
+            'amount_total': Decimal(amount_total_cents) / 100,
+            'currency': getattr(session, 'currency', None) or 'eur',
+        },
+    )
+    if created:
+        transaction.contributions.set(contributions)
 
 
 @api_view(['POST'])
@@ -122,14 +142,11 @@ def stripe_webhook(request):
         raw_ids = metadata['contribution_ids'] if (metadata and 'contribution_ids' in metadata) else ''
         ids = [i for i in raw_ids.split(',') if i]
         if ids:
-            contributions = Contribution.objects.filter(id__in=ids).select_related(
+            contributions = list(Contribution.objects.filter(id__in=ids).select_related(
                 'user', 'membership'
-            ).prefetch_related('events')
-            # Save one by one (not .update()) so the PAYED transition in
-            # Contribution.save() runs and books the payer on the events.
-            for contribution in contributions:
-                contribution.status = ContributionStatus.PAYED
-                contribution.save(update_fields=['status'])
-            _send_payment_emails(contributions)
+            ).prefetch_related('events'))
+            mark_contributions_payed(contributions)
+            send_payment_emails(contributions)
+            _register_stripe_transaction(session, contributions)
 
     return Response({'status': 'ok'})

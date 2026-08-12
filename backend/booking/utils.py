@@ -1,7 +1,9 @@
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
 from event.models import Event
+from utils.tasks import send_email as send_email_task
 
 
 def book_events_for_contribution(contribution):
@@ -86,6 +88,33 @@ def add_payed_bookings(contribution):
     booking endpoints (e.g. directly via the ORM), and stays idempotent
     via book_events_for_contribution's get_or_create."""
     book_events_for_contribution(contribution)
+
+
+def mark_contributions_payed(contributions):
+    """Flip each contribution to PAYED, saved one by one (not .update())
+    so the PAYED transition in Contribution.save() runs and books the
+    payer on the events."""
+    from booking.models import ContributionStatus
+
+    for contribution in contributions:
+        contribution.status = ContributionStatus.PAYED
+        contribution.save(update_fields=['status'])
+
+
+def send_payment_emails(contributions):
+    for c in contributions:
+        first_event = c.events.first()
+        send_email_task.delay(
+            c.user.id,
+            template='payment_success_email',
+            context={
+                'first_name': c.user.first_name,
+                'event_name': first_event.name if first_event else '—',
+                'membership_name': c.membership.name if c.membership else '—',
+                'amount': str(c.discounted_amount),
+                'url': settings.FRONTEND_URL + '/?section=payments',
+            },
+        )
 
 
 def sync_bookings(user, added_events, removed_events):
