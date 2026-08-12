@@ -1,7 +1,9 @@
 import uuid as uuid_lib
 
+from dateutil.relativedelta import relativedelta
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.utils.dateparse import parse_date
 
 
 class Role(models.TextChoices):
@@ -90,6 +92,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     acsi = models.BooleanField(default=False)
     acsi_number = models.IntegerField(null=True, blank=True)
+    acsi_starting_date = models.DateField(null=True, blank=True)
     acsi_expiration_date = models.DateField(null=True, blank=True)
 
     privacy_consent = models.BooleanField(default=False)
@@ -119,3 +122,11 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
+
+    def save(self, *args, **kwargs):
+        if self.acsi_starting_date:
+            starting_date = self.acsi_starting_date
+            if isinstance(starting_date, str):
+                starting_date = parse_date(starting_date)
+            self.acsi_expiration_date = starting_date + relativedelta(years=1)
+        super().save(*args, **kwargs)

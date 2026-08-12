@@ -85,17 +85,29 @@ class TestRegistration:
         payload = make_user_payload(
             acsi=True,
             acsi_number=12345,
-            acsi_expiration_date="2026-12-31",
+            acsi_starting_date="2025-12-31",
         )
 
         response = client.post(REGISTER_URL, payload, format="json")
         assert response.status_code == status.HTTP_201_CREATED
 
+    def test_acsi_true_sets_expiration_one_year_after_starting_date(self, client, world_data):
+        payload = make_user_payload(
+            acsi=True,
+            acsi_number=12345,
+            acsi_starting_date="2025-12-31",
+        )
+
+        response = client.post(REGISTER_URL, payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        user = User.objects.get(email=payload["email"])
+        assert user.acsi_expiration_date.isoformat() == "2026-12-31"
+
     def test_acsi_true_missing_number_returns_400(self, client, world_data):
         payload = make_user_payload(
             acsi=True,
             acsi_number=None,
-            acsi_expiration_date="2026-12-31",
+            acsi_starting_date="2025-12-31",
         )
 
         response = client.post(REGISTER_URL, payload, format="json")
@@ -106,18 +118,18 @@ class TestRegistration:
         payload = make_user_payload(
             acsi=True,
             acsi_number=12345,
-            acsi_expiration_date=None,
+            acsi_starting_date=None,
         )
 
         response = client.post(REGISTER_URL, payload, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "acsi_expiration_date" in response.data
+        assert "acsi_starting_date" in response.data
 
     def test_acsi_false_without_number_and_date_returns_201(self, client, world_data):
         payload = make_user_payload(
             acsi=False,
             acsi_number=None,
-            acsi_expiration_date=None,
+            acsi_starting_date=None,
         )
 
         response = client.post(REGISTER_URL, payload, format="json")

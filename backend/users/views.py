@@ -360,6 +360,7 @@ class MeView(APIView):
         user.country = None
         user.acsi = False
         user.acsi_number = None
+        user.acsi_starting_date = None
         user.acsi_expiration_date = None
         user.privacy_consent = False
         user.marketing_consent = False

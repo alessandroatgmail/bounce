@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, UserCheck, UserX, CreditCard } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, UserCheck, UserX, CreditCard, Info } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -246,6 +246,13 @@ export function EventJoinPanel({
           {/* Step 1: role + partner email + level */}
           {bookingStep === 'role' && (
             <>
+              <div className="flex items-start gap-2 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
+                <Info className="size-4 mt-0.5 flex-shrink-0 text-blue-500" />
+                {it
+                  ? "Seleziona il ruolo e il livello con cui vuoi partecipare all'evento. Puoi anche inserire l'email di un partner: se è già registrato sulla piattaforma, per lui/lei verrà creata un'iscrizione identica; se non lo è, verrà creata quando si registrerà."
+                  : "Select the role and level you'd like to participate with. You can also enter a partner's email — if they're already registered on the platform, an identical registration is created for them; if not, it'll be created once they register."}
+              </div>
+
               {hasRoles && (
                 <>
                   <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
