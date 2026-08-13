@@ -7,6 +7,14 @@ const BASE = '/api/booking/my-memberships/';
 
 export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed' | 'waiting' | 'cancelled';
 
+export interface ExtraItem {
+  id: number;
+  name: string;
+  name_it: string;
+  name_en: string;
+  value: string;
+}
+
 /** Lightweight embedded view of a related contribution (may belong to another user). */
 export interface LinkedContribution {
   id: number;
@@ -17,6 +25,7 @@ export interface LinkedContribution {
   events: number[];
   membership: Membership | null;
   discounts: Discount[];
+  extra_items: ExtraItem[];
   role: string | null;
   partner: string | null;
 }
@@ -36,6 +45,7 @@ export interface UserMembership {
   role: string | null;
   partner: string | null;
   discounts: Discount[];
+  extra_items: ExtraItem[];
   discounted_amount: string;
 }
 

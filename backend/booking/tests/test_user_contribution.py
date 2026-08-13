@@ -6,7 +6,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status as http_status
 
-from booking.models import Booking, Contribution
+from booking.models import Booking, Contribution, ExtraItem
 from config.models import SiteSettings
 from event.models import Event, EventType, PartnerRole, Status
 from membership.models import Membership, MembershipRule, Discount
@@ -691,13 +691,17 @@ class TestAutomaticAcceptance:
         assert couple in original_contribution.discounts.all()
         assert couple in partner_contribution.discounts.all()
 
+        # Neither user has an ACSI card, so both contributions also pick up
+        # the ACSI membership extra item on top of the discounted amount.
         expected_amount = Decimal(m.contribution) * (100 - couple.rate) / 100
-        assert original_contribution.discounted_amount == expected_amount
-        assert partner_contribution.discounted_amount == expected_amount
+        acsi_item = ExtraItem.objects.get(name="ACSI Membership")
+        expected_total = expected_amount + acsi_item.value
+        assert original_contribution.discounted_amount == expected_total
+        assert partner_contribution.discounted_amount == expected_total
 
         # The API exposes the discount and the discounted amount
         assert [d["name"] for d in response.data["discounts"]] == ["COUPLE"]
-        assert Decimal(response.data["discounted_amount"]) == expected_amount
+        assert Decimal(response.data["discounted_amount"]) == expected_total
 
         # Verify that 4 emails were sent — 2 for receiving the registration and 2 for being accepted
         assert len(mail.outbox) == 4
@@ -1319,6 +1323,155 @@ class TestRoleImbalance:
         )
         assert response.status_code == http_status.HTTP_201_CREATED
         assert Contribution.objects.get(pk=response.data["id"]).status == ContributionStatus.ACCEPTED
+
+
+# ── ACSI membership extra item ─────────────────────────────────────────────────
+
+class TestAcsiMembershipExtraItem:
+    """Unless the user holds an ACSI card that is still valid on the event's
+    start date, the ACSI membership ExtraItem must be attached to the new
+    contribution so it can be purchased alongside it. This covers both an
+    expired card and no card at all."""
+
+    def test_expired_card_adds_acsi_extra_item(self, student_client, student_user, world_data):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        student_user.acsi = True
+        student_user.acsi_starting_date = (timezone.now() - relativedelta(years=2)).date()
+        student_user.save()
+        m = make_membership()
+
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        acsi_item = ExtraItem.objects.get(name="ACSI Membership")
+        assert acsi_item in contribution.extra_items.all()
+
+    def test_expired_card_extra_item_in_response(self, student_client, student_user, world_data):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        student_user.acsi = True
+        student_user.acsi_starting_date = (timezone.now() - relativedelta(years=2)).date()
+        student_user.save()
+        m = make_membership()
+
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "extra_items" in response.data
+        assert [item["name"] for item in response.data["extra_items"]] == ["ACSI Membership"]
+
+    def test_valid_card_does_not_add_extra_item(self, student_client, student_user, world_data):
+        et = make_event_type()
+        event = make_event_with_type(et)
+        student_user.acsi = True
+        student_user.acsi_starting_date = timezone.now().date()
+        student_user.save()
+        m = make_membership()
+
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.extra_items.count() == 0
+
+    def test_no_acsi_card_adds_extra_item(self, student_client, student_user, world_data):
+        """A user who never had an ACSI card is treated the same as an
+        expired one — they still need to purchase the membership."""
+        et = make_event_type()
+        event = make_event_with_type(et)
+        m = make_membership()
+
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        acsi_item = ExtraItem.objects.get(name="ACSI Membership")
+        assert acsi_item in contribution.extra_items.all()
+
+    def test_partner_extra_items_included_in_response(
+        self, world_data, student_client, student_user, partner_user, db
+    ):
+        """Regression: twin_contributions is serialized with
+        LinkedContributionSerializer, which must expose extra_items too —
+        otherwise the frontend crashes reading partner.extra_items."""
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        event = make_event_with_type(et)
+        event.capacity = 20
+        event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert "extra_items" in response.data
+        assert len(response.data["twin_contributions"]) == 1
+        assert "extra_items" in response.data["twin_contributions"][0]
+        assert [i["name"] for i in response.data["twin_contributions"][0]["extra_items"]] == ["ACSI Membership"]
+
+
+# ── Grand total: extra items + discounts ───────────────────────────────────────
+
+class TestExtraItemsGrandTotal:
+    """The event's discount (COUPLE-style, admin-applied) must only ever
+    apply to the event amount — the ACSI membership extra item rides on
+    top, undiscounted."""
+
+    def test_extra_item_added_then_discount_applied_by_admin(
+        self, world_data, student_client, student_user, admin_client, db
+    ):
+        from membership.models import Discount
+
+        et = make_event_type()
+        event = make_event_with_type(et)
+        event.name = "Bounce Festival"
+        event.save()
+
+        m = make_membership(name="Bounce Festival Early Bird", contribution=140)
+        event.memberships.add(m)
+
+        discount = Discount.objects.create(name="couple", name_ext="couple", amount="10.00", rate=0)
+
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution_id = response.data["id"]
+
+        # No discount yet — event amount (140) + ACSI extra item (5) = 145
+        admin_detail_url = f"/api/booking/contributions/{contribution_id}/"
+        res = admin_client.get(admin_detail_url)
+        assert float(res.data["discounted_amount"]) == pytest.approx(145.0)
+
+        # Admin attaches the couple discount to the contribution
+        res = admin_client.patch(admin_detail_url, {"discount_ids": [discount.pk]}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+
+        # 140 - 10 (flat discount on the event) + 5 (undiscounted extra item) = 135
+        res = admin_client.get(admin_detail_url)
+        assert float(res.data["discounted_amount"]) == pytest.approx(135.0)
 
 
 # ── Spot available notification ────────────────────────────────────────────────

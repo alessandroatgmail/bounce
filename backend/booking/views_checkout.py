@@ -61,7 +61,7 @@ def create_checkout_session(request):
         Q(user=request.user)
         | Q(original_contribution__user=request.user)
         | Q(twin_contributions__user=request.user)
-    ).distinct().prefetch_related('events', 'discounts', 'membership')
+    ).distinct().prefetch_related('events', 'discounts', 'membership', 'extra_items')
 
     if not contributions.exists():
         return Response({'error': 'No valid contributions'}, status=status.HTTP_400_BAD_REQUEST)
@@ -74,7 +74,7 @@ def create_checkout_session(request):
         event_name = first_event.name if first_event else 'Registration'
         membership_name = c.membership.name if c.membership else ''
         product_name = f'{event_name} — {membership_name}' if membership_name else event_name
-        amount_cents = int(round(float(c.discounted_amount) * 100))
+        amount_cents = int(round(float(c.discounted_event_amount) * 100))
         line_items.append({
             'price_data': {
                 'currency': 'eur',
@@ -83,6 +83,15 @@ def create_checkout_session(request):
             },
             'quantity': 1,
         })
+        for extra_item in c.extra_items.all():
+            line_items.append({
+                'price_data': {
+                    'currency': 'eur',
+                    'unit_amount': int(round(float(extra_item.value) * 100)),
+                    'product_data': {'name': extra_item.name},
+                },
+                'quantity': 1,
+            })
 
     is_test = settings.STRIPE_SECRET_KEY.startswith(('sk_test_', 'rk_test_'))
 
