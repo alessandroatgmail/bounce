@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useAuth } from '../contexts/AuthContext';
 import type { EventItem } from '../hooks/useEvents';
 import { useUserMemberships } from '../hooks/useUserMemberships';
+import type { ExtraItem } from '../hooks/useUserMemberships';
 import type { CheckoutItem } from '../pages/CheckoutPage';
 
 // The join/booking flow for an event: role + partner + level selection,
@@ -140,6 +141,7 @@ export function EventJoinPanel({
       amount: string;
       discounted_amount: string;
       discounts: { id: number; name: string; name_ext: string }[];
+      extra_items: ExtraItem[];
     };
     const toItem = (payer: Payable, partner?: Payable): CheckoutItem => ({
       id: payer.id,
@@ -152,6 +154,7 @@ export function EventJoinPanel({
       amount: payer.amount,
       discounted_amount: payer.discounted_amount,
       discounts: payer.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
+      extra_items: payer.extra_items,
     });
     const items = [toItem(myAcceptedContribution, partnerContribution)];
     if (includePartner && partnerContribution) items.push(toItem(partnerContribution, myAcceptedContribution));
