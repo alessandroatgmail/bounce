@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status as http_status
 
-from booking.models import Contribution, ContributionStatus
+from booking.models import Contribution, ContributionStatus, ExtraItem
 from membership.models import Membership
 from payments.models import Transaction, PaymentMethod
 
@@ -128,6 +128,31 @@ class TestCreateCheckoutSession:
         call_kwargs = mock_create.call_args[1]
         unit_amount = call_kwargs["line_items"][0]["price_data"]["unit_amount"]
         assert unit_amount == 9000  # €90.00 after 10% discount
+
+    @patch("booking.views_checkout.stripe.checkout.Session.create")
+    def test_extra_item_gets_its_own_line_item(self, mock_create, student_client, db, membership, student_user):
+        from membership.models import Discount
+        discount = Discount.objects.create(name="EARLY", name_ext="Early Bird", rate=10)
+        extra = ExtraItem.objects.create(
+            name="ACSI Membership", name_it="Tessera ACSI", name_en="ACSI Membership", value="5.00",
+        )
+        c = Contribution.objects.create(
+            user=student_user, membership=membership,
+            amount=Decimal("100.00"), status=ContributionStatus.ACCEPTED,
+        )
+        c.discounts.add(discount)
+        c.extra_items.add(extra)
+        mock_create.return_value = _mock_session()
+
+        student_client.post(CHECKOUT_URL, {"contribution_ids": [c.id]}, format="json")
+
+        line_items = mock_create.call_args[1]["line_items"]
+        assert len(line_items) == 2
+        # Event line item stays discounted, excluding the extra item's value
+        assert line_items[0]["price_data"]["unit_amount"] == 9000  # €90.00 after 10% discount
+        # Extra item gets its own undiscounted line item
+        assert line_items[1]["price_data"]["unit_amount"] == 500  # €5.00
+        assert line_items[1]["price_data"]["product_data"]["name"] == "ACSI Membership"
 
     @patch("booking.views_checkout.stripe.checkout.Session.create")
     def test_twin_contribution_included_when_original_user_pays(

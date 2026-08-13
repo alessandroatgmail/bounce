@@ -4,7 +4,7 @@ from datetime import date
 
 from dateutil.relativedelta import relativedelta
 
-from .models import Contribution, ContributionStatus
+from .models import Contribution, ContributionStatus, ExtraItem
 from membership.models import Membership, Discount
 
 from django.contrib.auth import get_user_model
@@ -123,6 +123,22 @@ def _contribution_date_range(membership: Membership, event: Event) -> tuple[date
             end_date = event.end_date
 
     return start_date, end_date
+
+def _maybe_add_acsi_extra_item(contribution: Contribution, event: Event) -> None:
+    """Attach the ACSI membership extra item unless the user already holds
+    an ACSI card that is still valid on the event's start date — a missing
+    or expired card both mean the membership still needs to be purchased.
+    """
+    user = contribution.user
+    has_valid_card = (
+        user.acsi
+        and user.acsi_expiration_date
+        and user.acsi_expiration_date >= event.start_date.date()
+    )
+    if not has_valid_card:
+        acsi_item = ExtraItem.objects.filter(name='ACSI Membership').first()
+        if acsi_item:
+            contribution.extra_items.add(acsi_item)
 
 def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status: str, new_status: str) -> None:
     if new_status == ContributionStatus.ACCEPTED:

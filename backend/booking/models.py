@@ -1,5 +1,3 @@
-from dateutil.relativedelta import relativedelta
-
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -15,6 +13,15 @@ class ContributionStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
     WAITING = "waiting", "Waiting"
 
+
+class ExtraItem(models.Model):
+    name = models.CharField(max_length=100)
+    name_it = models.CharField(max_length=100)
+    name_en = models.CharField(max_length=100)
+    value = models.DecimalField(decimal_places=2, max_digits=10)
+    description = models.TextField(null=True, blank=True)
+    description_en = models.TextField(null=True, blank=True)
+    description_en_it = models.TextField(null=True, blank=True)
 
 class Contribution(models.Model):
 
@@ -38,6 +45,7 @@ class Contribution(models.Model):
             null=True, blank=True, related_name='twin_contributions'
     )
     discounts = models.ManyToManyField(Discount, blank=True, related_name='contributions')
+    extra_items = models.ManyToManyField(ExtraItem, blank=True, related_name='contributions')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -76,13 +84,21 @@ class Contribution(models.Model):
         self._previous_status = self.status
 
     @property
-    def discounted_amount(self):
+    def discounted_event_amount(self):
+        """The event amount after discounts, excluding extra items."""
         new_amount = self.amount
         for discount in self.discounts.all():
             if discount.rate:
                 new_amount = new_amount * (100 - discount.rate) / 100
             if discount.amount:
                 new_amount -= discount.amount
+        return new_amount
+
+    @property
+    def discounted_amount(self):
+        new_amount = self.discounted_event_amount
+        for extra_item in self.extra_items.all():
+            new_amount += extra_item.value
         return new_amount
 
 

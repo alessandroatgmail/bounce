@@ -365,6 +365,7 @@ export function PaymentsSection() {
         amount: c.amount,
         discounted_amount: c.discounted_amount,
         discounts: c.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
+        extra_items: c.extra_items,
       };
     }).filter((x): x is CheckoutItem => x !== null);
     navigate('/checkout', { state: { items } });
