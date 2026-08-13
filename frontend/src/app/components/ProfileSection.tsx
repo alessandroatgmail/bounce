@@ -24,6 +24,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { apiUrl, authFetch, authFetchFile } from '../../lib/api';
 import { CitySearch, type CityResult } from './CitySearch';
+import { ImageCropDialog } from './ImageCropDialog';
 
 type EditSection = 'personal' | 'address' | 'acsi' | 'consents' | 'password' | null;
 
@@ -49,6 +50,7 @@ export function ProfileSection() {
   const { language } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const [uploadedDocuments, setUploadedDocuments] = useState<UserDocument[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(true);
@@ -299,12 +301,23 @@ export function ProfileSection() {
     }
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !accessToken) return;
+    e.target.value = '';
+    if (!file) return;
+    setCropImageSrc(URL.createObjectURL(file));
+  };
+
+  const closeCropDialog = () => {
+    if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+    setCropImageSrc(null);
+  };
+
+  const handleCropConfirm = async (blob: Blob) => {
+    if (!accessToken) return;
     setUploading(true);
     const form = new FormData();
-    form.append('profile_image', file);
+    form.append('profile_image', blob, 'profile.jpg');
     try {
       const res = await fetch(apiUrl('/api/auth/me/'), {
         method: 'PATCH',
@@ -314,10 +327,10 @@ export function ProfileSection() {
       if (res.ok) {
         const data = await res.json();
         updateUser({ profile_image: data.profile_image });
+        closeCropDialog();
       }
     } finally {
       setUploading(false);
-      e.target.value = '';
     }
   };
 
@@ -393,6 +406,16 @@ export function ProfileSection() {
               <p className="text-sm text-gray-500 mt-0.5">{user.email}</p>
             </div>
           </div>
+
+          {cropImageSrc && (
+            <ImageCropDialog
+              imageSrc={cropImageSrc}
+              open={!!cropImageSrc}
+              onCancel={closeCropDialog}
+              onConfirm={handleCropConfirm}
+              saving={uploading}
+            />
+          )}
 
           {saveError && (
             <Alert variant="destructive">
