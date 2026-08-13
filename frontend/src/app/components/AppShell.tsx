@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router';
 import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone, QrCode } from 'lucide-react';
 import { Button } from './ui/button';
@@ -41,6 +41,16 @@ export function AppShell() {
   // A matched /events/:id route always shows that event's detail, regardless
   // of whichever section tab was last active.
   const effectiveSection: Section = eventId ? 'events' : activeSection;
+
+  // Keep activeSection in sync when the ?section= query param changes while
+  // already mounted on this route (e.g. a Link from elsewhere in the app) —
+  // the initial useState above only runs once, on first mount.
+  useEffect(() => {
+    const s = new URLSearchParams(location.search).get('section') as Section | null;
+    if (s && VALID_SECTIONS.includes(s)) {
+      setActiveSection(s);
+    }
+  }, [location.search]);
 
   function selectSection(section: Section) {
     if (eventId) {
