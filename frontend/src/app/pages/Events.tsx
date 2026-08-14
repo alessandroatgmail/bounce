@@ -15,6 +15,26 @@ import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useLevels } from '../hooks/useLevels';
 
+type SpotStatus = 'available' | 'few' | 'soldout';
+
+function spotStatus(availableSpot: number, warningThreshold: number): SpotStatus {
+  if (availableSpot <= 0) return 'soldout';
+  if (availableSpot <= warningThreshold) return 'few';
+  return 'available';
+}
+
+const SPOT_STATUS_LABEL: Record<SpotStatus, { it: string; en: string }> = {
+  available: { it: 'Disponibile',   en: 'Available'     },
+  few:       { it: 'Pochi posti',   en: 'Few spots left' },
+  soldout:   { it: 'Esaurito',      en: 'Sold out'       },
+};
+
+const SPOT_STATUS_CLASS: Record<SpotStatus, string> = {
+  available: 'bg-green-600 text-white',
+  few:       'bg-yellow-500 text-white',
+  soldout:   'bg-red-600 text-white',
+};
+
 export function Events() {
   const { t } = useLanguage();
 
@@ -256,7 +276,8 @@ function EventCard({
   const navigate = useNavigate();
 
   const spotsLeft = event.available_spot;
-  const isAlmostFull = spotsLeft <= 5;
+  const isAlmostFull = spotsLeft > 0 && spotsLeft <= event.warning_threshold;
+  const status = spotStatus(spotsLeft, event.warning_threshold);
   const date = new Date(event.start_date);
   const time = event.start_date.slice(11, 16);
   const artistLine = event.artists.map(a => a.full_name).join(', ');
@@ -304,13 +325,19 @@ function EventCard({
           </div>
           <div className="flex items-center gap-2">
             <Users className="size-4 text-[#d4b896]" />
-            {showAvailableSpots
-              ? <>{event.available_spot} {it ? 'posti disponibili' : 'spots available'}</>
-              : <>{event.capacity - event.available_spot} / {event.capacity} {it ? 'iscritti' : 'enrolled'}</>}
-            {isAlmostFull && (
-              <Badge className="ml-2 text-xs bg-[#e67e22] text-white">
-                {it ? 'Quasi Pieno!' : 'Almost Full!'}
+            {showAvailableSpots ? (
+              <Badge className={`text-xs ${SPOT_STATUS_CLASS[status]}`}>
+                {SPOT_STATUS_LABEL[status][it ? 'it' : 'en']}
               </Badge>
+            ) : (
+              <>
+                {event.capacity - event.available_spot} / {event.capacity} {it ? 'iscritti' : 'enrolled'}
+                {isAlmostFull && (
+                  <Badge className="ml-2 text-xs bg-[#e67e22] text-white">
+                    {it ? 'Quasi Pieno!' : 'Almost Full!'}
+                  </Badge>
+                )}
+              </>
             )}
           </div>
           <div className="flex items-center gap-2">

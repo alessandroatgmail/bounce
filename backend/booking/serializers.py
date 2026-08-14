@@ -376,6 +376,9 @@ class UserContributionSerializer(serializers.ModelSerializer):
                         old_status=ContributionStatus.RECEIVED,
                         new_status=ContributionStatus.ACCEPTED,
                     )
+                if event.multi_events and not event.free and contribution.level_id:
+                    from .tasks import promote_waiting_for_level
+                    promote_waiting_for_level.delay(event.id, contribution.level_id)
 
             # Booking rows are created immediately, regardless of the
             # status the contribution ends up in (ACCEPTED or WAITING) —

@@ -78,8 +78,10 @@ class Contribution(models.Model):
         if was_accepted_now_cancelled:
             event = self.events.first()
             if event:
-                from booking.tasks import notify_next_waiting
+                from booking.tasks import notify_next_waiting, promote_waiting_for_level
                 notify_next_waiting.delay(event.id, self.role_id)
+                if event.multi_events and not event.free and self.level_id:
+                    promote_waiting_for_level.delay(event.id, self.level_id)
 
         self._previous_status = self.status
 
