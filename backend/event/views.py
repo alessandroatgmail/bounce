@@ -177,7 +177,11 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset=Artist.objects.select_related("user")
                 .prefetch_related("types", "styles", "genres"),
             ),
-            Prefetch("events", queryset=Event.objects.select_related("level")),
+            Prefetch(
+                "events",
+                queryset=Event.objects.select_related("level", "event_type")
+                .prefetch_related("event_type__partner_roles", "accepted_roles"),
+            ),
             Prefetch("memberships", queryset=membership_qs),
             Prefetch(
                 "event_set",
@@ -185,9 +189,9 @@ class EventViewSet(viewsets.ModelViewSet):
                 to_attr="prefetched_parents",
             ),
         ).annotate(
-            payed_count=Count(
+            occupied_count=Count(
                 "contributions",
-                filter=Q(contributions__status=ContributionStatus.PAYED),
+                filter=Q(contributions__status__in=[ContributionStatus.PAYED, ContributionStatus.ACCEPTED]),
                 distinct=True,
             ),
         ).order_by('start_date')
@@ -207,6 +211,38 @@ class EventViewSet(viewsets.ModelViewSet):
                 ),
             )
         return qs
+
+    def list(self, request, *args, **kwargs):
+        # children_levels' per-level/per-role colors need, per multi_events
+        # event on the page, how many PAYED/ACCEPTED contributions exist
+        # per (level, role) — one bulk query for the whole page instead of
+        # a query per event, so the list endpoint stays O(1) queries.
+        from booking.models import Contribution, ContributionStatus
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        objects = page if page is not None else queryset
+
+        multi_ids = [e.id for e in objects if e.multi_events and not e.free]
+        if multi_ids:
+            counts = {}
+            rows = Contribution.objects.filter(
+                events__id__in=multi_ids,
+                status__in=[ContributionStatus.PAYED, ContributionStatus.ACCEPTED],
+            ).values("events__id", "level_id", "role__name").annotate(n=Count("id"))
+            for row in rows:
+                counts.setdefault(row["events__id"], {}).setdefault(
+                    row["level_id"], {},
+                )[row["role__name"]] = row["n"]
+            for event in objects:
+                if event.id in multi_ids:
+                    event.prefetched_level_counts = counts.get(event.id, {})
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         event = serializer.save()
@@ -295,9 +331,9 @@ class EventAdminListView(ListAPIView):
                 Prefetch("artists", queryset=Artist.objects.select_related("user")),
             )
             .annotate(
-                payed_count=Count(
+                occupied_count=Count(
                     "contributions",
-                    filter=Q(contributions__status=ContributionStatus.PAYED),
+                    filter=Q(contributions__status__in=[ContributionStatus.PAYED, ContributionStatus.ACCEPTED]),
                     distinct=True,
                 ),
             )
