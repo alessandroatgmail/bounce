@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, UserCheck, UserX, CreditCard, Info } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, UserCheck, UserX, CreditCard, Info, XCircle } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -8,8 +8,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useAuth } from '../contexts/AuthContext';
 import type { EventItem } from '../hooks/useEvents';
 import { useUserMemberships } from '../hooks/useUserMemberships';
-import type { ExtraItem } from '../hooks/useUserMemberships';
+import type { ExtraItem, ContributionStatus } from '../hooks/useUserMemberships';
 import type { CheckoutItem } from '../pages/CheckoutPage';
+
+const BOOKING_STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
+  received:  { it: 'Ricevuto',    en: 'Received'  },
+  accepted:  { it: 'Accettato',   en: 'Accepted'  },
+  confirmed: { it: 'Confermato',  en: 'Confirmed' },
+  payed:     { it: 'Pagato',      en: 'Paid'      },
+  waiting:   { it: 'In attesa',   en: 'Waiting'   },
+  cancelled: { it: 'Annullato',   en: 'Cancelled' },
+};
+const BOOKING_STATUS_CLASS: Record<ContributionStatus, string> = {
+  received:  'text-yellow-700',
+  accepted:  'text-green-700',
+  confirmed: 'text-green-700',
+  payed:     'text-purple-700',
+  waiting:   'text-orange-600',
+  cancelled: 'text-gray-500',
+};
 
 const AVAILABILITY_DOT_CLASS: Record<string, string> = {
   green: 'bg-green-600',
@@ -33,7 +50,7 @@ export function EventJoinPanel({
 }) {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
-  const { userMemberships } = useUserMemberships(accessToken);
+  const { userMemberships, cancel } = useUserMemberships(accessToken);
   const [showPanel, setShowPanel] = useState(false);
   const [bookingStep, setBookingStep] = useState<'role' | 'membership'>('membership');
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
@@ -41,6 +58,7 @@ export function EventJoinPanel({
   const [partnerCheckStatus, setPartnerCheckStatus] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle');
   const [partnerId, setPartnerId] = useState<number | null>(null);
   const [partnerName, setPartnerName] = useState('');
+  const [cancelling, setCancelling] = useState(false);
   const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
   const [includePartner, setIncludePartner] = useState(true);
@@ -57,9 +75,14 @@ export function EventJoinPanel({
   const festivalHasNoLevels = isFixedFestival && event.children_levels.length === 0;
   const needsExtraStep = hasRoles || hasLevelChoice;
   const it = language === 'it';
+  // Whatever status the current user's own contribution to this event is
+  // in — shown next to "Already booked" so waiting/received bookings
+  // aren't shown identically to accepted ones.
+  const myContribution = userMemberships.find(um => um.events.includes(event.id));
   // Accepted but unpaid contribution of the current user for this event —
   // when present, offer a direct shortcut to checkout instead of making
-  // them find it in the payments section.
+  // them find it in the payments section. Only an accepted contribution
+  // may be paid for.
   const myAcceptedContribution = userMemberships.find(
     um => um.status === 'accepted' && um.events.includes(event.id)
   );
@@ -168,6 +191,19 @@ export function EventJoinPanel({
     navigate('/checkout', { state: { items } });
   }
 
+  async function handleCancel() {
+    if (!myContribution) return;
+    setCancelling(true);
+    try {
+      await cancel(myContribution.id);
+      // Full reload — available_spot and children_levels colors live in
+      // sibling hooks that don't share state with this panel.
+      window.location.reload();
+    } catch {
+      setCancelling(false);
+    }
+  }
+
   function handleJoinClick() {
     if (!isAuthenticated) return;
     if (event.multi_events && event.free) {
@@ -191,9 +227,11 @@ export function EventJoinPanel({
         <div className="flex justify-end">
           {event.already_booked ? (
             <div className="flex flex-col items-end gap-1">
-              <div className="flex items-center gap-1.5 text-sm text-green-700 font-medium">
+              <div className={`flex items-center gap-1.5 text-sm font-medium ${myContribution ? BOOKING_STATUS_CLASS[myContribution.status] : 'text-green-700'}`}>
                 <BookCheck className="size-4" />
-                {it ? 'Già prenotato' : 'Already booked'}
+                {myContribution
+                  ? BOOKING_STATUS_LABEL[myContribution.status][it ? 'it' : 'en']
+                  : (it ? 'Già prenotato' : 'Already booked')}
               </div>
               {event.booked_by && (
                 <p className="text-xs text-gray-500">
@@ -223,6 +261,20 @@ export function EventJoinPanel({
                     {it ? 'Paga ora' : 'Pay now'}
                   </Button>
                 </>
+              )}
+              {myContribution && myContribution.status !== 'payed' && myContribution.status !== 'cancelled' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={cancelling}
+                  className="text-red-600 border-red-300 hover:bg-red-50 flex items-center gap-1"
+                  onClick={handleCancel}
+                >
+                  {cancelling
+                    ? <Loader2 className="size-3.5 animate-spin" />
+                    : <XCircle className="size-3.5" />}
+                  {it ? 'Annulla prenotazione' : 'Cancel booking'}
+                </Button>
               )}
             </div>
           ) : festivalHasNoLevels ? (
