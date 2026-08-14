@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Count
 from rest_framework import serializers
 from users.models import City
 from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole, EventDescription
@@ -199,7 +200,71 @@ class EventAdminListSerializer(serializers.ModelSerializer):
         return [str(artist) for artist in obj.artists.all()]
 
     def get_available_spot(self, obj):
-        return obj.capacity - obj.payed_count
+        return obj.capacity - obj.occupied_count
+
+
+def _level_counts_for(obj):
+    """level_id -> {role_name: count} of PAYED/ACCEPTED contributions for
+    this multi_events festival. EventViewSet.list bulk-computes this for
+    every multi_events event on the page in one query (prefetched_level_counts);
+    outside that path (e.g. retrieve) fall back to one direct grouped query."""
+    counts = getattr(obj, 'prefetched_level_counts', None)
+    if counts is not None:
+        return counts
+
+    from booking.models import ContributionStatus as CS
+
+    rows = obj.contributions.filter(
+        status__in=[CS.PAYED, CS.ACCEPTED],
+    ).values('level_id', 'role__name').annotate(n=Count('id'))
+    result = {}
+    for row in rows:
+        result.setdefault(row['level_id'], {})[row['role__name']] = row['n']
+    return result
+
+
+def _role_would_be_accepted(child_event, role, roles):
+    """Would a new contribution for this role, at this level, land ACCEPTED
+    (mirrors booking.service._check_role_accepted / _check_extras) rather
+    than WAITING? An empty (or non-matching) accepted_roles set waits
+    everyone, same as the real booking flow. `roles` is role_name -> count
+    of currently accepted/payed contributions at this level."""
+    if role not in child_event.accepted_roles.all():
+        return False
+
+    role_name = role.name
+    if role_name not in roles:
+        return True
+    min_count = min(roles.values())
+    max_count = max(roles.values())
+    if roles[role_name] == min_count:
+        return True
+    return max_count < min_count + child_event.extras
+
+
+def _level_colors(child_event, available_spot, roles_seen):
+    """Per-partner-role availability color for a level's representative
+    child event: red = capacity full, orange = this role would land on
+    the waiting list (not an accepted role, or role imbalance beyond
+    extras), yellow = bookable but at/under the warning threshold,
+    green = plenty of room. Event types with no partner roles get a
+    single 'default' color based on capacity alone."""
+    partner_roles = list(child_event.event_type.partner_roles.all())
+    roles = {r.name: 0 for r in partner_roles}
+    roles.update(roles_seen)
+
+    def color_for(role=None):
+        if available_spot <= 0:
+            return 'red'
+        if role is not None and not _role_would_be_accepted(child_event, role, roles):
+            return 'orange'
+        if available_spot <= child_event.warning_threshold:
+            return 'yellow'
+        return 'green'
+
+    if not partner_roles:
+        return {'default': color_for()}
+    return {role.name: color_for(role) for role in partner_roles}
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -288,19 +353,42 @@ class EventSerializer(serializers.ModelSerializer):
         return MembershipSerializer(memberships, many=True).data
 
     def get_children_levels(self, obj):
+        # Availability colors only make sense for a fixed-choice festival
+        # (multi_events, not free) — recurring weekly events also link
+        # children via the same M2M, but there's no "level" being picked
+        # there. This also has to match EventViewSet.list's bulk-precompute
+        # gate exactly, or the events it skips fall back to a query each.
+        if not (obj.multi_events and not obj.free):
+            return []
+
         # Iterate the (possibly prefetched) children instead of issuing a
-        # fresh filtered query per event.
-        levels = {}
+        # fresh filtered query per event. One representative child per
+        # level is enough to compute level-wide availability, since
+        # booking into a level books every one of its classes as a bundle.
+        representative_by_level = {}
         for child in obj.events.all():
-            if child.level_id is not None and child.level_id not in levels:
-                levels[child.level_id] = child.level.name
-        return [{'id': pk, 'name': name} for pk, name in levels.items()]
+            if child.level_id is not None and child.level_id not in representative_by_level:
+                representative_by_level[child.level_id] = child
+        if not representative_by_level:
+            return []
+
+        level_counts = _level_counts_for(obj)
+        result = []
+        for level_id, child in representative_by_level.items():
+            roles_seen = level_counts.get(level_id, {})
+            available_spot = child.capacity - sum(roles_seen.values())
+            result.append({
+                'id': level_id,
+                'name': child.level.name,
+                'colors': _level_colors(child, available_spot, roles_seen),
+            })
+        return result
 
     def get_available_spot(self, obj):
-        payed_count = getattr(obj, "payed_count", None)
-        if payed_count is None:
+        occupied_count = getattr(obj, "occupied_count", None)
+        if occupied_count is None:
             return obj.available_spot
-        return obj.capacity - payed_count
+        return obj.capacity - occupied_count
 
     def get_effective_image(self, obj):
         img = obj.effective_image

@@ -434,6 +434,21 @@ class TestSingleRegistration:
         response = book(emma, blues_festival, "early", role="Leader", level="Improvers")
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
+    def test_parent_event_available_spot_decreases_by_one(self, september, blues_festival, student_client):
+        emma = make_student("emma@test.com")
+        response = book(emma, blues_festival, "early", role="Leader", level="Improvers")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert contribution_of(emma).status == ContributionStatus.ACCEPTED
+
+        # Through the real events API — the same GET /api/events/events/{id}/
+        # the student dashboard calls — not the raw model property, since
+        # EventViewSet's queryset annotates occupied_count and the
+        # serializer prefers that annotation over the model's
+        # available_spot property whenever it's present.
+        response = student_client.get(f"{EVENTS_URL}{blues_festival['festival_id']}/")
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data["available_spot"] == response.data["capacity"] - 1
+
 
 # ── Waiting list ──────────────────────────────────────────────────────────────
 
@@ -497,6 +512,65 @@ class TestWaitingList:
         assert book(gina, blues_festival, "early", role="Leader",
                     level="Advance").status_code == http_status.HTTP_201_CREATED
         assert contribution_of(gina).status == ContributionStatus.ACCEPTED
+
+
+# ── children_levels colors ──────────────────────────────────────────────────────
+
+def improvers_colors(blues_festival, admin_client):
+    """children_levels entry for the Improvers level, as seen through the
+    real festival detail API."""
+    response = admin_client.get(f"{EVENTS_URL}{blues_festival['festival_id']}/")
+    assert response.status_code == http_status.HTTP_200_OK
+    entry = next(l for l in response.data["children_levels"] if l["name"] == "Improvers")
+    return entry["colors"]
+
+
+class TestChildrenLevelsColors:
+
+    def test_full_level_is_red_for_both_roles(self, september, blues_festival, admin_client):
+        # 2 couples + 1 solo leader = 5 accepted, capacity 5 → full.
+        fill_improvers(blues_festival)
+        colors = improvers_colors(blues_festival, admin_client)
+        assert colors == {"Leader": "red", "Follower": "red"}
+
+    def test_unmatched_leaders_at_extras_boundary_is_orange_for_leader(
+        self, september, blues_festival, admin_client,
+    ):
+        # extras=2: 2 unmatched leaders are the most a 3rd leader could
+        # join without waiting — Leader is imbalanced, Follower isn't.
+        for i in range(2):
+            book(make_student(f"leader{i}@test.com"), blues_festival, "early",
+                role="Leader", level="Improvers")
+        colors = improvers_colors(blues_festival, admin_client)
+        # 2 accepted, capacity 5 → available_spot=3, under the default
+        # warning_threshold of 5 → capacity-tier color is yellow for the
+        # role that isn't imbalanced.
+        assert colors == {"Leader": "orange", "Follower": "yellow"}
+
+    def test_fresh_level_under_lower_threshold_is_green(self, september, blues_festival, admin_client):
+        improvers_child_ids = list(
+            Event.objects.filter(
+                id__in=blues_festival["child_ids"], level_id=blues_festival["levels"]["Improvers"],
+            ).values_list("id", flat=True)
+        )
+        for child_id in improvers_child_ids:
+            response = admin_client.patch(
+                f"{EVENTS_URL}{child_id}/", {"warning_threshold": 2}, format="json",
+            )
+            assert response.status_code == http_status.HTTP_200_OK, response.data
+
+        colors = improvers_colors(blues_festival, admin_client)
+        assert colors == {"Leader": "green", "Follower": "green"}
+
+    def test_no_partner_roles_gets_a_default_color(self, september, blues_festival, admin_client):
+        improvers_child_ids = Event.objects.filter(
+            id__in=blues_festival["child_ids"], level_id=blues_festival["levels"]["Improvers"],
+        )
+        for child in improvers_child_ids:
+            child.event_type.partner_roles.clear()
+
+        colors = improvers_colors(blues_festival, admin_client)
+        assert list(colors.keys()) == ["default"]
 
 
 # ── Cancellation ──────────────────────────────────────────────────────────────
