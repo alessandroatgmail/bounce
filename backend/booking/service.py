@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Count, Min, Q
 from django.utils import timezone
 from datetime import date
 
@@ -174,6 +175,12 @@ def waiting_list(contribution: Contribution) -> bool:
             if partner_contribution:
                 send_waiting_list_max_email.delay(partner_contribution.user.id, partner_contribution.id)
             return True
+        if partner_contribution:
+            # A couple booking adds exactly one of each role together, so
+            # it can never worsen the leader/follower balance — only
+            # capacity (already checked above) gates it, not the
+            # role-accepted/extras imbalance checks below.
+            return False
         if _check_need_role(contribution):
             if not _check_role_accepted(contribution):
                 send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)

@@ -11,6 +11,13 @@ import { useUserMemberships } from '../hooks/useUserMemberships';
 import type { ExtraItem } from '../hooks/useUserMemberships';
 import type { CheckoutItem } from '../pages/CheckoutPage';
 
+const AVAILABILITY_DOT_CLASS: Record<string, string> = {
+  green: 'bg-green-600',
+  yellow: 'bg-yellow-500',
+  orange: 'bg-orange-500',
+  red: 'bg-red-600',
+};
+
 // The join/booking flow for an event: role + partner + level selection,
 // membership pick, and the resulting booking call. Shared between the
 // events list card and the event's dedicated detail page so both stay in
@@ -255,6 +262,27 @@ export function EventJoinPanel({
                   ? "Seleziona il ruolo e il livello con cui vuoi partecipare all'evento. Puoi anche inserire l'email di un partner: se è già registrato sulla piattaforma, per lui/lei verrà creata un'iscrizione identica; se non lo è, verrà creata quando si registrerà."
                   : "Select the role and level you'd like to participate with. You can also enter a partner's email — if they're already registered on the platform, an identical registration is created for them; if not, it'll be created once they register."}
               </div>
+
+              {hasLevelChoice && (
+                <div className="rounded-md border border-[#d4b896]/30 p-2.5 space-y-1.5">
+                  <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
+                    {it ? 'Disponibilità per livello' : 'Availability by level'}
+                  </p>
+                  {event.children_levels.map(l => (
+                    <div key={l.id} className="flex items-center justify-between text-xs text-gray-600">
+                      <span>{l.name}</span>
+                      <span className="flex items-center gap-2.5">
+                        {Object.entries(l.colors).map(([role, color]) => (
+                          <span key={role} className="flex items-center gap-1">
+                            <span className={`size-2.5 rounded-full ${AVAILABILITY_DOT_CLASS[color] ?? 'bg-gray-300'}`} />
+                            {role !== 'default' && <span className="text-[10px] text-gray-400">{role}</span>}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {hasRoles && (
                 <>

@@ -596,14 +596,16 @@ class TestCancellation:
         response = client_for(emma).delete(f"{MY_MEMBERSHIPS_URL}{emma_contribution_id}/")
         assert response.status_code == http_status.HTTP_204_NO_CONTENT
 
-        # A new follower now fits in the level again (4 accepted < 5).
+        # The freed spot promotes the oldest waiting student directly —
+        # booking.tasks.promote_waiting_for_level, dispatched from
+        # Contribution.save() on the ACCEPTED -> CANCELLED transition.
+        assert contribution_of(frank).status == ContributionStatus.ACCEPTED
+
+        # Frank's promotion filled the level back up — a new booking waits.
         giulia = make_student("giulia@test.com")
         assert book(giulia, blues_festival, "early", role="Follower",
                     level="Improvers").status_code == http_status.HTTP_201_CREATED
-        assert contribution_of(giulia).status == ContributionStatus.ACCEPTED
-
-        # The waiting student is notified, not silently promoted.
-        assert contribution_of(frank).status == ContributionStatus.WAITING
+        assert contribution_of(giulia).status == ContributionStatus.WAITING
 
     def test_paid_contribution_cannot_be_cancelled(self, september, blues_festival, admin_client):
         emma = make_student("emma@test.com")

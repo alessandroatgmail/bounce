@@ -241,6 +241,42 @@ def notify_next_waiting(event_id: int, role_id: int = None) -> None:
 
 
 @shared_task
+def promote_waiting_for_level(festival_event_id: int, level_id: int) -> None:
+    """A booking or cancellation that changes a festival level's occupancy
+    (capacity freed, or the leader/follower balance shifted) may make
+    room for students already WAITING there — recheck every WAITING
+    contribution at that level, oldest first, and promote whoever now
+    clears booking.service.waiting_list, the same eligibility check a
+    fresh booking goes through. Freed room may only help one role's
+    imbalance, not both, so every waiting contribution gets its own
+    check rather than assuming which role benefits.
+
+    Unlike notify_next_waiting (which only runs on cancellation and
+    explicitly skips festivals, since it can't tell which level's spot
+    freed up), this is unambiguous: the caller always knows the level.
+    """
+    from event.models import Event
+    from .service import waiting_list
+
+    festival_event = Event.objects.get(pk=festival_event_id)
+
+    for waiting in Contribution.objects.filter(
+        events=festival_event, level_id=level_id, status=ContributionStatus.WAITING,
+    ).order_by('date'):
+        waiting.refresh_from_db()
+        if waiting.status != ContributionStatus.WAITING or waiting_list(waiting):
+            continue
+
+        waiting.status = ContributionStatus.ACCEPTED
+        waiting.save(update_fields=['status'])
+        partner = waiting.twin_contributions.first() or waiting.original_contribution
+        if partner and partner.status == ContributionStatus.WAITING:
+            partner.status = ContributionStatus.ACCEPTED
+            partner.save(update_fields=['status'])
+        send_spot_available_email.delay(waiting.user.id, waiting.id)
+
+
+@shared_task
 def send_spot_available_email(user_id: int, contribution_id: int) -> None:
     User = get_user_model()
     user = User.objects.get(pk=user_id)
