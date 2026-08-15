@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useContributions, type Contribution, type ContributionPayload, type ContributionStatus } from '../hooks/useContributions';
 import { useDiscounts } from '../hooks/useDiscounts';
+import { useExtraItems } from '../hooks/useExtraItems';
 import { useMemberships, type Membership } from '../hooks/useMemberships';
 import { useEvents } from '../hooks/useEvents';
 import { type UserListItem } from '../hooks/useUserList';
@@ -49,9 +50,13 @@ interface FormState {
   status: ContributionStatus;
   selectedEvents: { id: number; name: string }[];
   selectedDiscounts: { id: number; name: string }[];
+  selectedExtraItems: { id: number; name: string }[];
 }
 
-const emptyForm = (): FormState => ({ membershipId: '', amount: '', status: 'received', selectedEvents: [], selectedDiscounts: [] });
+const emptyForm = (): FormState => ({
+  membershipId: '', amount: '', status: 'received',
+  selectedEvents: [], selectedDiscounts: [], selectedExtraItems: [],
+});
 
 export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }: Props) {
   const { accessToken } = useAuth();
@@ -59,6 +64,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
   const { memberships } = useMemberships(accessToken);
   const { events } = useEvents(accessToken);
   const { discounts } = useDiscounts(accessToken);
+  const { extraItems } = useExtraItems(accessToken);
   const { contributions, loading, error, create, update, remove } = useContributions(
     accessToken,
     user?.id ?? null,
@@ -74,6 +80,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
   const parentEvents = events.filter(e => e.events.length > 0).map(e => ({ id: e.id, name: e.name }));
 
   const discountItems = discounts.map(d => ({ id: d.id, name: d.name_ext || d.name }));
+  const extraItemItems = extraItems.map(ei => ({ id: ei.id, name: `${ei.name} (+€${ei.value})` }));
 
   // When dialog closes, reset form state
   useEffect(() => {
@@ -115,6 +122,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
       status: c.status,
       selectedEvents: eventItems,
       selectedDiscounts: c.discounts.map(d => ({ id: d.id, name: d.name_ext || d.name })),
+      selectedExtraItems: c.extra_items.map(ei => ({ id: ei.id, name: `${ei.name} (+€${ei.value})` })),
     });
     setSaveError(null);
     setShowForm(true);
@@ -140,6 +148,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
         event_ids: form.selectedEvents.map(ev => ev.id),
         membership_id: form.membershipId === '' ? null : form.membershipId,
         discount_ids: form.selectedDiscounts.map(d => d.id),
+        extra_item_ids: form.selectedExtraItems.map(ei => ei.id),
       };
       if (editing) {
         await update(editing.id, payload);
@@ -226,6 +235,15 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
                       {c.discounts.map(d => (
                         <Badge key={d.id} variant="outline" className="text-xs">
                           {d.name_ext || d.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {c.extra_items.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {c.extra_items.map(ei => (
+                        <Badge key={ei.id} variant="outline" className="text-xs bg-blue-50">
+                          {language === 'it' ? ei.name_it : ei.name_en} (+€{ei.value})
                         </Badge>
                       ))}
                     </div>
@@ -337,6 +355,14 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
               selected={form.selectedDiscounts}
               placeholder={language === 'it' ? 'Cerca sconto...' : 'Search discount...'}
               onChange={items => setForm(f => ({ ...f, selectedDiscounts: items }))}
+            />
+
+            <MultiSearchSelect
+              label={language === 'it' ? 'Articoli extra' : 'Extra items'}
+              items={extraItemItems}
+              selected={form.selectedExtraItems}
+              placeholder={language === 'it' ? 'Cerca articolo extra...' : 'Search extra item...'}
+              onChange={items => setForm(f => ({ ...f, selectedExtraItems: items }))}
             />
 
             {saveError && <p className="text-sm text-red-500">{saveError}</p>}
