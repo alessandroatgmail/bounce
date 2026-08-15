@@ -101,6 +101,11 @@ class ContributionSerializer(serializers.ModelSerializer):
         many=True, queryset=Discount.objects.all(), source='discounts',
         write_only=True, required=False,
     )
+    extra_items = ExtraItemSerializer(many=True, read_only=True)
+    extra_item_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=ExtraItem.objects.all(), source='extra_items',
+        write_only=True, required=False,
+    )
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
@@ -109,7 +114,7 @@ class ContributionSerializer(serializers.ModelSerializer):
             'id', 'status', 'amount', 'user',
             'events', 'event_ids', 'membership', 'membership_id',
             'start_date', 'end_date', 'upgraded_from',
-            'discounts', 'discount_ids', 'discounted_amount',
+            'discounts', 'discount_ids', 'extra_items', 'extra_item_ids', 'discounted_amount',
         ]
         read_only_fields = ['start_date', 'end_date', 'upgraded_from']
 
@@ -128,9 +133,11 @@ class ContributionSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         events = validated_data.pop('events', [])
         discounts = validated_data.pop('discounts', [])
+        extra_items = validated_data.pop('extra_items', [])
         contribution = Contribution.objects.create(**validated_data)
         contribution.events.set(events)
         contribution.discounts.set(discounts)
+        contribution.extra_items.set(extra_items)
         if contribution.membership:
             first_event = events[0] if events else None
             start_date, end_date = service._contribution_date_range(contribution.membership, first_event)
@@ -149,6 +156,7 @@ class ContributionSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         events = validated_data.pop('events', None)
         discounts = validated_data.pop('discounts', None)
+        extra_items = validated_data.pop('extra_items', None)
         old_status = instance.status
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -156,6 +164,9 @@ class ContributionSerializer(serializers.ModelSerializer):
 
         if discounts is not None:
             instance.discounts.set(discounts)
+
+        if extra_items is not None:
+            instance.extra_items.set(extra_items)
 
         if events is not None:
             old_events = set(instance.events.all())
