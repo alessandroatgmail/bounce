@@ -75,7 +75,8 @@ services:
     restart: unless-stopped
     command: daphne -b 0.0.0.0 -p 8000 core.asgi:application
     volumes:
-      - ./backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
     env_file:
       - .env
     depends_on:
@@ -117,7 +118,7 @@ services:
     restart: unless-stopped
     command: celery -A core worker --loglevel=info
     volumes:
-      - ./backend:/app
+      - media_volume:/app/media
     env_file:
       - .env
     depends_on:
@@ -141,7 +142,6 @@ services:
     restart: unless-stopped
     command: celery -A core beat --loglevel=info --schedule=/app/celerybeat-data/celerybeat-schedule
     volumes:
-      - ./backend:/app
       - celery_beat_schedule:/app/celerybeat-data
     env_file:
       - .env
@@ -159,3 +159,5 @@ volumes:
   zookeeper_logs:
   kafka_data:
   celery_beat_schedule:
+  static_volume:
+  media_volume:
