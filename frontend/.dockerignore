@@ -1,0 +1,8 @@
+# Host node_modules would overwrite the ones installed by "npm ci"
+# in the builder stage, and may contain platform-specific binaries
+# compiled for a different OS.
+node_modules/
+dist/
+.env
+.env.*
+.git/

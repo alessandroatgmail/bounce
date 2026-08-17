@@ -1,0 +1,22 @@
+# Secrets — never bake these into an image layer
+.env
+.env.*
+
+# Generated at runtime, lives in named volumes
+media/
+staticfiles/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local virtual environments
+.venv/
+venv/
+
+# Version control and editor noise
+.git/
+.gitignore
+*.sqlite3
