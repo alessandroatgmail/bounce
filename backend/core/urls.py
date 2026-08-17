@@ -8,9 +8,24 @@ from drf_spectacular.views import (
     SpectacularRedocView,
 )
 
+from django.http import HttpResponse
+from django.urls import path
+
+
+def healthz(request):
+    """Liveness probe used by the Docker healthcheck.
+
+    Intentionally does NOT touch the database: this endpoint answers
+    "is the process able to serve requests", not "is every dependency
+    up". Mixing the two makes the container restart in a loop whenever
+    the database has a transient hiccup.
+    """
+    return HttpResponse("ok", content_type="text/plain")
+
 urlpatterns = [
     # Mounted at d-admin/ so it can't collide with the frontend's /admin
     # SPA route (nginx proxies /d-admin/ here).
+    path("healthz/", healthz),
     path('d-admin/', admin.site.urls),
     path('api/auth/', include('users.urls')),
     path('api/events/', include('event.urls')),
