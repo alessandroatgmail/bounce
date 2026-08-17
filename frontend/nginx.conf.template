@@ -1,0 +1,88 @@
+# Redirect all HTTP traffic to HTTPS
+server {
+    listen 80;
+    server_name _;
+
+    # Let's Encrypt challenge — certbot needs this to verify domain ownership
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Redirect everything else to HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# Main HTTPS server
+server {
+    listen 443 ssl;
+    server_name ${DOMAIN_NAME};
+
+    # SSL certificates managed by certbot
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
+
+    # Modern SSL settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # ── PWA manifest — must be served with correct MIME type ─────
+    location /manifest.webmanifest {
+        root /usr/share/nginx/html;
+        add_header Content-Type application/manifest+json;
+        add_header Cache-Control "no-store";
+    }
+
+    # ── Service worker — must not be cached by the browser ────────
+    location ~* (sw\.js|registerSW\.js|workbox-.+\.js)$ {
+        root /usr/share/nginx/html;
+        add_header Cache-Control "no-store";
+        add_header Service-Worker-Allowed "/";
+    }
+
+    # ── React app ─────────────────────────────────────────────────
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── Django API ────────────────────────────────────────────────
+    location /api/ {
+        proxy_pass http://web:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ── Django Admin ──────────────────────────────────────────────
+    location /d-admin/ {
+        proxy_pass http://web:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ── Django static files ───────────────────────────────────────
+    location /static/ {
+        alias /django_static/;
+    }
+
+    # ── Django media files ────────────────────────────────────────
+    location /media/ {
+        alias /django_media/;
+    }
+
+    # ── WebSocket ─────────────────────────────────────────────────
+    location /ws/ {
+        proxy_pass http://web:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}

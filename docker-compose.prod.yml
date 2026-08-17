@@ -8,6 +8,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME}
+      NGINX_ENVSUBST_FILTER: "DOMAIN_NAME"
     ports:
       - "80:80"
       - "443:443"
