@@ -3,6 +3,7 @@ from unittest.mock import patch
 from rest_framework.test import APIClient
 from users.models import User
 from event.models import EventType, Frequency
+from utils.load_worldcities import load_worldcities
 
 
 @pytest.fixture(autouse=True)
@@ -54,3 +55,9 @@ def student_client(client, student_user):
 @pytest.fixture
 def event_type(db):
     return EventType.objects.create(name="Course", frequency=Frequency.WEEKLY, partners=2)
+
+
+@pytest.fixture
+def world_data(db):
+    """Seed a small slice of world cities, needed to create Location/Room/Event."""
+    load_worldcities(debug=True)

@@ -6,16 +6,20 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import type { ExtraItem } from '../hooks/useUserMemberships';
 
 export interface CheckoutItem {
   id: number;
   eventName: string;
   membershipName: string;
-  role: string | null;
-  partner: string | null;
+  payerEmail: string;
+  payerRole: string | null;
+  partnerEmail: string | null;
+  partnerRole: string | null;
   amount: string;
   discounted_amount: string;
   discounts: Array<{ id: number; name: string; name_ext: string | null }>;
+  extra_items: ExtraItem[];
 }
 
 const SESSION_KEY = 'checkout_items';
@@ -120,11 +124,18 @@ export function CheckoutPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-[#2b2b2b] truncate">{item.eventName}</p>
                   <p className="text-sm text-gray-500">{item.membershipName}</p>
-                  {(item.role || item.partner) && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {[item.role, item.partner].filter(Boolean).join(' · ')}
+                  <div className="text-xs text-gray-400 mt-0.5 space-y-0.5">
+                    <p>
+                      <span className="font-medium text-gray-500">{lang === 'it' ? 'Paga per:' : 'Pay for:'}</span>{' '}
+                      {item.payerEmail}{item.payerRole ? ` · ${item.payerRole}` : ''}
                     </p>
-                  )}
+                    {item.partnerEmail && (
+                      <p>
+                        <span className="font-medium text-gray-500">{lang === 'it' ? 'Partner:' : 'Partner:'}</span>{' '}
+                        {item.partnerEmail}{item.partnerRole ? ` · ${item.partnerRole}` : ''}
+                      </p>
+                    )}
+                  </div>
                   {item.discounts.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {item.discounts.map(d => (
@@ -134,9 +145,20 @@ export function CheckoutPage() {
                       ))}
                     </div>
                   )}
+                  {item.extra_items.length > 0 && (
+                    <div className="text-xs text-gray-400 mt-1.5 space-y-0.5">
+                      <p className="font-medium text-gray-500">{lang === 'it' ? 'Extra:' : 'Extras:'}</p>
+                      {item.extra_items.map(ei => (
+                        <p key={ei.id} className="flex justify-between gap-3 pl-2">
+                          <span>{lang === 'it' ? ei.name_it : ei.name_en}</span>
+                          <span>+€{ei.value}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
-                  {item.discounts.length > 0 ? (
+                  {item.amount !== item.discounted_amount ? (
                     <>
                       <p className="text-xs line-through text-gray-400">€{item.amount}</p>
                       <p className="font-semibold text-[#2b2b2b]">€{item.discounted_amount}</p>

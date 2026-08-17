@@ -12,11 +12,9 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./backend/staticfiles:/django_static:ro
-      - ./backend/media:/django_media:ro
-      # Certbot writes certificates here, Nginx reads them
+      - static_volume:/django_static:ro
+      - media_volume:/django_media:ro
       - certbot_certs:/etc/letsencrypt:ro
-      # Certbot writes challenge files here for domain verification
       - certbot_challenge:/var/www/certbot:ro
     depends_on:
       - web

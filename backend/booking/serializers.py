@@ -14,8 +14,8 @@ from event.models import Event, Level, PartnerRole
 from event.serializers import EventSerializer
 from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
-from .models import Booking, Contribution, ContributionStatus
-from .utils import sync_bookings
+from .models import Booking, Contribution, ContributionStatus, ExtraItem
+from .utils import sync_bookings, book_events_for_contribution
 
 
 
@@ -78,6 +78,12 @@ class BookingSerializer(serializers.ModelSerializer):
         ]
 
 
+class ExtraItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExtraItem
+        fields = ['id', 'name', 'name_it', 'name_en', 'value', 'description', 'description_en', 'description_en_it']
+
+
 class ContributionSerializer(serializers.ModelSerializer):
     events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
@@ -95,6 +101,11 @@ class ContributionSerializer(serializers.ModelSerializer):
         many=True, queryset=Discount.objects.all(), source='discounts',
         write_only=True, required=False,
     )
+    extra_items = ExtraItemSerializer(many=True, read_only=True)
+    extra_item_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=ExtraItem.objects.all(), source='extra_items',
+        write_only=True, required=False,
+    )
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
@@ -103,7 +114,7 @@ class ContributionSerializer(serializers.ModelSerializer):
             'id', 'status', 'amount', 'user',
             'events', 'event_ids', 'membership', 'membership_id',
             'start_date', 'end_date', 'upgraded_from',
-            'discounts', 'discount_ids', 'discounted_amount',
+            'discounts', 'discount_ids', 'extra_items', 'extra_item_ids', 'discounted_amount',
         ]
         read_only_fields = ['start_date', 'end_date', 'upgraded_from']
 
@@ -122,9 +133,11 @@ class ContributionSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         events = validated_data.pop('events', [])
         discounts = validated_data.pop('discounts', [])
+        extra_items = validated_data.pop('extra_items', [])
         contribution = Contribution.objects.create(**validated_data)
         contribution.events.set(events)
         contribution.discounts.set(discounts)
+        contribution.extra_items.set(extra_items)
         if contribution.membership:
             first_event = events[0] if events else None
             start_date, end_date = service._contribution_date_range(contribution.membership, first_event)
@@ -143,6 +156,7 @@ class ContributionSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         events = validated_data.pop('events', None)
         discounts = validated_data.pop('discounts', None)
+        extra_items = validated_data.pop('extra_items', None)
         old_status = instance.status
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -150,6 +164,9 @@ class ContributionSerializer(serializers.ModelSerializer):
 
         if discounts is not None:
             instance.discounts.set(discounts)
+
+        if extra_items is not None:
+            instance.extra_items.set(extra_items)
 
         if events is not None:
             old_events = set(instance.events.all())
@@ -198,17 +215,26 @@ class LinkedContributionSerializer(serializers.ModelSerializer):
     events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     membership = MembershipSerializer(read_only=True)
     discounts = DiscountSerializer(many=True, read_only=True)
+    extra_items = ExtraItemSerializer(many=True, read_only=True)
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     role = serializers.StringRelatedField(read_only=True)
     partner = serializers.StringRelatedField(read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
 
     class Meta:
         model = Contribution
         fields = ['id', 'status', 'amount', 'discounted_amount', 'events',
-                  'membership', 'discounts', 'role', 'partner']
+                  'membership', 'discounts', 'extra_items', 'role', 'partner', 'user_email']
 
 
 class UserContributionSerializer(serializers.ModelSerializer):
+    # Whether this serializer accepts / requires a fixed-choice festival
+    # event (multi_events=True, free=False). The base serializer rejects
+    # that shape — book it through FestivalContributionSerializer
+    # (POST .../book-festival/) instead, which flips both flags.
+    allows_multi_event_festival = False
+    requires_multi_event_festival = False
+
     membership = MembershipSerializer(read_only=True)
     membership_id = serializers.PrimaryKeyRelatedField(
         queryset=Membership.objects.all(), source='membership', write_only=True,
@@ -234,16 +260,18 @@ class UserContributionSerializer(serializers.ModelSerializer):
     level = serializers.StringRelatedField(read_only=True)
     discounts = DiscountSerializer(many=True, read_only=True)
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    extra_items = ExtraItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Contribution
         fields = [
-            'id', 'status', 'membership', 'membership_id', 'events', 'event_id',
+            'id', 'status', 'user_email', 'membership', 'membership_id', 'events', 'event_id',
             'amount', 'start_date', 'end_date', 'upgraded_from', 'original_contribution',
             'twin_contributions', 'partner_email',
             'partner_id', 'role_id', 'role', 'partner',
             'level_id', 'level',
-            'discounts', 'discounted_amount',
+            'discounts', 'discounted_amount', 'extra_items',
         ]
         read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',
                             'original_contribution', 'twin_contributions']
@@ -273,6 +301,18 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 'membership_id': f"Membership '{membership.name}' is not available for booking."
             })
         if event:
+            is_fixed_festival = event.multi_events and not event.free
+            if is_fixed_festival and not self.allows_multi_event_festival:
+                raise serializers.ValidationError({
+                    'event_id': (
+                        'This is a multi-event festival with a fixed level choice — '
+                        'book it through the festival booking endpoint.'
+                    )
+                })
+            if self.requires_multi_event_festival and not is_fixed_festival:
+                raise serializers.ValidationError({
+                    'event_id': 'This endpoint only books multi-event festivals with a fixed level choice.'
+                })
             _validate_membership_events(membership, [event])
             if event.event_type.partners > 1:
                 if not role:
@@ -314,8 +354,10 @@ class UserContributionSerializer(serializers.ModelSerializer):
         # create partner contribution
         if event:
             contribution.events.add(event)
+            service._maybe_add_acsi_extra_item(contribution, event)
             if contribution.partner:
                 partner_contribution = service._create_partner_contribution(contribution, contribution.partner)
+                service._maybe_add_acsi_extra_item(partner_contribution, event)
                 service._apply_couple_discount(contribution, partner_contribution)
                 service._send_contribution_email(partner_contribution)
             service._send_contribution_email(
@@ -345,6 +387,15 @@ class UserContributionSerializer(serializers.ModelSerializer):
                         old_status=ContributionStatus.RECEIVED,
                         new_status=ContributionStatus.ACCEPTED,
                     )
+                if event.multi_events and not event.free and contribution.level_id:
+                    from .tasks import promote_waiting_for_level
+                    promote_waiting_for_level.delay(event.id, contribution.level_id)
+
+            # Booking rows are created immediately, regardless of the
+            # status the contribution ends up in (ACCEPTED or WAITING) —
+            # the admin register page + Consolidate handle cleaning up
+            # no-shows/non-payers, not a payment/status gate.
+            book_events_for_contribution(contribution)
 
         return contribution
 
@@ -360,3 +411,19 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     new_status=validated_data["status"],
                 )
         return instance
+
+
+class FestivalContributionSerializer(UserContributionSerializer):
+    """Case 3 — festival, fixed choice: level + role + partner chosen once,
+    applied to every child event at that level. event_id and level_id are
+    both mandatory here (optional on the base serializer), and the target
+    event must be a multi_events, non-free festival."""
+    allows_multi_event_festival = True
+    requires_multi_event_festival = True
+
+    event_id = serializers.PrimaryKeyRelatedField(
+        queryset=Event.objects.all(), write_only=True,
+    )
+    level_id = serializers.PrimaryKeyRelatedField(
+        queryset=Level.objects.all(), source='level', write_only=True,
+    )

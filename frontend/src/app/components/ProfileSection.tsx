@@ -1,6 +1,5 @@
-import { useRef, useState } from 'react';
-import { FileText, Camera, User, Home, CreditCard, ShieldCheck, Pencil, KeyRound } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FileText, Camera, User, Home, CreditCard, ShieldCheck, Pencil, KeyRound, Download, Upload, Loader2 } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -23,11 +22,19 @@ import {
 } from './ui/alert-dialog';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { apiUrl } from '../../lib/api';
-import { mockDocuments } from '../data/mockData';
+import { apiUrl, authFetch, authFetchFile } from '../../lib/api';
 import { CitySearch, type CityResult } from './CitySearch';
+import { ImageCropDialog } from './ImageCropDialog';
 
 type EditSection = 'personal' | 'address' | 'acsi' | 'consents' | 'password' | null;
+
+const ACSI_FORM_URL = '/documents/acsi-membership-form.pdf';
+
+type UserDocument = { id: number; file: string; date: string };
+
+function filenameFromUrl(url: string) {
+  return decodeURIComponent(url.split('/').pop() ?? url);
+}
 
 function FieldRow({ label, value }: { label: string; value?: string | number | null }) {
   return (
@@ -43,6 +50,12 @@ export function ProfileSection() {
   const { language } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
+  const [uploadedDocuments, setUploadedDocuments] = useState<UserDocument[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(true);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const [editingSection, setEditingSection] = useState<EditSection>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -69,7 +82,7 @@ export function ProfileSection() {
   const [acsiDraft, setAcsiDraft] = useState({
     acsi: false,
     acsi_number: '',
-    acsi_expiration_date: '',
+    acsi_starting_date: '',
   });
 
   const [consentsDraft, setConsentsDraft] = useState({
@@ -88,6 +101,19 @@ export function ProfileSection() {
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+
+  const fetchDocuments = useCallback(async () => {
+    if (!accessToken) return;
+    setLoadingDocuments(true);
+    try {
+      const res = await authFetch('/api/documents/documents/', accessToken);
+      if (res.ok) setUploadedDocuments(await res.json());
+    } finally {
+      setLoadingDocuments(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
 
   if (!user) return null;
 
@@ -126,7 +152,7 @@ export function ProfileSection() {
       setAcsiDraft({
         acsi: user.acsi ?? false,
         acsi_number: user.acsi_number ? String(user.acsi_number) : '',
-        acsi_expiration_date: user.acsi_expiration_date ?? '',
+        acsi_starting_date: user.acsi_starting_date ?? '',
       });
     } else if (section === 'consents') {
       setConsentsDraft({
@@ -166,7 +192,7 @@ export function ProfileSection() {
       payload = {
         acsi: acsiDraft.acsi,
         acsi_number: acsiDraft.acsi_number ? Number(acsiDraft.acsi_number) : null,
-        acsi_expiration_date: acsiDraft.acsi_expiration_date || null,
+        acsi_starting_date: acsiDraft.acsi_starting_date || null,
       };
     } else if (section === 'consents') {
       payload = {
@@ -201,6 +227,7 @@ export function ProfileSection() {
           country: data.country,
           acsi: data.acsi,
           acsi_number: data.acsi_number,
+          acsi_starting_date: data.acsi_starting_date,
           acsi_expiration_date: data.acsi_expiration_date,
           privacy_consent: data.privacy_consent,
           marketing_consent: data.marketing_consent,
@@ -252,12 +279,45 @@ export function ProfileSection() {
     }
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !accessToken) return;
+    setUploadingDocument(true);
+    setDocumentError(null);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const res = await authFetchFile('/api/documents/documents/', accessToken, form, 'POST');
+      if (res.ok) {
+        await fetchDocuments();
+      } else {
+        setDocumentError(t('Caricamento non riuscito.', 'Upload failed.'));
+      }
+    } catch {
+      setDocumentError(t('Errore di rete.', 'Network error.'));
+    } finally {
+      setUploadingDocument(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setCropImageSrc(URL.createObjectURL(file));
+  };
+
+  const closeCropDialog = () => {
+    if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+    setCropImageSrc(null);
+  };
+
+  const handleCropConfirm = async (blob: Blob) => {
+    if (!accessToken) return;
     setUploading(true);
     const form = new FormData();
-    form.append('profile_image', file);
+    form.append('profile_image', blob, 'profile.jpg');
     try {
       const res = await fetch(apiUrl('/api/auth/me/'), {
         method: 'PATCH',
@@ -267,10 +327,10 @@ export function ProfileSection() {
       if (res.ok) {
         const data = await res.json();
         updateUser({ profile_image: data.profile_image });
+        closeCropDialog();
       }
     } finally {
       setUploading(false);
-      e.target.value = '';
     }
   };
 
@@ -320,646 +380,687 @@ export function ProfileSection() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <Tabs defaultValue="profile">
-        <TabsList className="bg-[#2b2b2b] mb-6">
-          <TabsTrigger value="profile" className="data-[state=active]:bg-[#e67e22] data-[state=active]:text-white text-gray-300">
-            {t('Profilo', 'Profile')}
-          </TabsTrigger>
-          <TabsTrigger value="documents" className="data-[state=active]:bg-[#e67e22] data-[state=active]:text-white text-gray-300">
-            {t('Documenti', 'Documents')}
-          </TabsTrigger>
-        </TabsList>
+      <Card>
+        <CardContent className="p-6 space-y-6">
+          {/* Avatar + name */}
+          <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
+              <Avatar className="size-20">
+                {user.profile_image && (
+                  <AvatarImage src={user.profile_image} alt={user.name} className="object-cover" />
+                )}
+                <AvatarFallback className="bg-[#e67e22] text-white text-2xl">{initials}</AvatarFallback>
+              </Avatar>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="absolute -bottom-1 -right-1 bg-[#e67e22] text-white rounded-full p-1 shadow hover:bg-[#d4b896] transition-colors disabled:opacity-50"
+                title={t('Cambia foto', 'Change photo')}
+              >
+                <Camera className="size-3.5" />
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-[#2b2b2b]">{user.name}</h2>
+              <p className="text-sm text-gray-500 mt-0.5">{user.email}</p>
+            </div>
+          </div>
 
-        <TabsContent value="profile">
-          <Card>
-            <CardContent className="p-6 space-y-6">
-              {/* Avatar + name */}
-              <div className="flex items-center gap-4">
-                <div className="relative shrink-0">
-                  <Avatar className="size-20">
-                    {user.profile_image && (
-                      <AvatarImage src={user.profile_image} alt={user.name} className="object-cover" />
-                    )}
-                    <AvatarFallback className="bg-[#e67e22] text-white text-2xl">{initials}</AvatarFallback>
-                  </Avatar>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="absolute -bottom-1 -right-1 bg-[#e67e22] text-white rounded-full p-1 shadow hover:bg-[#d4b896] transition-colors disabled:opacity-50"
-                    title={t('Cambia foto', 'Change photo')}
-                  >
-                    <Camera className="size-3.5" />
-                  </button>
-                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-[#2b2b2b]">{user.name}</h2>
-                  <p className="text-sm text-gray-500 mt-0.5">{user.email}</p>
-                </div>
-              </div>
+          {cropImageSrc && (
+            <ImageCropDialog
+              imageSrc={cropImageSrc}
+              open={!!cropImageSrc}
+              onCancel={closeCropDialog}
+              onConfirm={handleCropConfirm}
+              saving={uploading}
+            />
+          )}
 
-              {saveError && (
-                <Alert variant="destructive">
-                  <AlertDescription>{saveError}</AlertDescription>
-                </Alert>
-              )}
+          {saveError && (
+            <Alert variant="destructive">
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+          )}
 
-              <AlertDialog open={showPrivacyWarning} onOpenChange={setShowPrivacyWarning}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      {t('Attenzione', 'Warning')}
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t(
-                        'Revocare il consenso alla privacy disattiverà il tuo account e verrai disconnesso immediatamente. Questa azione non può essere annullata da te.',
-                        'Revoking your privacy consent will deactivate your account and you will be logged out immediately. This action cannot be undone by you.',
-                      )}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel onClick={() => setShowPrivacyWarning(false)}>
-                      {t('Annulla', 'Cancel')}
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-red-600 hover:bg-red-700 text-white"
-                      onClick={() => {
-                        setConsentsDraft(p => ({ ...p, privacy_consent: false }));
-                        setShowPrivacyWarning(false);
-                      }}
-                    >
-                      {t('Confermo, disattiva account', 'Confirm, deactivate account')}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+          <AlertDialog open={showPrivacyWarning} onOpenChange={setShowPrivacyWarning}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t('Attenzione', 'Warning')}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t(
+                    'Revocare il consenso alla privacy disattiverà il tuo account e verrai disconnesso immediatamente. Questa azione non può essere annullata da te.',
+                    'Revoking your privacy consent will deactivate your account and you will be logged out immediately. This action cannot be undone by you.',
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setShowPrivacyWarning(false)}>
+                  {t('Annulla', 'Cancel')}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={() => {
+                    setConsentsDraft(p => ({ ...p, privacy_consent: false }));
+                    setShowPrivacyWarning(false);
+                  }}
+                >
+                  {t('Confermo, disattiva account', 'Confirm, deactivate account')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
-              <Accordion type="multiple" defaultValue={['personal']}>
+          <Accordion type="multiple" defaultValue={['personal']}>
 
-                {/* Personal Info */}
-                <AccordionItem value="personal">
-                  <AccordionTrigger className="font-semibold text-[#2b2b2b]">
-                    <span className="flex items-center gap-2">
-                      <User className="size-4 text-[#e67e22]" />
-                      {t('Informazioni Personali', 'Personal Information')}
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    {editingSection === 'personal' ? (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <Label>{t('Nome', 'First Name')}</Label>
-                            <Input
-                              value={personalDraft.first_name}
-                              onChange={e => setPersonalDraft(p => ({ ...p, first_name: e.target.value }))}
-                            />
-                          </div>
-                          <div>
-                            <Label>{t('Cognome', 'Last Name')}</Label>
-                            <Input
-                              value={personalDraft.last_name}
-                              onChange={e => setPersonalDraft(p => ({ ...p, last_name: e.target.value }))}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <Label>{t('Telefono', 'Phone')}</Label>
-                          <Input
-                            type="tel"
-                            value={personalDraft.phone}
-                            onChange={e => setPersonalDraft(p => ({ ...p, phone: e.target.value }))}
-                            placeholder="+39 333 1234567"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <Label>{t('Data di Nascita', 'Date of Birth')}</Label>
-                            <Input
-                              type="date"
-                              value={personalDraft.date_of_birth}
-                              onChange={e => setPersonalDraft(p => ({ ...p, date_of_birth: e.target.value }))}
-                            />
-                          </div>
-                          <div>
-                            <Label>{t('Luogo di Nascita', 'Place of Birth')}</Label>
-                            <CitySearch
-                              value={personalDraft.place_of_birth_id}
-                              displayValue={personalDraft.place_of_birth_name}
-                              onSelect={(city: CityResult) =>
-                                setPersonalDraft(p => ({ ...p, place_of_birth_id: city.id, place_of_birth_name: city.name }))
-                              }
-                              placeholder={t('Cerca città...', 'Search city...')}
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <Label>{t('Codice Fiscale / N.I.', 'Fiscal Code / N.I.')}</Label>
-                          <Input
-                            value={personalDraft.ci}
-                            onChange={e => setPersonalDraft(p => ({ ...p, ci: e.target.value }))}
-                          />
-                        </div>
-                        <EditActions section="personal" />
-                      </div>
-                    ) : (
+            {/* Personal Info */}
+            <AccordionItem value="personal">
+              <AccordionTrigger className="font-semibold text-[#2b2b2b]">
+                <span className="flex items-center gap-2">
+                  <User className="size-4 text-[#e67e22]" />
+                  {t('Informazioni Personali', 'Personal Information')}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                {editingSection === 'personal' ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <FieldRow label={t('Nome', 'First Name')} value={user.first_name} />
-                        <FieldRow label={t('Cognome', 'Last Name')} value={user.last_name} />
-                        <FieldRow label={t('Telefono', 'Phone')} value={user.phone} />
-                        <FieldRow label={t('Data di Nascita', 'Date of Birth')} value={formatDate(user.date_of_birth)} />
-                        <FieldRow label={t('Luogo di Nascita', 'Place of Birth')} value={user.place_of_birth?.name} />
-                        <FieldRow label={t('Codice Fiscale / N.I.', 'Fiscal Code / N.I.')} value={user.ci} />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-3 flex items-center gap-1.5"
-                          onClick={() => startEditing('personal')}
-                          disabled={editingSection !== null}
-                        >
-                          <Pencil className="size-3.5" />
-                          {t('Modifica', 'Edit')}
-                        </Button>
-                      </div>
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* Address */}
-                <AccordionItem value="address">
-                  <AccordionTrigger className="font-semibold text-[#2b2b2b]">
-                    <span className="flex items-center gap-2">
-                      <Home className="size-4 text-[#e67e22]" />
-                      {t('Indirizzo', 'Address')}
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    {editingSection === 'address' ? (
-                      <div className="space-y-3">
-                        <div>
-                          <Label>{t('Via', 'Street Address')}</Label>
-                          <Input
-                            value={addressDraft.address}
-                            onChange={e => setAddressDraft(p => ({ ...p, address: e.target.value }))}
-                          />
-                        </div>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div>
-                            <Label>{t('CAP', 'Postal Code')}</Label>
-                            <Input
-                              value={addressDraft.postal_code}
-                              onChange={e => setAddressDraft(p => ({ ...p, postal_code: e.target.value }))}
-                            />
-                          </div>
-                          <div>
-                            <Label>{t('Città', 'City')}</Label>
-                            <CitySearch
-                              value={addressDraft.city_id}
-                              displayValue={addressDraft.city_name}
-                              onSelect={(city: CityResult) =>
-                                setAddressDraft(p => ({
-                                  ...p,
-                                  city_id: city.id,
-                                  city_name: city.name,
-                                  country_id: city.country_id,
-                                  country_name: city.country_name,
-                                }))
-                              }
-                              placeholder={t('Cerca città...', 'Search city...')}
-                            />
-                          </div>
-                          <div>
-                            <Label>{t('Paese', 'Country')}</Label>
-                            <Input
-                              value={addressDraft.country_name}
-                              readOnly
-                              className="bg-muted cursor-not-allowed"
-                              placeholder={t('Auto dalla città', 'Auto from city')}
-                            />
-                          </div>
-                        </div>
-                        <EditActions section="address" />
-                      </div>
-                    ) : (
-                      <div>
-                        <FieldRow label={t('Via', 'Street Address')} value={user.address} />
-                        <FieldRow label={t('Città', 'City')} value={user.city?.name} />
-                        <FieldRow label={t('CAP', 'Postal Code')} value={user.postal_code} />
-                        <FieldRow label={t('Paese', 'Country')} value={user.country?.name} />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-3 flex items-center gap-1.5"
-                          onClick={() => startEditing('address')}
-                          disabled={editingSection !== null}
-                        >
-                          <Pencil className="size-3.5" />
-                          {t('Modifica', 'Edit')}
-                        </Button>
-                      </div>
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* ACSI */}
-                <AccordionItem value="acsi">
-                  <AccordionTrigger className="font-semibold text-[#2b2b2b]">
-                    <span className="flex items-center gap-2">
-                      <CreditCard className="size-4 text-[#e67e22]" />
-                      {t('Tesseramento ACSI', 'ACSI Membership')}
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    {editingSection === 'acsi' ? (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-3">
-                          <Switch
-                            id="acsi-toggle"
-                            checked={acsiDraft.acsi}
-                            onCheckedChange={v =>
-                              setAcsiDraft(p => ({
-                                ...p,
-                                acsi: v,
-                                acsi_number: v ? p.acsi_number : '',
-                                acsi_expiration_date: v ? p.acsi_expiration_date : '',
-                              }))
-                            }
-                          />
-                          <Label htmlFor="acsi-toggle">{t('Tesserato ACSI', 'ACSI Member')}</Label>
-                        </div>
-                        {acsiDraft.acsi && (
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>{t('Numero Tessera', 'Membership Number')}</Label>
-                              <Input
-                                type="number"
-                                value={acsiDraft.acsi_number}
-                                onChange={e => setAcsiDraft(p => ({ ...p, acsi_number: e.target.value }))}
-                              />
-                            </div>
-                            <div>
-                              <Label>{t('Data Scadenza', 'Expiry Date')}</Label>
-                              <Input
-                                type="date"
-                                value={acsiDraft.acsi_expiration_date}
-                                onChange={e => setAcsiDraft(p => ({ ...p, acsi_expiration_date: e.target.value }))}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        <EditActions section="acsi" />
-                      </div>
-                    ) : (
-                      <div>
-                        <FieldRow
-                          label={t('Tesserato ACSI', 'ACSI Member')}
-                          value={user.acsi ? t('Sì', 'Yes') : t('No', 'No')}
+                        <Label>{t('Nome', 'First Name')}</Label>
+                        <Input
+                          value={personalDraft.first_name}
+                          onChange={e => setPersonalDraft(p => ({ ...p, first_name: e.target.value }))}
                         />
-                        {user.acsi && (
-                          <>
-                            <FieldRow
-                              label={t('Numero Tessera', 'Membership Number')}
-                              value={user.acsi_number ?? null}
-                            />
-                            <FieldRow
-                              label={t('Scadenza', 'Expiry Date')}
-                              value={formatDate(user.acsi_expiration_date)}
-                            />
-                          </>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-3 flex items-center gap-1.5"
-                          onClick={() => startEditing('acsi')}
-                          disabled={editingSection !== null}
-                        >
-                          <Pencil className="size-3.5" />
-                          {t('Modifica', 'Edit')}
-                        </Button>
                       </div>
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* Consents */}
-                <AccordionItem value="consents">
-                  <AccordionTrigger className="font-semibold text-[#2b2b2b]">
-                    <span className="flex items-center gap-2">
-                      <ShieldCheck className="size-4 text-[#e67e22]" />
-                      {t('Consensi', 'Consents')}
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    {editingSection === 'consents' ? (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between py-3 border-b">
-                          <div>
-                            <p className="text-sm font-medium">{t('Privacy Policy', 'Privacy Policy')}</p>
-                            <p className="text-xs text-gray-500">
-                              {t('Consenso al trattamento dei dati personali', 'Consent to personal data processing')}
-                            </p>
-                            {consentsDraft.privacy_consent && (
-                              <p className="text-xs text-red-500 mt-1">
-                                {t('Disattivare revocherà il tuo account', 'Disabling will deactivate your account')}
-                              </p>
-                            )}
-                          </div>
-                          <Switch
-                            checked={consentsDraft.privacy_consent}
-                            onCheckedChange={v => {
-                              if (!v) {
-                                setShowPrivacyWarning(true);
-                              } else {
-                                setConsentsDraft(p => ({ ...p, privacy_consent: true }));
-                              }
-                            }}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between py-3">
-                          <div>
-                            <p className="text-sm font-medium">{t('Marketing', 'Marketing')}</p>
-                            <p className="text-xs text-gray-500">
-                              {t('Ricezione di comunicazioni e newsletter', 'Receiving communications and newsletters')}
-                            </p>
-                          </div>
-                          <Switch
-                            checked={consentsDraft.marketing_consent}
-                            onCheckedChange={v => setConsentsDraft(p => ({ ...p, marketing_consent: v }))}
-                          />
-                        </div>
-                        <EditActions section="consents" />
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between py-3 border-b">
-                          <div>
-                            <p className="text-sm font-medium">{t('Privacy Policy', 'Privacy Policy')}</p>
-                            <p className="text-xs text-gray-500">
-                              {t('Trattamento dati personali', 'Personal data processing')}
-                            </p>
-                          </div>
-                          <Badge className={user.privacy_consent ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}>
-                            {user.privacy_consent ? t('Accettata', 'Accepted') : t('Non accettata', 'Not accepted')}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center justify-between py-3">
-                          <div>
-                            <p className="text-sm font-medium">{t('Marketing', 'Marketing')}</p>
-                            <p className="text-xs text-gray-500">
-                              {t('Comunicazioni e newsletter', 'Communications and newsletters')}
-                            </p>
-                          </div>
-                          <Badge className={user.marketing_consent ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}>
-                            {user.marketing_consent ? t('Accettato', 'Opted in') : t('Non accettato', 'Opted out')}
-                          </Badge>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-1 flex items-center gap-1.5"
-                          onClick={() => startEditing('consents')}
-                          disabled={editingSection !== null}
-                        >
-                          <Pencil className="size-3.5" />
-                          {t('Modifica', 'Edit')}
-                        </Button>
-                      </div>
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* Password */}
-                <AccordionItem value="password">
-                  <AccordionTrigger className="font-semibold text-[#2b2b2b]">
-                    <span className="flex items-center gap-2">
-                      <KeyRound className="size-4 text-[#e67e22]" />
-                      {t('Sicurezza', 'Security')}
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    {editingSection === 'password' ? (
-                      <div className="space-y-3">
-                        <div>
-                          <Label>{t('Password attuale', 'Current password')}</Label>
-                          <Input
-                            type="password"
-                            value={passwordDraft.old_password}
-                            onChange={e => setPasswordDraft(p => ({ ...p, old_password: e.target.value }))}
-                            autoComplete="current-password"
-                          />
-                        </div>
-                        <div>
-                          <Label>{t('Nuova password', 'New password')}</Label>
-                          <Input
-                            type="password"
-                            value={passwordDraft.new_password}
-                            onChange={e => setPasswordDraft(p => ({ ...p, new_password: e.target.value }))}
-                            autoComplete="new-password"
-                          />
-                        </div>
-                        <div>
-                          <Label>{t('Conferma nuova password', 'Confirm new password')}</Label>
-                          <Input
-                            type="password"
-                            value={passwordDraft.new_password2}
-                            onChange={e => setPasswordDraft(p => ({ ...p, new_password2: e.target.value }))}
-                            autoComplete="new-password"
-                          />
-                        </div>
-                        {passwordError && (
-                          <Alert variant="destructive">
-                            <AlertDescription>{passwordError}</AlertDescription>
-                          </Alert>
-                        )}
-                        <div className="flex gap-2 pt-1">
-                          <Button
-                            size="sm"
-                            type="button"
-                            onClick={handlePasswordSave}
-                            disabled={saving}
-                            className="bg-[#e67e22] hover:bg-[#d4b896] text-white"
-                          >
-                            {saving ? t('Salvataggio...', 'Saving...') : t('Salva', 'Save')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            type="button"
-                            onClick={() => {
-                              setEditingSection(null);
-                              setPasswordError(null);
-                              setPasswordDraft({ old_password: '', new_password: '', new_password2: '' });
-                            }}
-                            disabled={saving}
-                          >
-                            {t('Annulla', 'Cancel')}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
                       <div>
-                        {passwordSuccess && (
-                          <Alert className="mb-3 border-green-300 bg-green-50">
-                            <AlertDescription className="text-green-700">
-                              {t('Password aggiornata con successo.', 'Password updated successfully.')}
-                            </AlertDescription>
-                          </Alert>
-                        )}
-                        <p className="text-sm text-gray-500 mb-3">
-                          {t('Cambia la password del tuo account.', 'Change your account password.')}
-                        </p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex items-center gap-1.5"
-                          onClick={() => {
-                            setPasswordSuccess(false);
-                            startEditing('password');
-                          }}
-                          disabled={editingSection !== null}
-                        >
-                          <Pencil className="size-3.5" />
-                          {t('Cambia password', 'Change password')}
-                        </Button>
+                        <Label>{t('Cognome', 'Last Name')}</Label>
+                        <Input
+                          value={personalDraft.last_name}
+                          onChange={e => setPersonalDraft(p => ({ ...p, last_name: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>{t('Telefono', 'Phone')}</Label>
+                      <Input
+                        type="tel"
+                        value={personalDraft.phone}
+                        onChange={e => setPersonalDraft(p => ({ ...p, phone: e.target.value }))}
+                        placeholder="+39 333 1234567"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>{t('Data di Nascita', 'Date of Birth')}</Label>
+                        <Input
+                          type="date"
+                          value={personalDraft.date_of_birth}
+                          onChange={e => setPersonalDraft(p => ({ ...p, date_of_birth: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label>{t('Luogo di Nascita', 'Place of Birth')}</Label>
+                        <CitySearch
+                          value={personalDraft.place_of_birth_id}
+                          displayValue={personalDraft.place_of_birth_name}
+                          onSelect={(city: CityResult) =>
+                            setPersonalDraft(p => ({ ...p, place_of_birth_id: city.id, place_of_birth_name: city.name }))
+                          }
+                          placeholder={t('Cerca città...', 'Search city...')}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>{t('Codice Fiscale / N.I.', 'Fiscal Code / N.I.')}</Label>
+                      <Input
+                        value={personalDraft.ci}
+                        onChange={e => setPersonalDraft(p => ({ ...p, ci: e.target.value }))}
+                      />
+                    </div>
+                    <EditActions section="personal" />
+                  </div>
+                ) : (
+                  <div>
+                    <FieldRow label={t('Nome', 'First Name')} value={user.first_name} />
+                    <FieldRow label={t('Cognome', 'Last Name')} value={user.last_name} />
+                    <FieldRow label={t('Telefono', 'Phone')} value={user.phone} />
+                    <FieldRow label={t('Data di Nascita', 'Date of Birth')} value={formatDate(user.date_of_birth)} />
+                    <FieldRow label={t('Luogo di Nascita', 'Place of Birth')} value={user.place_of_birth?.name} />
+                    <FieldRow label={t('Codice Fiscale / N.I.', 'Fiscal Code / N.I.')} value={user.ci} />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-3 flex items-center gap-1.5"
+                      onClick={() => startEditing('personal')}
+                      disabled={editingSection !== null}
+                    >
+                      <Pencil className="size-3.5" />
+                      {t('Modifica', 'Edit')}
+                    </Button>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* Address */}
+            <AccordionItem value="address">
+              <AccordionTrigger className="font-semibold text-[#2b2b2b]">
+                <span className="flex items-center gap-2">
+                  <Home className="size-4 text-[#e67e22]" />
+                  {t('Indirizzo', 'Address')}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                {editingSection === 'address' ? (
+                  <div className="space-y-3">
+                    <div>
+                      <Label>{t('Via', 'Street Address')}</Label>
+                      <Input
+                        value={addressDraft.address}
+                        onChange={e => setAddressDraft(p => ({ ...p, address: e.target.value }))}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <Label>{t('CAP', 'Postal Code')}</Label>
+                        <Input
+                          value={addressDraft.postal_code}
+                          onChange={e => setAddressDraft(p => ({ ...p, postal_code: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label>{t('Città', 'City')}</Label>
+                        <CitySearch
+                          value={addressDraft.city_id}
+                          displayValue={addressDraft.city_name}
+                          onSelect={(city: CityResult) =>
+                            setAddressDraft(p => ({
+                              ...p,
+                              city_id: city.id,
+                              city_name: city.name,
+                              country_id: city.country_id,
+                              country_name: city.country_name,
+                            }))
+                          }
+                          placeholder={t('Cerca città...', 'Search city...')}
+                        />
+                      </div>
+                      <div>
+                        <Label>{t('Paese', 'Country')}</Label>
+                        <Input
+                          value={addressDraft.country_name}
+                          readOnly
+                          className="bg-muted cursor-not-allowed"
+                          placeholder={t('Auto dalla città', 'Auto from city')}
+                        />
+                      </div>
+                    </div>
+                    <EditActions section="address" />
+                  </div>
+                ) : (
+                  <div>
+                    <FieldRow label={t('Via', 'Street Address')} value={user.address} />
+                    <FieldRow label={t('Città', 'City')} value={user.city?.name} />
+                    <FieldRow label={t('CAP', 'Postal Code')} value={user.postal_code} />
+                    <FieldRow label={t('Paese', 'Country')} value={user.country?.name} />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-3 flex items-center gap-1.5"
+                      onClick={() => startEditing('address')}
+                      disabled={editingSection !== null}
+                    >
+                      <Pencil className="size-3.5" />
+                      {t('Modifica', 'Edit')}
+                    </Button>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* ACSI */}
+            <AccordionItem value="acsi">
+              <AccordionTrigger className="font-semibold text-[#2b2b2b]">
+                <span className="flex items-center gap-2">
+                  <CreditCard className="size-4 text-[#e67e22]" />
+                  {t('Tesseramento ACSI', 'ACSI Membership')}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                {editingSection === 'acsi' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        id="acsi-toggle"
+                        checked={acsiDraft.acsi}
+                        onCheckedChange={v =>
+                          setAcsiDraft(p => ({
+                            ...p,
+                            acsi: v,
+                            acsi_number: v ? p.acsi_number : '',
+                            acsi_starting_date: v ? p.acsi_starting_date : '',
+                          }))
+                        }
+                      />
+                      <Label htmlFor="acsi-toggle">{t('Tesserato ACSI', 'ACSI Member')}</Label>
+                    </div>
+                    {acsiDraft.acsi && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label>{t('Numero Tessera', 'Membership Number')}</Label>
+                          <Input
+                            type="number"
+                            value={acsiDraft.acsi_number}
+                            onChange={e => setAcsiDraft(p => ({ ...p, acsi_number: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label>{t('Data Iscrizione', 'Starting Date')}</Label>
+                          <Input
+                            type="date"
+                            value={acsiDraft.acsi_starting_date}
+                            onChange={e => setAcsiDraft(p => ({ ...p, acsi_starting_date: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label>{t('Data Scadenza', 'Expiry Date')}</Label>
+                          <Input
+                            type="date"
+                            value={user.acsi_expiration_date ?? ''}
+                            disabled
+                            readOnly
+                          />
+                        </div>
                       </div>
                     )}
-                  </AccordionContent>
-                </AccordionItem>
-
-              </Accordion>
-
-              {/* Danger zone */}
-              <div className="border border-red-200 rounded-lg p-4 space-y-3">
-                <p className="text-sm font-semibold text-red-600">
-                  {t('Zona pericolosa', 'Danger zone')}
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-orange-400 text-orange-600 hover:bg-orange-50"
-                    onClick={() => setShowDeactivateDialog(true)}
-                    disabled={actionLoading}
-                  >
-                    {t('Disattiva account', 'Deactivate account')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-red-500 text-red-600 hover:bg-red-50"
-                    onClick={() => setShowDeleteDialog(true)}
-                    disabled={actionLoading}
-                  >
-                    {t('Elimina account', 'Delete account')}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Deactivate dialog */}
-              <AlertDialog open={showDeactivateDialog} onOpenChange={setShowDeactivateDialog}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t('Disattiva account', 'Deactivate account')}</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t(
-                        'Il tuo account verrà disattivato e verrai disconnesso. I tuoi dati verranno conservati. Contatta l\'amministratore per riattivarlo.',
-                        'Your account will be deactivated and you will be logged out. Your data will be kept. Contact an administrator to reactivate it.',
-                      )}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('Annulla', 'Cancel')}</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-orange-500 hover:bg-orange-600 text-white"
-                      onClick={handleDeactivate}
+                    <EditActions section="acsi" />
+                  </div>
+                ) : (
+                  <div>
+                    <FieldRow
+                      label={t('Tesserato ACSI', 'ACSI Member')}
+                      value={user.acsi ? t('Sì', 'Yes') : t('No', 'No')}
+                    />
+                    {user.acsi && (
+                      <>
+                        <FieldRow
+                          label={t('Numero Tessera', 'Membership Number')}
+                          value={user.acsi_number ?? null}
+                        />
+                        <FieldRow
+                          label={t('Data Iscrizione', 'Starting Date')}
+                          value={formatDate(user.acsi_starting_date)}
+                        />
+                        <FieldRow
+                          label={t('Scadenza', 'Expiry Date')}
+                          value={formatDate(user.acsi_expiration_date)}
+                        />
+                      </>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-3 flex items-center gap-1.5"
+                      onClick={() => startEditing('acsi')}
+                      disabled={editingSection !== null}
                     >
-                      {t('Disattiva', 'Deactivate')}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                      <Pencil className="size-3.5" />
+                      {t('Modifica', 'Edit')}
+                    </Button>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
 
-              {/* Delete / anonymize dialog */}
-              <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="text-red-600">
-                      {t('Elimina account', 'Delete account')}
-                    </AlertDialogTitle>
-                    <AlertDialogDescription asChild>
-                      <div className="space-y-2 text-sm text-gray-600">
-                        <p>
-                          {t(
-                            'Questa azione è irreversibile. Il tuo account verrà anonimizzato:',
-                            'This action is irreversible. Your account will be anonymized:',
-                          )}
+            {/* Consents */}
+            <AccordionItem value="consents">
+              <AccordionTrigger className="font-semibold text-[#2b2b2b]">
+                <span className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-[#e67e22]" />
+                  {t('Consensi', 'Consents')}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                {editingSection === 'consents' ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between py-3 border-b">
+                      <div>
+                        <p className="text-sm font-medium">{t('Privacy Policy', 'Privacy Policy')}</p>
+                        <p className="text-xs text-gray-500">
+                          {t('Consenso al trattamento dei dati personali', 'Consent to personal data processing')}
                         </p>
-                        <ul className="list-disc list-inside space-y-1">
-                          <li>{t('Email sostituita con un indirizzo non rintracciabile', 'Email replaced with a non-traceable address')}</li>
-                          <li>{t('Tutti i dati personali cancellati', 'All personal data deleted')}</li>
-                          <li>{t('Consensi revocati e account disattivato', 'Consents revoked and account deactivated')}</li>
-                        </ul>
+                        {consentsDraft.privacy_consent && (
+                          <p className="text-xs text-red-500 mt-1">
+                            {t('Disattivare revocherà il tuo account', 'Disabling will deactivate your account')}
+                          </p>
+                        )}
                       </div>
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('Annulla', 'Cancel')}</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-red-600 hover:bg-red-700 text-white"
-                      onClick={handleDelete}
+                      <Switch
+                        checked={consentsDraft.privacy_consent}
+                        onCheckedChange={v => {
+                          if (!v) {
+                            setShowPrivacyWarning(true);
+                          } else {
+                            setConsentsDraft(p => ({ ...p, privacy_consent: true }));
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <div>
+                        <p className="text-sm font-medium">{t('Marketing', 'Marketing')}</p>
+                        <p className="text-xs text-gray-500">
+                          {t('Ricezione di comunicazioni e newsletter', 'Receiving communications and newsletters')}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={consentsDraft.marketing_consent}
+                        onCheckedChange={v => setConsentsDraft(p => ({ ...p, marketing_consent: v }))}
+                      />
+                    </div>
+                    <EditActions section="consents" />
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between py-3 border-b">
+                      <div>
+                        <p className="text-sm font-medium">{t('Privacy Policy', 'Privacy Policy')}</p>
+                        <p className="text-xs text-gray-500">
+                          {t('Trattamento dati personali', 'Personal data processing')}
+                        </p>
+                      </div>
+                      <Badge className={user.privacy_consent ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}>
+                        {user.privacy_consent ? t('Accettata', 'Accepted') : t('Non accettata', 'Not accepted')}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <div>
+                        <p className="text-sm font-medium">{t('Marketing', 'Marketing')}</p>
+                        <p className="text-xs text-gray-500">
+                          {t('Comunicazioni e newsletter', 'Communications and newsletters')}
+                        </p>
+                      </div>
+                      <Badge className={user.marketing_consent ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}>
+                        {user.marketing_consent ? t('Accettato', 'Opted in') : t('Non accettato', 'Opted out')}
+                      </Badge>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-1 flex items-center gap-1.5"
+                      onClick={() => startEditing('consents')}
+                      disabled={editingSection !== null}
                     >
-                      {t('Elimina definitivamente', 'Delete permanently')}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                      <Pencil className="size-3.5" />
+                      {t('Modifica', 'Edit')}
+                    </Button>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
 
-            </CardContent>
-          </Card>
-        </TabsContent>
+            {/* Password */}
+            <AccordionItem value="password">
+              <AccordionTrigger className="font-semibold text-[#2b2b2b]">
+                <span className="flex items-center gap-2">
+                  <KeyRound className="size-4 text-[#e67e22]" />
+                  {t('Sicurezza', 'Security')}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                {editingSection === 'password' ? (
+                  <div className="space-y-3">
+                    <div>
+                      <Label>{t('Password attuale', 'Current password')}</Label>
+                      <Input
+                        type="password"
+                        value={passwordDraft.old_password}
+                        onChange={e => setPasswordDraft(p => ({ ...p, old_password: e.target.value }))}
+                        autoComplete="current-password"
+                      />
+                    </div>
+                    <div>
+                      <Label>{t('Nuova password', 'New password')}</Label>
+                      <Input
+                        type="password"
+                        value={passwordDraft.new_password}
+                        onChange={e => setPasswordDraft(p => ({ ...p, new_password: e.target.value }))}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <div>
+                      <Label>{t('Conferma nuova password', 'Confirm new password')}</Label>
+                      <Input
+                        type="password"
+                        value={passwordDraft.new_password2}
+                        onChange={e => setPasswordDraft(p => ({ ...p, new_password2: e.target.value }))}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    {passwordError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{passwordError}</AlertDescription>
+                      </Alert>
+                    )}
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        type="button"
+                        onClick={handlePasswordSave}
+                        disabled={saving}
+                        className="bg-[#e67e22] hover:bg-[#d4b896] text-white"
+                      >
+                        {saving ? t('Salvataggio...', 'Saving...') : t('Salva', 'Save')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        onClick={() => {
+                          setEditingSection(null);
+                          setPasswordError(null);
+                          setPasswordDraft({ old_password: '', new_password: '', new_password2: '' });
+                        }}
+                        disabled={saving}
+                      >
+                        {t('Annulla', 'Cancel')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    {passwordSuccess && (
+                      <Alert className="mb-3 border-green-300 bg-green-50">
+                        <AlertDescription className="text-green-700">
+                          {t('Password aggiornata con successo.', 'Password updated successfully.')}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    <p className="text-sm text-gray-500 mb-3">
+                      {t('Cambia la password del tuo account.', 'Change your account password.')}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex items-center gap-1.5"
+                      onClick={() => {
+                        setPasswordSuccess(false);
+                        startEditing('password');
+                      }}
+                      disabled={editingSection !== null}
+                    >
+                      <Pencil className="size-3.5" />
+                      {t('Cambia password', 'Change password')}
+                    </Button>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
 
-        <TabsContent value="documents">
-          <Card>
-            <CardContent className="p-6">
-              <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                {t('Documenti', 'Documents')}
-              </h2>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('Nome', 'Name')}</TableHead>
-                    <TableHead>{t('Data', 'Date')}</TableHead>
-                    <TableHead>{t('Tipo', 'Type')}</TableHead>
-                    <TableHead>{t('Azioni', 'Actions')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {mockDocuments.map(doc => (
-                    <TableRow key={doc.id}>
-                      <TableCell className="font-mono text-sm">{doc.name}</TableCell>
-                      <TableCell>
-                        {new Date(doc.date).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
-                          month: 'short', day: 'numeric', year: 'numeric',
-                        })}
-                      </TableCell>
-                      <TableCell className="font-semibold">{doc.type}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <FileText className="size-4" />
-                          <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-blue-500">
-                            {t('Visualizza', 'View')}
-                          </a>
-                        </div>
-                      </TableCell>
+            {/* Documents */}
+            <AccordionItem value="documents">
+              <AccordionTrigger className="font-semibold text-[#2b2b2b]">
+                <span className="flex items-center gap-2">
+                  <FileText className="size-4 text-[#e67e22]" />
+                  {t('Documenti', 'Documents')}
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('Nome', 'Name')}</TableHead>
+                      <TableHead>{t('Data di caricamento', 'Upload date')}</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                  </TableHeader>
+                  <TableBody>
+                    {loadingDocuments ? (
+                      <TableRow>
+                        <TableCell colSpan={2} className="text-center py-6">
+                          <Loader2 className="size-4 animate-spin text-[#e67e22] inline" />
+                        </TableCell>
+                      </TableRow>
+                    ) : uploadedDocuments.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={2} className="text-center text-sm text-gray-500 py-6">
+                          {t('Nessun documento caricato.', 'No documents uploaded yet.')}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      uploadedDocuments.map(doc => (
+                        <TableRow key={doc.id}>
+                          <TableCell className="flex items-center gap-2 font-medium">
+                            <FileText className="size-4 text-gray-400" />
+                            {filenameFromUrl(doc.file)}
+                          </TableCell>
+                          <TableCell className="text-gray-500">{formatDate(doc.date)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+
+                {documentError && (
+                  <Alert variant="destructive" className="mt-3">
+                    <AlertDescription>{documentError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex items-center gap-1.5"
+                    onClick={() => documentInputRef.current?.click()}
+                    disabled={uploadingDocument}
+                  >
+                    {uploadingDocument ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                    {t('Carica documento', 'Upload document')}
+                  </Button>
+                  <input ref={documentInputRef} type="file" className="hidden" onChange={handleDocumentUpload} />
+
+                  <a href={ACSI_FORM_URL} download>
+                    <Button size="sm" variant="outline" className="flex items-center gap-1.5 w-full">
+                      <Download className="size-3.5" />
+                      {t('Scarica modulo ACSI', 'Download ACSI form')}
+                    </Button>
+                  </a>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+          </Accordion>
+
+          {/* Danger zone */}
+          <div className="border border-red-200 rounded-lg p-4 space-y-3">
+            <p className="text-sm font-semibold text-red-600">
+              {t('Zona pericolosa', 'Danger zone')}
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-orange-400 text-orange-600 hover:bg-orange-50"
+                onClick={() => setShowDeactivateDialog(true)}
+                disabled={actionLoading}
+              >
+                {t('Disattiva account', 'Deactivate account')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-red-500 text-red-600 hover:bg-red-50"
+                onClick={() => setShowDeleteDialog(true)}
+                disabled={actionLoading}
+              >
+                {t('Elimina account', 'Delete account')}
+              </Button>
+            </div>
+          </div>
+
+          {/* Deactivate dialog */}
+          <AlertDialog open={showDeactivateDialog} onOpenChange={setShowDeactivateDialog}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('Disattiva account', 'Deactivate account')}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t(
+                    'Il tuo account verrà disattivato e verrai disconnesso. I tuoi dati verranno conservati. Contatta l\'amministratore per riattivarlo.',
+                    'Your account will be deactivated and you will be logged out. Your data will be kept. Contact an administrator to reactivate it.',
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('Annulla', 'Cancel')}</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
+                  onClick={handleDeactivate}
+                >
+                  {t('Disattiva', 'Deactivate')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Delete / anonymize dialog */}
+          <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-red-600">
+                  {t('Elimina account', 'Delete account')}
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2 text-sm text-gray-600">
+                    <p>
+                      {t(
+                        'Questa azione è irreversibile. Il tuo account verrà anonimizzato:',
+                        'This action is irreversible. Your account will be anonymized:',
+                      )}
+                    </p>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li>{t('Email sostituita con un indirizzo non rintracciabile', 'Email replaced with a non-traceable address')}</li>
+                      <li>{t('Tutti i dati personali cancellati', 'All personal data deleted')}</li>
+                      <li>{t('Consensi revocati e account disattivato', 'Consents revoked and account deactivated')}</li>
+                    </ul>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('Annulla', 'Cancel')}</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={handleDelete}
+                >
+                  {t('Elimina definitivamente', 'Delete permanently')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+        </CardContent>
+      </Card>
     </div>
   );
 }

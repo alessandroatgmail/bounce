@@ -1,15 +1,21 @@
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
+from event.models import Event
+from utils.tasks import send_email as send_email_task
 
-def add_payed_bookings(contribution):
+
+def book_events_for_contribution(contribution):
     """
-    Add the payer to the Booking model for every event of the contribution
-    and all their children. Existing bookings are left untouched — an
+    Create a Booking for every event this contribution covers — the event
+    itself plus, for a regular repeating class or a non-free festival, all
+    of its children (filtered by level for festivals) — regardless of the
+    contribution's status. Existing bookings are left untouched — an
     admin may already have re-arranged the register.
 
-    A single payer (no partner) is automatically partnered, mutually, with
-    the first unpartnered booking of another role on each event.
+    A single registrant (no partner) is automatically partnered, mutually,
+    with the first unpartnered booking of another role on each event.
     """
     from booking.models import Booking
 
@@ -26,7 +32,13 @@ def add_payed_bookings(contribution):
     if not event:
         return
     if event.multi_events and not event.free:
-        events = event.events.filter(level=contribution.level).all()
+        fix_events = (
+            contribution.membership.fix_events.all()
+            if contribution.membership else Event.objects.none()
+        )
+        events = event.events.filter(
+            Q(level=contribution.level) | Q(pk__in=fix_events.values_list("pk", flat=True))
+        )
     else:
         events = event.events.all()
 
@@ -67,6 +79,42 @@ def add_payed_bookings(contribution):
             free_partner.partner = booking.user
             free_partner.partner_role = booking.role
             free_partner.save(update_fields=['partner_email', 'partner', 'partner_role'])
+
+
+def add_payed_bookings(contribution):
+    """Payment no longer needs to create bookings — they already exist
+    from registration time — but this is kept as a safety net for
+    contributions whose events were attached without going through the
+    booking endpoints (e.g. directly via the ORM), and stays idempotent
+    via book_events_for_contribution's get_or_create."""
+    book_events_for_contribution(contribution)
+
+
+def mark_contributions_payed(contributions):
+    """Flip each contribution to PAYED, saved one by one (not .update())
+    so the PAYED transition in Contribution.save() runs and books the
+    payer on the events."""
+    from booking.models import ContributionStatus
+
+    for contribution in contributions:
+        contribution.status = ContributionStatus.PAYED
+        contribution.save(update_fields=['status'])
+
+
+def send_payment_emails(contributions):
+    for c in contributions:
+        first_event = c.events.first()
+        send_email_task.delay(
+            c.user.id,
+            template='payment_success_email',
+            context={
+                'first_name': c.user.first_name,
+                'event_name': first_event.name if first_event else '—',
+                'membership_name': c.membership.name if c.membership else '—',
+                'amount': str(c.discounted_amount),
+                'url': settings.FRONTEND_URL + '/?section=payments',
+            },
+        )
 
 
 def sync_bookings(user, added_events, removed_events):

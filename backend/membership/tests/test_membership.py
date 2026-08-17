@@ -3,14 +3,16 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status as http_status
 
+from event.models import Event
 from membership.models import Membership, MembershipRule
+from utils.mock_event import make_event_payload
 from utils.mock_membership import make_membership_payload
 
 LIST_URL = "/api/membership/memberships/"
 RULE_URL = "/api/membership/rules/"
 
 MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "duration", "rules",
-                     "start_date", "end_date"}
+                     "start_date", "end_date", "fix_events"}
 RULE_FIELDS = {"id", "membership", "event_type", "max_events"}
 
 
@@ -29,6 +31,22 @@ def create_membership(**overrides):
         type=payload["type"],
         contribution=payload["contribution"],
         color=payload["color"],
+    )
+
+
+def create_event(**overrides):
+    payload = make_event_payload(**overrides)
+    return Event.objects.create(
+        name=payload["name"],
+        status=payload["status"],
+        event_type_id=payload["event_type_id"],
+        type=payload["type"],
+        level_id=payload["level_id"],
+        room_id=payload["room_id"],
+        start_date=payload["start_date"],
+        end_date=payload["end_date"],
+        duration=payload["duration"],
+        capacity=payload["capacity"],
     )
 
 
@@ -617,3 +635,77 @@ class TestMembershipStudentWindowVisibility:
         membership = make_windowed_membership(end=timezone.now() - timedelta(days=1))
         response = staff_client.get(detail_url(membership.pk))
         assert response.status_code == http_status.HTTP_200_OK
+
+
+# ── fix_events (events always bundled with a membership) ─────────────────────
+
+class TestMembershipFixEvents:
+
+    def test_new_membership_has_empty_fix_events(self, staff_client, db):
+        response = staff_client.post(LIST_URL, make_membership_payload(), format="json")
+        assert response.data["fix_events"] == []
+
+    def test_staff_can_create_membership_with_fix_events(self, staff_client, world_data):
+        event = create_event()
+        payload = make_membership_payload(fix_event_ids=[event.pk])
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert response.data["fix_events"] == [event.pk]
+
+    def test_create_persists_fix_events(self, staff_client, world_data):
+        event = create_event()
+        payload = make_membership_payload(fix_event_ids=[event.pk])
+        response = staff_client.post(LIST_URL, payload, format="json")
+        membership = Membership.objects.get(pk=response.data["id"])
+        assert list(membership.fix_events.values_list("id", flat=True)) == [event.pk]
+
+    def test_staff_can_patch_fix_events_onto_existing_membership(self, staff_client, world_data):
+        membership = create_membership()
+        event = create_event()
+        response = staff_client.patch(
+            detail_url(membership.pk), {"fix_event_ids": [event.pk]}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        membership.refresh_from_db()
+        assert list(membership.fix_events.values_list("id", flat=True)) == [event.pk]
+
+    def test_patch_can_attach_multiple_fix_events(self, staff_client, world_data):
+        membership = create_membership()
+        events = [create_event() for _ in range(3)]
+        response = staff_client.patch(
+            detail_url(membership.pk),
+            {"fix_event_ids": [e.pk for e in events]},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        membership.refresh_from_db()
+        assert set(membership.fix_events.values_list("id", flat=True)) == {e.pk for e in events}
+
+    def test_patch_replaces_fix_events(self, staff_client, world_data):
+        membership = create_membership()
+        old_event = create_event()
+        new_event = create_event()
+        membership.fix_events.set([old_event])
+
+        response = staff_client.patch(
+            detail_url(membership.pk), {"fix_event_ids": [new_event.pk]}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        membership.refresh_from_db()
+        assert list(membership.fix_events.values_list("id", flat=True)) == [new_event.pk]
+
+    def test_retrieve_includes_fix_events(self, staff_client, world_data):
+        membership = create_membership()
+        event = create_event()
+        membership.fix_events.add(event)
+        response = staff_client.get(detail_url(membership.pk))
+        assert response.data["fix_events"] == [event.pk]
+
+    def test_student_cannot_patch_fix_events(self, student_client, world_data):
+        membership = create_membership()
+        event = create_event()
+        response = student_client.patch(
+            detail_url(membership.pk), {"fix_event_ids": [event.pk]}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_403_FORBIDDEN
+        assert membership.fix_events.count() == 0

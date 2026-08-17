@@ -1,21 +1,23 @@
 name: Deploy to Staging
 
-# Trigger: runs when code is pushed to the staging branch
 on:
   push:
     branches:
       - staging
+
+# Serialize deploys so two pushes cannot run migrations concurrently.
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # ── Checkout code ────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Connect to VPS and deploy ─────────────────────────────────
       - name: Deploy to staging VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -23,21 +25,28 @@ jobs:
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
-            set -e
+            set -euo pipefail
+
             cd /home/deploy/bounce
-            
-            git pull origin staging
-            
-            # Build new images and recreate containers FIRST,
-            # so 'web' contains the new code and dependencies
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-              up -d --build
-            
-            # Now migrate inside the NEW container
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-              exec -T web python manage.py migrate --noinput
-            
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-              exec -T web python manage.py collectstatic --noinput
-            
+            COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+
+            # Record the currently deployed commit for rollback,
+            # before anything changes.
+            git rev-parse HEAD > /home/deploy/last_known_good_commit
+
+            git fetch origin staging
+            git reset --hard origin/staging
+
+            # Build first: on failure nothing has changed yet and the
+            # running containers keep serving the previous version.
+            $COMPOSE build
+
+            # Migrate in a throwaway container from the NEW image.
+            $COMPOSE run --rm web python manage.py migrate --noinput
+
+            $COMPOSE run --rm web python manage.py collectstatic --noinput
+
+            # Only now swap the running containers.
+            $COMPOSE up -d --remove-orphans
+
             docker image prune -f

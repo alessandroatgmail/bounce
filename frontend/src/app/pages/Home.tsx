@@ -1,25 +1,20 @@
-import { useMemo } from 'react';
-import { Link } from 'react-router';
-import { Calendar, Clock, Users, Loader2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
+import { Calendar, Clock, Users, Loader2, Info } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useEvents } from '../hooks/useEvents';
+import { useEventsPaginated } from '../hooks/useEventsPaginated';
 
 export function Home() {
   const { t, language } = useLanguage();
-  // public page: fetch events anonymously
-  const { events, loading } = useEvents(null);
-
-  const upcomingEvents = useMemo(
-    () =>
-      events
-        .filter(e => new Date(e.start_date) >= new Date())
-        .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
-        .slice(0, 6),
-    [events],
+  const navigate = useNavigate();
+  // public page: fetch events anonymously, same filters as the Events page
+  const { events: upcomingEvents, loading } = useEventsPaginated(
+    null,
+    { upcoming: true, exclude_children: true },
+    6,
   );
 
   return (
@@ -98,7 +93,7 @@ export function Home() {
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {upcomingEvents.map((event) => {
-                const artistLine = event.artists.map(a => a.full_name).join(' & ');
+                const artistLine = event.artists.map(a => a.full_name).join(', ');
                 return (
                   <Card key={event.id} className="hover:shadow-2xl transition-all duration-300 border-[#d4b896]/20 overflow-hidden group">
                     <div className="h-2 shrink-0" style={{ background: event.color ?? 'linear-gradient(to right, #d4b896, #e67e22)' }} />
@@ -113,6 +108,14 @@ export function Home() {
                         )}
                       </div>
                       <CardTitle className="text-xl text-[#2b2b2b] group-hover:text-[#e67e22] transition-colors">{event.name}</CardTitle>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/events/${event.id}`)}
+                        className="flex items-center gap-1 text-sm text-[#e67e22] hover:underline w-fit"
+                      >
+                        <Info className="size-3.5" />
+                        {language === 'it' ? 'Dettagli' : 'Details'}
+                      </button>
                       {artistLine && (
                         <CardDescription className="text-[#6b6b6b]">
                           {language === 'it' ? 'con' : 'with'} {artistLine}
@@ -131,7 +134,7 @@ export function Home() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Clock className="size-4 text-[#d4b896]" />
-                          {event.start_date.slice(11, 16)} ({event.duration} min)
+                          {event.start_date.slice(11, 16)}{!event.multi_events && ` (${event.duration} min)`}
                         </div>
                         <div className="flex items-center gap-2">
                           <Users className="size-4 text-[#d4b896]" />

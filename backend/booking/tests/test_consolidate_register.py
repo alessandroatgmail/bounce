@@ -188,13 +188,20 @@ class TestConsolidateRegister:
         assert response.status_code == http_status.HTTP_200_OK
 
         child_bookings = Booking.objects.filter(event=child)
-        assert child_bookings.count() == 2
+        # Anna, Bruno (booked eagerly as her mirrored partner contribution
+        # at registration time, before either of them paid) and Carla.
+        assert child_bookings.count() == 3
 
         anna_child = child_bookings.get(user=anna)
         assert anna_child.role == leader
         assert anna_child.partner == bruno
         assert anna_child.partner_email == bruno.email
         assert anna_child.couple is True
+
+        bruno_child = child_bookings.get(user=bruno)
+        assert bruno_child.role == follower
+        assert bruno_child.partner == anna
+        assert bruno_child.couple is True
 
         carla_child = child_bookings.get(user=carla)
         assert carla_child.role == follower

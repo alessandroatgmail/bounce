@@ -28,6 +28,7 @@ export interface Membership {
   start_date: string | null;
   end_date: string | null;
   rules: MembershipRule[];
+  fix_events: number[];
 }
 
 export interface MembershipPayload {
@@ -39,6 +40,7 @@ export interface MembershipPayload {
   duration: number;
   start_date: string | null;
   end_date: string | null;
+  fix_event_ids: number[];
 }
 
 export const MEMBERSHIP_TYPES = [

@@ -14,9 +14,27 @@ services:
     ports:
       - "9092:9092"
 
+  # ── Source code bind mounts: development only ────────────────────
+  # These make the host filesystem authoritative over /app so that
+  # code changes are picked up without rebuilding the image.
+  # They must never appear in the production override.
   web:
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
+
+  kafka_consumer:
+    volumes:
+      - ./backend:/app
+
+  celery_worker:
+    volumes:
+      - ./backend:/app
+
+  celery_beat:
+    volumes:
+      - ./backend:/app
 
   # ── Dev-only tools ───────────────────────────────────────────────
   flower:

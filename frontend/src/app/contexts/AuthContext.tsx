@@ -21,6 +21,7 @@ export interface User {
   country?: { id: number; name: string } | null;
   acsi?: boolean;
   acsi_number?: number | null;
+  acsi_starting_date?: string | null;
   acsi_expiration_date?: string | null;
   privacy_consent?: boolean;
   marketing_consent?: boolean;
@@ -120,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           country: data.country ?? null,
           acsi: data.acsi ?? false,
           acsi_number: data.acsi_number ?? null,
+          acsi_starting_date: data.acsi_starting_date ?? null,
           acsi_expiration_date: data.acsi_expiration_date ?? null,
           privacy_consent: data.privacy_consent ?? false,
           marketing_consent: data.marketing_consent ?? false,

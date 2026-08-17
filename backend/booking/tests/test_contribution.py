@@ -687,6 +687,77 @@ class TestContributionDiscounts:
         res = admin_client.get(LIST_URL)
         assert res.data[0]["discounts"][0]["name"] == "LIST"
 
+    def test_list_includes_extra_items(self, admin_client, subject_user, db):
+        from booking.models import ExtraItem
+        extra = ExtraItem.objects.create(
+            name="ACSI Membership", name_it="Tessera ACSI", name_en="ACSI Membership", value="5.00",
+        )
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        c.extra_items.add(extra)
+        res = admin_client.get(LIST_URL)
+        assert res.data[0]["extra_items"][0]["name"] == "ACSI Membership"
+
+
+class TestContributionExtraItemsCRUD:
+    """Admin add/remove of extra items on a contribution, via extra_item_ids."""
+
+    def make_extra_item(self, name="ACSI Membership", value="5.00"):
+        from booking.models import ExtraItem
+        return ExtraItem.objects.create(
+            name=name, name_it=name, name_en=name, value=value,
+        )
+
+    def test_create_with_extra_items(self, admin_client, subject_user, db):
+        extra = self.make_extra_item()
+        res = admin_client.post(
+            LIST_URL,
+            make_contribution_payload(subject_user, amount="100.00", extra_item_ids=[extra.pk]),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert list(c.extra_items.values_list("pk", flat=True)) == [extra.pk]
+
+    def test_create_without_extra_items(self, admin_client, subject_user, db):
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["extra_items"] == []
+
+    def test_update_adds_extra_item(self, admin_client, subject_user, db):
+        extra = self.make_extra_item()
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        res = admin_client.put(
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, amount="100.00", extra_item_ids=[extra.pk]),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert list(c.extra_items.values_list("pk", flat=True)) == [extra.pk]
+
+    def test_update_removes_extra_item(self, admin_client, subject_user, db):
+        extra = self.make_extra_item()
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        c.extra_items.add(extra)
+        res = admin_client.put(
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, amount="100.00", extra_item_ids=[]),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert c.extra_items.count() == 0
+
+    def test_update_without_extra_item_ids_keeps_existing(self, admin_client, subject_user, db):
+        extra = self.make_extra_item()
+        c = Contribution.objects.create(amount="100.00", user=subject_user)
+        c.extra_items.add(extra)
+        res = admin_client.put(
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, amount="100.00"),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert list(c.extra_items.values_list("pk", flat=True)) == [extra.pk]
+
 
 # ── end_date auto-computation (admin) ─────────────────────────────────────────
 

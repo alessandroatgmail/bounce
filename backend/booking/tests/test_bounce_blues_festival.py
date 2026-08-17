@@ -19,8 +19,10 @@ which have no admin endpoint):
       - "Normal Rate" €165, bookable Sep 15 → Oct 15 2026
     (the Normal Rate price is not part of the spec — any value works).
 
-Booking flow under test (the payload the real frontend sends: parent
-festival as event_id + membership_id + role_id + level_id):
+Booking flow under test, through POST /api/booking/my-memberships/book-festival/
+(parent festival as event_id + membership_id + role_id + level_id — the
+dedicated endpoint for a fixed-choice festival; level_id is mandatory
+there and the generic booking endpoint rejects this event shape):
 
   * membership window: students only see/book the pass whose window covers
     now (time is frozen inside a window with mocker).
@@ -56,6 +58,11 @@ ROOMS_URL = "/api/events/rooms/"
 ARTISTS_URL = "/api/events/artists/"
 MEMBERSHIPS_URL = "/api/membership/memberships/"
 MY_MEMBERSHIPS_URL = "/api/booking/my-memberships/"
+REGISTER_URL = "/api/events/register/"
+# The festival in this fixture is multi_events, non-free, fixed-choice
+# (case 3) — it now books through the dedicated endpoint, which requires
+# level_id and rejects everything that isn't this exact event shape.
+BOOK_FESTIVAL_URL = "/api/booking/my-memberships/book-festival/"
 
 SATURDAY = "2026-10-31"
 SUNDAY = "2026-11-01"
@@ -116,7 +123,7 @@ def book(student, festival, membership, role=None, level=None, partner=None):
     if partner:
         payload["partner_id"] = partner.id
         payload["partner_email"] = partner.email
-    return client_for(student).post(MY_MEMBERSHIPS_URL, payload, format="json")
+    return client_for(student).post(BOOK_FESTIVAL_URL, payload, format="json")
 
 
 def contribution_of(user):
@@ -364,6 +371,34 @@ class TestPartnerRegistration:
         response = book(bruno, blues_festival, "early", role="Follower", level="Improvers")
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
+    def test_register_shows_status_for_a_couple_booked_into_a_level_class(
+        self, september, blues_festival, admin_client,
+    ):
+        """Regression test: the register grid for a level class (a
+        role-paired child event of a multi_events festival) derived each
+        member's status/contribution_id by joining through
+        Contribution.events — an M2M that's only ever populated with the
+        festival itself, never its children (only Booking.contribution is,
+        via book_events_for_contribution). So a couple booked into a level
+        class showed up with status and contribution_id both null, even
+        though they were genuinely accepted."""
+        anna = make_student("anna@test.com")
+        bruno = make_student("bruno@test.com")
+        book(anna, blues_festival, "early",
+            role="Leader", level="Improvers", partner=bruno)
+
+        level_class_id = Booking.objects.filter(user=anna).first().event_id
+        response = admin_client.get(f"{REGISTER_URL}{level_class_id}/")
+
+        assert response.status_code == http_status.HTTP_200_OK, response.data
+        row = response.data["rows"][0]
+        anna_c = contribution_of(anna)
+        bruno_c = contribution_of(bruno)
+        assert row["members"]["Leader"]["status"] == ContributionStatus.ACCEPTED
+        assert row["members"]["Leader"]["contribution_id"] == anna_c.id
+        assert row["members"]["Follower"]["status"] == ContributionStatus.ACCEPTED
+        assert row["members"]["Follower"]["contribution_id"] == bruno_c.id
+
 
 # ── Single registration ───────────────────────────────────────────────────────
 
@@ -398,6 +433,21 @@ class TestSingleRegistration:
                     level="Improvers").status_code == http_status.HTTP_201_CREATED
         response = book(emma, blues_festival, "early", role="Leader", level="Improvers")
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_parent_event_available_spot_decreases_by_one(self, september, blues_festival, student_client):
+        emma = make_student("emma@test.com")
+        response = book(emma, blues_festival, "early", role="Leader", level="Improvers")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert contribution_of(emma).status == ContributionStatus.ACCEPTED
+
+        # Through the real events API — the same GET /api/events/events/{id}/
+        # the student dashboard calls — not the raw model property, since
+        # EventViewSet's queryset annotates occupied_count and the
+        # serializer prefers that annotation over the model's
+        # available_spot property whenever it's present.
+        response = student_client.get(f"{EVENTS_URL}{blues_festival['festival_id']}/")
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data["available_spot"] == response.data["capacity"] - 1
 
 
 # ── Waiting list ──────────────────────────────────────────────────────────────
@@ -464,6 +514,65 @@ class TestWaitingList:
         assert contribution_of(gina).status == ContributionStatus.ACCEPTED
 
 
+# ── children_levels colors ──────────────────────────────────────────────────────
+
+def improvers_colors(blues_festival, admin_client):
+    """children_levels entry for the Improvers level, as seen through the
+    real festival detail API."""
+    response = admin_client.get(f"{EVENTS_URL}{blues_festival['festival_id']}/")
+    assert response.status_code == http_status.HTTP_200_OK
+    entry = next(l for l in response.data["children_levels"] if l["name"] == "Improvers")
+    return entry["colors"]
+
+
+class TestChildrenLevelsColors:
+
+    def test_full_level_is_red_for_both_roles(self, september, blues_festival, admin_client):
+        # 2 couples + 1 solo leader = 5 accepted, capacity 5 → full.
+        fill_improvers(blues_festival)
+        colors = improvers_colors(blues_festival, admin_client)
+        assert colors == {"Leader": "red", "Follower": "red"}
+
+    def test_unmatched_leaders_at_extras_boundary_is_orange_for_leader(
+        self, september, blues_festival, admin_client,
+    ):
+        # extras=2: 2 unmatched leaders are the most a 3rd leader could
+        # join without waiting — Leader is imbalanced, Follower isn't.
+        for i in range(2):
+            book(make_student(f"leader{i}@test.com"), blues_festival, "early",
+                role="Leader", level="Improvers")
+        colors = improvers_colors(blues_festival, admin_client)
+        # 2 accepted, capacity 5 → available_spot=3, under the default
+        # warning_threshold of 5 → capacity-tier color is yellow for the
+        # role that isn't imbalanced.
+        assert colors == {"Leader": "orange", "Follower": "yellow"}
+
+    def test_fresh_level_under_lower_threshold_is_green(self, september, blues_festival, admin_client):
+        improvers_child_ids = list(
+            Event.objects.filter(
+                id__in=blues_festival["child_ids"], level_id=blues_festival["levels"]["Improvers"],
+            ).values_list("id", flat=True)
+        )
+        for child_id in improvers_child_ids:
+            response = admin_client.patch(
+                f"{EVENTS_URL}{child_id}/", {"warning_threshold": 2}, format="json",
+            )
+            assert response.status_code == http_status.HTTP_200_OK, response.data
+
+        colors = improvers_colors(blues_festival, admin_client)
+        assert colors == {"Leader": "green", "Follower": "green"}
+
+    def test_no_partner_roles_gets_a_default_color(self, september, blues_festival, admin_client):
+        improvers_child_ids = Event.objects.filter(
+            id__in=blues_festival["child_ids"], level_id=blues_festival["levels"]["Improvers"],
+        )
+        for child in improvers_child_ids:
+            child.event_type.partner_roles.clear()
+
+        colors = improvers_colors(blues_festival, admin_client)
+        assert list(colors.keys()) == ["default"]
+
+
 # ── Cancellation ──────────────────────────────────────────────────────────────
 
 class TestCancellation:
@@ -487,14 +596,16 @@ class TestCancellation:
         response = client_for(emma).delete(f"{MY_MEMBERSHIPS_URL}{emma_contribution_id}/")
         assert response.status_code == http_status.HTTP_204_NO_CONTENT
 
-        # A new follower now fits in the level again (4 accepted < 5).
+        # The freed spot promotes the oldest waiting student directly —
+        # booking.tasks.promote_waiting_for_level, dispatched from
+        # Contribution.save() on the ACCEPTED -> CANCELLED transition.
+        assert contribution_of(frank).status == ContributionStatus.ACCEPTED
+
+        # Frank's promotion filled the level back up — a new booking waits.
         giulia = make_student("giulia@test.com")
         assert book(giulia, blues_festival, "early", role="Follower",
                     level="Improvers").status_code == http_status.HTTP_201_CREATED
-        assert contribution_of(giulia).status == ContributionStatus.ACCEPTED
-
-        # The waiting student is notified, not silently promoted.
-        assert contribution_of(frank).status == ContributionStatus.WAITING
+        assert contribution_of(giulia).status == ContributionStatus.WAITING
 
     def test_paid_contribution_cannot_be_cancelled(self, september, blues_festival, admin_client):
         emma = make_student("emma@test.com")
@@ -511,3 +622,108 @@ class TestCancellation:
         response = client_for(emma).delete(f"{MY_MEMBERSHIPS_URL}{contribution_id}/")
         assert response.status_code == http_status.HTTP_403_FORBIDDEN
         assert contribution_of(emma).status == ContributionStatus.PAYED
+
+
+# ── Membership fix_events ("socials") ──────────────────────────────────────────
+#
+# A membership's fix_events are events always bundled with that pass —
+# e.g. three evening socials attached to the Early Bird pass — regardless
+# of which level the student books. Built on top of blues_festival rather
+# than changing it, so the base fixture and its existing assertions
+# (16 published classes, etc.) stay untouched.
+
+@pytest.fixture
+def blues_festival_with_socials(blues_festival, admin_client):
+    """Adds 3 "social" events (no partner role) as children of the
+    festival and attaches them to the Early Bird pass as fix_events."""
+    social_type = post(admin_client, EVENT_TYPES_URL, {
+        "name": "Blues Social", "frequency": "single", "partners": 0,
+    })
+    social_ids = []
+    for i in range(3):
+        social = post(admin_client, EVENTS_URL, {
+            "name": f"Social {i + 1}",
+            "status": "published",
+            "event_type_id": social_type["id"],
+            "type": "members",
+            "room_id": blues_festival["rooms"]["room1"],
+            "start_date": f"{SATURDAY}T20:00:00",
+            "end_date": f"{SATURDAY}T23:00:00",
+            "duration": 180,
+            "capacity": 100,
+        })
+        social_ids.append(social["id"])
+
+    response = admin_client.patch(
+        f"{EVENTS_URL}{blues_festival['festival_id']}/",
+        {"event_ids": blues_festival["child_ids"] + social_ids},
+        format="json",
+    )
+    assert response.status_code == http_status.HTTP_200_OK, response.data
+
+    response = admin_client.patch(
+        f"{MEMBERSHIPS_URL}{blues_festival['memberships']['early']}/",
+        {"fix_event_ids": social_ids},
+        format="json",
+    )
+    assert response.status_code == http_status.HTTP_200_OK, response.data
+
+    return {**blues_festival, "social_ids": social_ids}
+
+
+class TestFixEventSocials:
+
+    def test_booking_creates_bookings_for_the_memberships_fix_events(
+        self, september, blues_festival_with_socials,
+    ):
+        emma = make_student("emma@test.com")
+        response = book(emma, blues_festival_with_socials, "early",
+                        role="Leader", level="Improvers")
+        assert response.status_code == http_status.HTTP_201_CREATED, response.data
+
+        for social_id in blues_festival_with_socials["social_ids"]:
+            assert Booking.objects.filter(user=emma, event_id=social_id).exists()
+
+    def test_socials_are_booked_regardless_of_the_chosen_level(
+        self, september, blues_festival_with_socials,
+    ):
+        gina = make_student("gina@test.com")
+        response = book(gina, blues_festival_with_socials, "early",
+                        role="Leader", level="Advance")
+        assert response.status_code == http_status.HTTP_201_CREATED, response.data
+
+        for social_id in blues_festival_with_socials["social_ids"]:
+            assert Booking.objects.filter(user=gina, event_id=social_id).exists()
+
+    def test_membership_without_fix_events_does_not_book_socials(
+        self, mocker, blues_festival_with_socials,
+    ):
+        # The Normal Rate pass was never given fix_events — only Early Bird was.
+        freeze(mocker, IN_NORMAL_RATE_WINDOW)
+        frank = make_student("frank@test.com")
+        response = book(frank, blues_festival_with_socials, "normal",
+                        role="Leader", level="Improvers")
+        assert response.status_code == http_status.HTTP_201_CREATED, response.data
+
+        for social_id in blues_festival_with_socials["social_ids"]:
+            assert not Booking.objects.filter(user=frank, event_id=social_id).exists()
+
+    def test_register_lists_the_booked_student_for_a_social(
+        self, september, blues_festival_with_socials, admin_client,
+    ):
+        """The register grid for a fix_events social (no partner role)
+        must list whoever got booked into it. Regression test: the
+        register used to read from Contribution.events, which is never
+        touched for fix_events (only Booking is — see
+        book_events_for_contribution), so the grid stayed empty even
+        though the student was genuinely booked."""
+        emma = make_student("emma@test.com")
+        book(emma, blues_festival_with_socials, "early", role="Leader", level="Improvers")
+
+        social_id = blues_festival_with_socials["social_ids"][0]
+        response = admin_client.get(f"{REGISTER_URL}{social_id}/")
+
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.data["roles"] == ["Member"]
+        cell = response.data["rows"][0]["members"]["Member"]
+        assert cell["email"] == emma.email

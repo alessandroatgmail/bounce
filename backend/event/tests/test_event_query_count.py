@@ -192,7 +192,11 @@ class TestEventListPayloadRegression:
         assert item["booked_by"] == "Bruno Booker"
         assert item["available_spot"] == 19  # capacity 20, one PAYED contribution
         assert item["children_levels"] == [
-            {"id": shared_deps["level"].pk, "name": shared_deps["level"].name}
+            {
+                "id": shared_deps["level"].pk,
+                "name": shared_deps["level"].name,
+                "colors": {"default": "green"},
+            }
         ]
         assert [m["id"] for m in item["memberships"]] == [shared_deps["membership"].pk]
         assert item["memberships"][0]["rules"], "membership rules should be serialized"

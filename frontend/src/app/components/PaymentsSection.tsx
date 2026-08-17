@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
-import { CreditCard, Crown, FileText, XCircle, Loader2, ChevronDown, ArrowRightLeft } from 'lucide-react';
+import { CreditCard, Crown, Loader2, ChevronDown, ArrowRightLeft } from 'lucide-react';
 import type { CheckoutItem } from '../pages/CheckoutPage';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Card, CardContent } from './ui/card';
@@ -12,7 +12,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useUserMemberships, type ContributionStatus, type UserMembership, type LinkedContribution } from '../hooks/useUserMemberships';
 import { useEvents } from '../hooks/useEvents';
-import { mockPayments } from '../data/mockData';
+import { useMyTransactions, type MyTransaction } from '../hooks/useMyTransactions';
+import type { PaymentMethod } from '../hooks/usePayments';
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
@@ -41,39 +42,114 @@ function statusBadge(status: ContributionStatus, lang: 'it' | 'en') {
   );
 }
 
-function getRelatedContribs(c: UserMembership, contribMap: Map<number, UserMembership>): LinkedContribution[] {
-  const seen = new Set<number>();
-  const result: LinkedContribution[] = [];
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, { it: string; en: string }> = {
+  stripe: { it: 'Carta', en: 'Card' },
+  cash:   { it: 'Contanti', en: 'Cash' },
+  bank:   { it: 'Bonifico', en: 'Bank transfer' },
+};
 
-  const add = (item: LinkedContribution) => {
-    if (!seen.has(item.id)) { seen.add(item.id); result.push(item); }
+function transactionCoverageLabel(t: MyTransaction): string {
+  const names = t.contributions.flatMap(c =>
+    c.events.length > 0 ? c.events.map(e => e.name) : (c.membership_name ? [c.membership_name] : [])
+  );
+  return names.length > 0 ? names.join(', ') : '—';
+}
+
+interface RelatedEntry {
+  contribution: LinkedContribution;
+  // 'partner' = the other half of a couple booking (same event, other user).
+  // 'upgrade' = the same user's contribution before an upgrade — not a partner.
+  kind: 'partner' | 'upgrade';
+}
+
+function getRelatedContribs(c: UserMembership, contribMap: Map<number, UserMembership>): RelatedEntry[] {
+  const seen = new Set<number>();
+  const result: RelatedEntry[] = [];
+
+  const add = (item: LinkedContribution, kind: RelatedEntry['kind']) => {
+    if (!seen.has(item.id)) { seen.add(item.id); result.push({ contribution: item, kind }); }
   };
 
   // upgraded_from is always the same user — look it up in contribMap
   if (c.upgraded_from != null) {
     const uc = contribMap.get(c.upgraded_from);
-    if (uc) add(uc as unknown as LinkedContribution);
+    if (uc) add(uc as unknown as LinkedContribution, 'upgrade');
   }
   // original_contribution and twin_contributions are embedded (may be another user)
-  if (c.original_contribution != null) add(c.original_contribution);
-  (c.twin_contributions ?? []).forEach(add);
+  if (c.original_contribution != null) add(c.original_contribution, 'partner');
+  (c.twin_contributions ?? []).forEach(item => add(item, 'partner'));
 
   return result;
+}
+
+/** Who pays this contribution, and — for couple bookings — who their partner is. */
+interface PayerPartnerInfo {
+  payerEmail: string;
+  payerRole: string | null;
+  partnerEmail: string | null;
+  partnerRole: string | null;
+}
+
+/** Maps every contribution id (the viewer's own plus any embedded twin/original) to its payer/partner identity. */
+function buildPayerPartnerMap(userMemberships: UserMembership[]): Map<number, PayerPartnerInfo> {
+  const map = new Map<number, PayerPartnerInfo>();
+  userMemberships.forEach(c => {
+    const partner = c.twin_contributions[0] ?? c.original_contribution ?? null;
+    map.set(c.id, {
+      payerEmail: c.user_email,
+      payerRole: c.role,
+      partnerEmail: partner?.user_email ?? null,
+      partnerRole: partner?.role ?? null,
+    });
+    if (partner) {
+      map.set(partner.id, {
+        payerEmail: partner.user_email,
+        payerRole: partner.role,
+        partnerEmail: c.user_email,
+        partnerRole: c.role,
+      });
+    }
+  });
+  return map;
+}
+
+function PayerPartnerLines({
+  info, lang, className = 'text-xs text-gray-400',
+}: { info: PayerPartnerInfo | undefined; lang: 'it' | 'en'; className?: string }) {
+  if (!info) return null;
+  return (
+    <div className={`${className} space-y-0.5`}>
+      <p>
+        <span className="font-medium text-gray-500">{lang === 'it' ? 'Paga per:' : 'Pay for:'}</span>{' '}
+        {info.payerEmail}{info.payerRole ? ` · ${info.payerRole}` : ''}
+      </p>
+      {info.partnerEmail && (
+        <p>
+          <span className="font-medium text-gray-500">Partner:</span>{' '}
+          {info.partnerEmail}{info.partnerRole ? ` · ${info.partnerRole}` : ''}
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ─── Related contribution mini-row ───────────────────────────────────────────
 
 interface RelatedRowProps {
-  c: LinkedContribution;
+  entry: RelatedEntry;
   eventMap: Map<number, { name: string; end_date: string }>;
+  payerPartnerMap: Map<number, PayerPartnerInfo>;
   selected: Set<number>;
   onToggle: (id: number) => void;
   lang: 'it' | 'en';
 }
 
-function RelatedContribRow({ c, eventMap, selected, onToggle, lang }: RelatedRowProps) {
+function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggle, lang }: RelatedRowProps) {
+  const c = entry.contribution;
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
   const canPay = c.status === 'accepted';
+  // Upgrade history rows are the same user, not a couple — no "Partner" line.
+  const info = entry.kind === 'partner' ? payerPartnerMap.get(c.id) : { payerEmail: c.user_email, payerRole: c.role, partnerEmail: null, partnerRole: null };
   return (
     <div className="flex items-center gap-3 p-2 bg-gray-50 rounded border">
       <Checkbox
@@ -88,11 +164,7 @@ function RelatedContribRow({ c, eventMap, selected, onToggle, lang }: RelatedRow
             {firstEvent?.name ?? c.membership?.name ?? `#${c.id}`}
           </span>
         </div>
-        {(c.role || c.partner) && (
-          <span className="text-xs text-gray-400 ml-5">
-            {[c.role, c.partner].filter(Boolean).join(' · ')}
-          </span>
-        )}
+        <PayerPartnerLines info={info} lang={lang} className="text-xs text-gray-400 ml-5" />
       </div>
       <span className="text-sm font-semibold shrink-0">€{c.discounted_amount}</span>
       {statusBadge(c.status, lang === 'it' ? 'it' : 'en')}
@@ -106,6 +178,7 @@ interface ReadyCardProps {
   c: UserMembership;
   contribMap: Map<number, UserMembership>;
   eventMap: Map<number, { name: string; end_date: string }>;
+  payerPartnerMap: Map<number, PayerPartnerInfo>;
   selected: Set<number>;
   expanded: Set<number>;
   onToggleSelect: (id: number) => void;
@@ -114,7 +187,7 @@ interface ReadyCardProps {
 }
 
 function ReadyCard({
-  c, contribMap, eventMap, selected, expanded,
+  c, contribMap, eventMap, payerPartnerMap, selected, expanded,
   onToggleSelect, onToggleExpand, lang,
 }: ReadyCardProps) {
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
@@ -140,11 +213,7 @@ function ReadyCard({
               <span className="font-bold truncate">{firstEvent?.name ?? '—'}</span>
             </div>
             <span className="text-sm text-gray-500 ml-5 block">{c.membership?.name ?? '—'}</span>
-            {(c.role || c.partner) && (
-              <span className="text-xs text-gray-400 ml-5 block">
-                {[c.role, c.partner].filter(Boolean).join(' · ')}
-              </span>
-            )}
+            <PayerPartnerLines info={payerPartnerMap.get(c.id)} lang={lang} className="text-xs text-gray-400 ml-5" />
           </div>
           {related.length > 0 && (
             <button
@@ -189,11 +258,12 @@ function ReadyCard({
             <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
               {lang === 'it' ? 'Iscrizioni collegate' : 'Related contributions'}
             </p>
-            {related.map(rc => (
+            {related.map(entry => (
               <RelatedContribRow
-                key={rc.id}
-                c={rc}
+                key={entry.contribution.id}
+                entry={entry}
                 eventMap={eventMap}
+                payerPartnerMap={payerPartnerMap}
                 selected={selected}
                 onToggle={onToggleSelect}
                 lang={lang}
@@ -209,26 +279,26 @@ function ReadyCard({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function PaymentsSection() {
-  const { user, accessToken } = useAuth();
+  const { accessToken } = useAuth();
   const { language } = useLanguage();
   const lang = language === 'it' ? 'it' : 'en';
   const navigate = useNavigate();
   const location = useLocation();
 
-  const validTabs = ['transactions', 'memberships', 'topay'] as const;
+  const validTabs = ['transactions', 'topay'] as const;
   type PayTab = typeof validTabs[number];
   const initialTab = (() => {
     const t = new URLSearchParams(location.search).get('tab') as PayTab | null;
     return t && (validTabs as readonly string[]).includes(t) ? t : 'transactions';
   })();
 
-  const { userMemberships, loading: contribLoading, cancel: cancelContribution } = useUserMemberships(accessToken);
+  const { userMemberships } = useUserMemberships(accessToken);
   const { events: allEvents } = useEvents(accessToken);
+  const { transactions: myTransactions, loading: transactionsLoading } = useMyTransactions(accessToken);
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  const today = new Date().toISOString().split('T')[0];
   const eventMap = useMemo(
     () => new Map(allEvents.map(e => [e.id, e])),
     [allEvents],
@@ -248,15 +318,10 @@ export function PaymentsSection() {
     return map;
   }, [userMemberships]);
 
-  const readyToPay = userMemberships.filter(c => c.status === 'accepted');
-  const activeUserMemberships = userMemberships.filter(c =>
-    c.events.length === 0 || c.events.some(eid => (eventMap.get(eid)?.end_date ?? '') >= today)
-  );
-  const pastUserMemberships = userMemberships.filter(c =>
-    c.events.length > 0 && c.events.every(eid => (eventMap.get(eid)?.end_date ?? '') < today)
-  );
+  // who pays each contribution and, for couple bookings, who their partner is
+  const payerPartnerMap = useMemo(() => buildPayerPartnerMap(userMemberships), [userMemberships]);
 
-  const userPayments = user ? mockPayments.filter(p => p.userId === user.id) : [];
+  const readyToPay = userMemberships.filter(c => c.status === 'accepted');
 
   const toggleSelect = (id: number) => setSelected(prev => {
     const next = new Set(prev);
@@ -281,15 +346,19 @@ export function PaymentsSection() {
       if (!c) return null;
       const firstEventId = c.events[0];
       const eventName = firstEventId != null ? (eventMap.get(firstEventId)?.name ?? `#${id}`) : `#${id}`;
+      const info = payerPartnerMap.get(id);
       return {
         id: c.id,
         eventName,
         membershipName: c.membership?.name ?? '—',
-        role: c.role,
-        partner: c.partner,
+        payerEmail: info?.payerEmail ?? c.user_email,
+        payerRole: info?.payerRole ?? c.role,
+        partnerEmail: info?.partnerEmail ?? null,
+        partnerRole: info?.partnerRole ?? null,
         amount: c.amount,
         discounted_amount: c.discounted_amount,
         discounts: c.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
+        extra_items: c.extra_items,
       };
     }).filter((x): x is CheckoutItem => x !== null);
     navigate('/checkout', { state: { items } });
@@ -301,9 +370,6 @@ export function PaymentsSection() {
         <TabsList className="bg-[#2b2b2b] mb-6">
           <TabsTrigger value="transactions" className="data-[state=active]:bg-[#e67e22] data-[state=active]:text-white text-gray-300">
             {lang === 'it' ? 'Pagamenti' : 'Transactions'}
-          </TabsTrigger>
-          <TabsTrigger value="memberships" className="data-[state=active]:bg-[#e67e22] data-[state=active]:text-white text-gray-300">
-            {lang === 'it' ? 'Pacchetti' : 'Memberships'}
           </TabsTrigger>
           <TabsTrigger value="topay" className="data-[state=active]:bg-[#e67e22] data-[state=active]:text-white text-gray-300">
             {lang === 'it' ? 'Da Pagare' : 'To Pay'}
@@ -322,233 +388,55 @@ export function PaymentsSection() {
               <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
                 {lang === 'it' ? 'Storico Pagamenti' : 'Payment History'}
               </h2>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{lang === 'it' ? 'ID Transazione' : 'Transaction ID'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Data' : 'Date'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Importo' : 'Amount'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Metodo' : 'Method'}</TableHead>
-                    <TableHead>{lang === 'it' ? 'Stato' : 'Status'}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {userPayments.map(payment => (
-                    <TableRow key={payment.id}>
-                      <TableCell className="font-mono text-sm">{payment.id}</TableCell>
-                      <TableCell>
-                        {new Date(payment.date).toLocaleDateString(
-                          lang === 'it' ? 'it-IT' : 'en-GB',
-                          { month: 'short', day: 'numeric', year: 'numeric' },
-                        )}
-                      </TableCell>
-                      <TableCell className="font-semibold">€{payment.amount}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="size-4" />
-                          {payment.method.replace('_', ' ')}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            payment.status === 'completed' ? 'default'
-                            : payment.status === 'pending' ? 'secondary'
-                            : 'destructive'
-                          }
-                        >
-                          {lang === 'it'
-                            ? (payment.status === 'completed' ? 'Completato'
-                               : payment.status === 'pending' ? 'In Attesa' : 'Annullato')
-                            : payment.status}
-                        </Badge>
-                      </TableCell>
+              {transactionsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="size-6 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{lang === 'it' ? 'Data' : 'Date'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Per' : 'For'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Importo' : 'Amount'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Metodo' : 'Method'}</TableHead>
+                      <TableHead>{lang === 'it' ? 'Ricevuta' : 'Receipt'}</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {myTransactions.map(t => (
+                      <TableRow key={t.id}>
+                        <TableCell>
+                          {new Date(t.date).toLocaleDateString(
+                            lang === 'it' ? 'it-IT' : 'en-GB',
+                            { month: 'short', day: 'numeric', year: 'numeric' },
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm max-w-xs">{transactionCoverageLabel(t)}</TableCell>
+                        <TableCell className="font-semibold">
+                          €{t.amount_total} {t.currency.toUpperCase() !== 'EUR' ? t.currency.toUpperCase() : ''}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="size-4" />
+                            {PAYMENT_METHOD_LABEL[t.method]?.[lang] ?? t.method}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-500">{t.receipt_number || '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                    {myTransactions.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-gray-400 py-8">
+                          {lang === 'it' ? 'Nessun pagamento.' : 'No payments yet.'}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        {/* ── Memberships / Packs ── */}
-        <TabsContent value="memberships">
-          {contribLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="size-6 animate-spin text-gray-400" />
-            </div>
-          ) : (
-            <div className="space-y-8">
-
-              {/* ── 1. Active Packs ── */}
-              <section>
-                <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                  {lang === 'it' ? 'Pacchetti Attivi' : 'Active Packs'}
-                </h2>
-                {activeUserMemberships.length === 0 ? (
-                  <p className="text-sm text-gray-400">
-                    {lang === 'it' ? 'Nessun pacchetto attivo.' : 'No active packs.'}
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {activeUserMemberships.map(c => {
-                      const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
-                      return (
-                        <Card key={c.id} className="border-2 border-[#e67e22] overflow-hidden flex flex-col">
-                          {c.membership?.color && (
-                            <div className="h-1.5 shrink-0" style={{ backgroundColor: c.membership.color }} />
-                          )}
-                          <CardContent className="p-4 flex flex-col gap-3 flex-1">
-                            <div className="flex flex-col gap-0.5">
-                              <div className="flex items-center gap-2">
-                                <Crown className="size-4 text-[#e67e22]" />
-                                <span className="font-bold">{firstEvent?.name ?? '—'}</span>
-                                {statusBadge(c.status, lang)}
-                              </div>
-                              <span className="text-sm text-gray-500 pl-6">{c.membership?.name ?? '—'}</span>
-                            </div>
-                            <div className="text-sm text-gray-600">
-                              {c.discounts.length > 0 ? (
-                                <>
-                                  <span className="line-through text-gray-400 mr-1">€{c.amount}</span>
-                                  <span className="font-medium">€{c.discounted_amount}</span>
-                                </>
-                              ) : <>€{c.amount}</>}
-                            </div>
-                            {c.discounts.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {c.discounts.map(d => (
-                                  <Badge key={d.id} variant="outline" className="text-xs">
-                                    {d.name_ext || d.name}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            <div className="text-xs text-gray-500 space-y-0.5">
-                              {c.start_date && (
-                                <div>
-                                  <span className="font-medium">{lang === 'it' ? 'Inizio:' : 'Start:'}</span>{' '}
-                                  {new Date(c.start_date).toLocaleDateString(
-                                    lang === 'it' ? 'it-IT' : 'en-GB',
-                                    { day: 'numeric', month: 'short', year: 'numeric' },
-                                  )}
-                                </div>
-                              )}
-                              {c.end_date && (
-                                <div>
-                                  <span className="font-medium">{lang === 'it' ? 'Scadenza:' : 'Expires:'}</span>{' '}
-                                  {new Date(c.end_date).toLocaleDateString(
-                                    lang === 'it' ? 'it-IT' : 'en-GB',
-                                    { day: 'numeric', month: 'short', year: 'numeric' },
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            {c.events.length > 1 && (
-                              <div className="flex flex-col gap-1">
-                                {c.events.slice(1).map(eid => {
-                                  const ev = eventMap.get(eid);
-                                  return ev ? (
-                                    <span key={eid} className="text-xs text-gray-500 bg-gray-100 rounded px-2 py-0.5">
-                                      {ev.name}
-                                    </span>
-                                  ) : null;
-                                })}
-                              </div>
-                            )}
-                            <div className="flex gap-2 mt-auto">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
-                                disabled={c.status === 'payed' || c.status === 'cancelled'}
-                                onClick={() => cancelContribution(c.id)}
-                              >
-                                <XCircle className="size-3.5 mr-1" />
-                                {lang === 'it' ? 'Annulla' : 'Cancel'}
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-
-              {/* ── 2. Past Packs ── */}
-              {pastUserMemberships.length > 0 && (
-                <section>
-                  <h2 className="text-xl font-bold text-[#2b2b2b] mb-4">
-                    {lang === 'it' ? 'Pacchetti Passati' : 'Past Packs'}
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {pastUserMemberships.map(c => {
-                      const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
-                      return (
-                        <Card key={c.id} className="overflow-hidden opacity-60">
-                          {c.membership?.color && (
-                            <div className="h-1.5" style={{ backgroundColor: c.membership.color }} />
-                          )}
-                          <CardContent className="p-4">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex flex-col gap-0.5">
-                                <div className="flex items-center gap-2">
-                                  <Crown className="size-4 text-gray-400" />
-                                  <span className="font-bold">{firstEvent?.name ?? '—'}</span>
-                                </div>
-                                <span className="text-sm text-gray-500 pl-6">{c.membership?.name ?? '—'}</span>
-                              </div>
-                              <div className="flex gap-1">
-                                <Badge variant="secondary">{lang === 'it' ? 'Passato' : 'Past'}</Badge>
-                                {statusBadge(c.status, lang)}
-                              </div>
-                            </div>
-                            <div className="text-sm text-gray-600">
-                              {c.discounts.length > 0 ? (
-                                <>
-                                  <span className="line-through text-gray-400 mr-1">€{c.amount}</span>
-                                  <span className="font-medium">€{c.discounted_amount}</span>
-                                </>
-                              ) : <>€{c.amount}</>}
-                            </div>
-                            {c.events.length > 1 && (
-                              <div className="text-xs text-gray-400 mt-1">
-                                +{c.events.length - 1} {lang === 'it' ? 'evento/i' : 'event(s)'}
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
-
-              {/* ── ACSI form ── */}
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-lg text-[#2b2b2b] mb-2">
-                        {lang === 'it' ? 'Modulo Richiesta Tesseramento ACSI' : 'ACSI Membership Request Form'}
-                      </h3>
-                      <p className="text-sm text-gray-600">
-                        {lang === 'it'
-                          ? 'Scarica il modulo per la richiesta di tesseramento ACSI da compilare e consegnare.'
-                          : 'Download the ACSI membership request form to fill out and submit.'}
-                      </p>
-                    </div>
-                    <Button className="bg-[#e67e22] hover:bg-[#d47420]">
-                      <FileText className="size-4 mr-2" />
-                      {lang === 'it' ? 'Scarica Modulo' : 'Download Form'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-            </div>
-          )}
         </TabsContent>
 
         {/* ── To Pay ── */}
@@ -582,6 +470,7 @@ export function PaymentsSection() {
                     c={c}
                     contribMap={contribMap}
                     eventMap={eventMap as Map<number, { name: string; end_date: string }>}
+                    payerPartnerMap={payerPartnerMap}
                     selected={selected}
                     expanded={expanded}
                     onToggleSelect={toggleSelect}

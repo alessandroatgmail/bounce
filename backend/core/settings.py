@@ -47,6 +47,8 @@ INSTALLED_APPS = [
     'festival',
     'booking',
     'emails',
+    'document',
+    'payments',
 
 ]
 
@@ -96,6 +98,10 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'en-us'
+LANGUAGES = [
+    ("en", "English"),
+    ("it", "Italiano"),
+]
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True

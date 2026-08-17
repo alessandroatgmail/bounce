@@ -51,7 +51,7 @@ def full_student(db, country, city):
         country=country,
         acsi=True,
         acsi_number=12345,
-        acsi_expiration_date="2027-12-31",
+        acsi_starting_date="2026-12-31",
         privacy_consent=True,
         marketing_consent=False,
         is_active=True,
@@ -96,6 +96,7 @@ class TestMeEndpoint:
         assert data["postal_code"] == "30100"
         assert data["acsi"] is True
         assert data["acsi_number"] == 12345
+        assert data["acsi_starting_date"] == "2026-12-31"
         assert data["acsi_expiration_date"] == "2027-12-31"
         assert data["privacy_consent"] is True
         assert data["marketing_consent"] is False
@@ -215,14 +216,15 @@ class TestMePutProfile:
 
         response = client.put(
             ME_URL,
-            {"acsi": True, "acsi_number": 99999, "acsi_expiration_date": "2028-06-30"},
+            {"acsi": True, "acsi_number": 99999, "acsi_starting_date": "2028-06-30"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["acsi"] is True
         assert response.data["acsi_number"] == 99999
-        assert response.data["acsi_expiration_date"] == "2028-06-30"
+        assert response.data["acsi_starting_date"] == "2028-06-30"
+        assert response.data["acsi_expiration_date"] == "2029-06-30"
 
     def test_acsi_true_without_number_returns_400(self, client, full_student):
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")
@@ -230,24 +232,24 @@ class TestMePutProfile:
 
         # Clear existing ACSI data first, then try to set acsi=True with no number
         full_student.acsi_number = None
-        full_student.acsi_expiration_date = None
+        full_student.acsi_starting_date = None
         full_student.save()
 
         response = client.put(
             ME_URL,
-            {"acsi": True, "acsi_expiration_date": "2028-06-30"},
+            {"acsi": True, "acsi_starting_date": "2028-06-30"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "acsi_number" in response.data
 
-    def test_acsi_true_without_expiry_returns_400(self, client, full_student):
+    def test_acsi_true_without_starting_date_returns_400(self, client, full_student):
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
         full_student.acsi_number = None
-        full_student.acsi_expiration_date = None
+        full_student.acsi_starting_date = None
         full_student.save()
 
         response = client.put(
@@ -257,7 +259,7 @@ class TestMePutProfile:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "acsi_expiration_date" in response.data
+        assert "acsi_starting_date" in response.data
 
     def test_update_marketing_consent(self, client, full_student):
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")

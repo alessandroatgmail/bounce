@@ -1,16 +1,18 @@
 from django.db import transaction
+from django.db.models import Count, Min, Q
 from django.utils import timezone
 from datetime import date
 
 from dateutil.relativedelta import relativedelta
 
-from .models import Contribution, ContributionStatus
+from .models import Contribution, ContributionStatus, ExtraItem
 from membership.models import Membership, Discount
 
 from django.contrib.auth import get_user_model
 from utils.tasks import  send_email
 from event.models import Event
 from .tasks import send_email_accept_email
+from .utils import book_events_for_contribution
 
 def _create_partner_contribution(original: Contribution, partner: get_user_model()) -> Contribution:
     """
@@ -32,6 +34,7 @@ def _create_partner_contribution(original: Contribution, partner: get_user_model
         )
         # link the same events
         partner_contribution.events.set(original.events.all())
+        book_events_for_contribution(partner_contribution)
     return partner_contribution
 
 def create_partner_contributions_for_user(user) -> list[Contribution]:
@@ -122,6 +125,22 @@ def _contribution_date_range(membership: Membership, event: Event) -> tuple[date
 
     return start_date, end_date
 
+def _maybe_add_acsi_extra_item(contribution: Contribution, event: Event) -> None:
+    """Attach the ACSI membership extra item unless the user already holds
+    an ACSI card that is still valid on the event's start date — a missing
+    or expired card both mean the membership still needs to be purchased.
+    """
+    user = contribution.user
+    has_valid_card = (
+        user.acsi
+        and user.acsi_expiration_date
+        and user.acsi_expiration_date >= event.start_date.date()
+    )
+    if not has_valid_card:
+        acsi_item = ExtraItem.objects.filter(name='ACSI Membership').first()
+        if acsi_item:
+            contribution.extra_items.add(acsi_item)
+
 def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status: str, new_status: str) -> None:
     if new_status == ContributionStatus.ACCEPTED:
         send_email_accept_email.delay(user_id=user_id, contribution_id=contribution_id)
@@ -156,6 +175,12 @@ def waiting_list(contribution: Contribution) -> bool:
             if partner_contribution:
                 send_waiting_list_max_email.delay(partner_contribution.user.id, partner_contribution.id)
             return True
+        if partner_contribution:
+            # A couple booking adds exactly one of each role together, so
+            # it can never worsen the leader/follower balance — only
+            # capacity (already checked above) gates it, not the
+            # role-accepted/extras imbalance checks below.
+            return False
         if _check_need_role(contribution):
             if not _check_role_accepted(contribution):
                 send_waiting_list_for_role_email.delay(contribution.user.id, contribution.id)

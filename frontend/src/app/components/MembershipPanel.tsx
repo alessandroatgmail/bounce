@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useMemberships, Membership, MembershipPayload, MembershipRule, MEMBERSHIP_TYPES } from '../hooks/useMemberships';
 import { useEventTypes } from '../hooks/useEventTypes';
+import { useEvents } from '../hooks/useEvents';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -12,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Badge } from './ui/badge';
+import { MultiSearchSelect } from './MultiSearchSelect';
 
 interface RuleDraft {
   id?: number;
@@ -28,6 +30,7 @@ const EMPTY_PAYLOAD: MembershipPayload = {
   duration: 1,
   start_date: null,
   end_date: null,
+  fix_event_ids: [],
 };
 
 // ISO (with timezone) ⇄ datetime-local input value ("YYYY-MM-DDTHH:mm")
@@ -45,15 +48,22 @@ const localInputToIso = (value: string): string | null =>
 interface FormProps {
   initial?: MembershipPayload;
   initialRules?: RuleDraft[];
+  initialFixEvents?: { id: number; name: string }[];
   eventTypeOptions: { id: number; name: string }[];
+  eventOptions: { id: number; name: string }[];
+  loadingEvents?: boolean;
   onSubmit: (data: MembershipPayload, rules: RuleDraft[]) => Promise<void>;
   onCancel: () => void;
 }
 
-function MembershipForm({ initial = EMPTY_PAYLOAD, initialRules = [], eventTypeOptions, onSubmit, onCancel }: FormProps) {
+function MembershipForm({
+  initial = EMPTY_PAYLOAD, initialRules = [], initialFixEvents = [],
+  eventTypeOptions, eventOptions, loadingEvents, onSubmit, onCancel,
+}: FormProps) {
   const { language } = useLanguage();
   const [form, setForm] = useState<MembershipPayload>(initial);
   const [rules, setRules] = useState<RuleDraft[]>(initialRules);
+  const [fixEvents, setFixEvents] = useState<{ id: number; name: string }[]>(initialFixEvents);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,7 +82,7 @@ function MembershipForm({ initial = EMPTY_PAYLOAD, initialRules = [], eventTypeO
     setSaving(true);
     setError(null);
     try {
-      await onSubmit(form, rules);
+      await onSubmit({ ...form, fix_event_ids: fixEvents.map(ev => ev.id) }, rules);
     } catch {
       setError(language === 'it' ? 'Errore durante il salvataggio.' : 'Failed to save.');
     } finally {
@@ -259,6 +269,23 @@ function MembershipForm({ initial = EMPTY_PAYLOAD, initialRules = [], eventTypeO
           )}
         </div>
 
+        {/* Fix events section */}
+        <div className="col-span-2 space-y-2">
+          <MultiSearchSelect
+            label={language === 'it' ? 'Eventi inclusi (fissi)' : 'Fixed events'}
+            items={eventOptions}
+            selected={fixEvents}
+            loading={loadingEvents}
+            placeholder={language === 'it' ? 'Cerca evento…' : 'Search event…'}
+            onChange={setFixEvents}
+          />
+          <p className="text-xs text-gray-400">
+            {language === 'it'
+              ? 'Eventi sempre inclusi in questo piano, indipendentemente dal livello scelto.'
+              : 'Events always included with this plan, regardless of the level booked.'}
+          </p>
+        </div>
+
       </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
@@ -282,6 +309,8 @@ export function MembershipPanel() {
   const { memberships, loading, error, refetch, create, update, remove, createRule, deleteRule } =
     useMemberships(accessToken);
   const { eventTypes } = useEventTypes(accessToken);
+  const { events, loading: loadingEvents } = useEvents(accessToken);
+  const eventOptions = events.map(ev => ({ id: ev.id, name: ev.name }));
 
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Membership | null>(null);
@@ -326,7 +355,14 @@ export function MembershipPanel() {
     duration: m.duration,
     start_date: m.start_date,
     end_date: m.end_date,
+    fix_event_ids: m.fix_events,
   });
+
+  const toFixEventDrafts = (m: Membership): { id: number; name: string }[] =>
+    m.fix_events.map(id => {
+      const found = events.find(ev => ev.id === id);
+      return { id, name: found ? found.name : `#${id}` };
+    });
 
   const formatDateTime = (iso: string): string =>
     new Date(iso).toLocaleString(language === 'it' ? 'it-IT' : 'en-GB', {
@@ -370,6 +406,8 @@ export function MembershipPanel() {
               </DialogHeader>
               <MembershipForm
                 eventTypeOptions={eventTypes}
+                eventOptions={eventOptions}
+                loadingEvents={loadingEvents}
                 onSubmit={handleCreate}
                 onCancel={() => setAddOpen(false)}
               />
@@ -487,7 +525,10 @@ export function MembershipPanel() {
                           <MembershipForm
                             initial={toPayload(m)}
                             initialRules={toRuleDrafts(m.rules)}
+                            initialFixEvents={toFixEventDrafts(m)}
                             eventTypeOptions={eventTypes}
+                            eventOptions={eventOptions}
+                            loadingEvents={loadingEvents}
                             onSubmit={handleUpdate}
                             onCancel={() => setEditing(null)}
                           />

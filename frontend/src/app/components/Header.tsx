@@ -100,7 +100,7 @@ export function Header() {
                         <Link to="/">{t('nav.dashboard')}</Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild className="hover:bg-[#d4b896] hover:text-[#2b2b2b]">
-                        <Link to="/student/settings">{t('nav.settings')}</Link>
+                        <Link to="/?section=profile">{t('nav.settings')}</Link>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator className="bg-[#d4b896]/30" />
                     </>
