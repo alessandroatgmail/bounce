@@ -1,29 +1,35 @@
-name: Deploy to Staging
+name: Deploy to Production
 
-# Trigger: runs when code is pushed to the staging branch
+# Trigger: only the main branch reaches production.
 on:
   push:
     branches:
-      - staging
+      - main
+
+# Prevent two deploys from overlapping. Without this, two merges in
+# quick succession can run migrations concurrently on the same database.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Bind to a GitHub Environment so a manual approval can be required
+    # before the job runs (Settings > Environments > production).
+    environment: production
 
     steps:
-      # ── Checkout code ────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Connect to VPS and deploy ─────────────────────────────────
-      - name: Deploy to staging VPS
+      - name: Deploy to production VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
           script: |
-            |
             set -euo pipefail
 
             cd /home/deploy/bounce
