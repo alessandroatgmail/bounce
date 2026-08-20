@@ -42,7 +42,7 @@ def send_activation_email(user_id: int, template: str,) -> None:
 
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173').rstrip('/')
     activation_link = f"{frontend_url}/activate/{uid}/{token}/"
     mail.send(
         user.email,
@@ -59,7 +59,7 @@ def send_password_reset_email(user_id: int) -> None:
     User = get_user_model()
     user = User.objects.get(pk=user_id)
     from django.conf import settings
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173').rstrip('/')
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     reset_link = f"{frontend_url}/reset-password/{uid}/{token}/"
