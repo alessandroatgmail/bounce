@@ -43,7 +43,7 @@ def send_activation_email(user_id: int, template: str,) -> None:
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
-    activation_link = f"http://{frontend_url}/activate/{uid}/{token}/"
+    activation_link = f"{frontend_url}/activate/{uid}/{token}/"
     mail.send(
         user.email,
         template=template,
