@@ -13,6 +13,8 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 
+const STAGING_HOSTNAME = 'review-toba.bounceswinglovers.com';
+
 export function Header() {
   const { user, logout, isAuthenticated } = useAuth();
   const { language, setLanguage, t } = useLanguage();
@@ -26,12 +28,16 @@ export function Header() {
     setLanguage(language === 'it' ? 'en' : 'it');
   };
 
+  const isStaging = window.location.hostname === STAGING_HOSTNAME;
+
   return (
 
     <header className="bg-[#2b2b2b] sticky top-0 z-50 shadow-md">
-    <div className="bg-yellow-400 text-yellow-900 text-center text-sm font-semibold py-2 px-4">
+    {isStaging && (
+      <div className="bg-yellow-400 text-yellow-900 text-center text-sm font-semibold py-2 px-4">
         ⚠️ This website is a work in progress — for testing purposes only.
       </div>
+    )}
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
           <Link to="/" className="flex items-center">
