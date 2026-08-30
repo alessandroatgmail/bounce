@@ -164,6 +164,13 @@ POST_OFFICE = {
     'CELERY_ENABLED': True,
 }
 
+# Django's default cache is per-process (LocMemCache); web and celery_worker
+# each have their own, so cache invalidation on template save
+# (post_office/models.py EmailTemplate.save) never reaches the worker that
+# actually sends the email. Disable caching so templates are always read
+# fresh from the DB.
+POST_OFFICE_TEMPLATE_CACHE = False
+
 CELERY_TIMEZONE = 'Europe/Rome'
 
 # Hours before an event's start date when its register is automatically
