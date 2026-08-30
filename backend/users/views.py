@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 
@@ -168,7 +168,15 @@ class CitySearchView(APIView):
         cities = (
             City.objects.filter(name__icontains=q)
             .select_related("country")
-            .order_by("name")[:10]
+            .annotate(
+                rank=Case(
+                    When(name__iexact=q, then=Value(0)),
+                    When(name__istartswith=q, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("rank", "name")[:10]
         )
         data = [
             {
