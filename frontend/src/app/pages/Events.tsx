@@ -323,23 +323,25 @@ function EventCard({
             <Clock className="size-4 text-[#d4b896]" />
             {time}{!event.multi_events && ` (${event.duration} min)`}
           </div>
-          <div className="flex items-center gap-2">
-            <Users className="size-4 text-[#d4b896]" />
-            {showAvailableSpots ? (
-              <Badge className={`text-xs ${SPOT_STATUS_CLASS[status]}`}>
-                {SPOT_STATUS_LABEL[status][it ? 'it' : 'en']}
-              </Badge>
-            ) : (
-              <>
-                {event.capacity - event.available_spot} / {event.capacity} {it ? 'iscritti' : 'enrolled'}
-                {isAlmostFull && (
-                  <Badge className="ml-2 text-xs bg-[#e67e22] text-white">
-                    {it ? 'Quasi Pieno!' : 'Almost Full!'}
-                  </Badge>
-                )}
-              </>
-            )}
-          </div>
+          {isAuthenticated && (
+            <div className="flex items-center gap-2">
+              <Users className="size-4 text-[#d4b896]" />
+              {showAvailableSpots ? (
+                <Badge className={`text-xs ${SPOT_STATUS_CLASS[status]}`}>
+                  {SPOT_STATUS_LABEL[status][it ? 'it' : 'en']}
+                </Badge>
+              ) : (
+                <>
+                  {event.capacity - event.available_spot} / {event.capacity} {it ? 'iscritti' : 'enrolled'}
+                  {isAlmostFull && (
+                    <Badge className="ml-2 text-xs bg-[#e67e22] text-white">
+                      {it ? 'Quasi Pieno!' : 'Almost Full!'}
+                    </Badge>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <MapPin className="size-4 text-[#d4b896]" />
             {event.room.name} — {event.room.location.city.name}
