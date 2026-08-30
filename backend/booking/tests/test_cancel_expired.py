@@ -3,6 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 from django.core import mail
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from booking.models import Contribution, ContributionStatus
 from booking.tasks import cancel_expired_contributions
@@ -179,3 +180,24 @@ class TestExpiryReminderEmail:
         cancel_expired_contributions()
 
         assert len(mail.outbox) == 2
+
+    def test_reminder_email_includes_deadline(self, db, subject_user, world_data):
+        from post_office.models import EmailTemplate
+
+        template = EmailTemplate.objects.get(
+            name='contribution_expiry_reminder_email', language=subject_user.language
+        )
+        template.content += ' Deadline: {{ deadline }}'
+        template.html_content += ' Deadline: {{ deadline }}'
+        template.save()
+
+        event = make_event(payment_days=5)
+        contribution = make_contribution(subject_user, event, days_ago=3)
+        expected_deadline = contribution.date.date() + timedelta(days=5)
+
+        cancel_expired_contributions()
+
+        assert len(mail.outbox) == 1
+        # Django templates render dates through localized formatting
+        # (e.g. "Aug. 22, 2026"), not date.__str__'s ISO form.
+        assert date_format(expected_deadline) in mail.outbox[0].body

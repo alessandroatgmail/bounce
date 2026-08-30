@@ -20,7 +20,7 @@ export interface User {
   postal_code?: string;
   country?: { id: number; name: string } | null;
   acsi?: boolean;
-  acsi_number?: number | null;
+  acsi_number?: string | null;
   acsi_starting_date?: string | null;
   acsi_expiration_date?: string | null;
   privacy_consent?: boolean;

@@ -95,7 +95,7 @@ class TestMeEndpoint:
         assert data["address"] == "Via Roma 1"
         assert data["postal_code"] == "30100"
         assert data["acsi"] is True
-        assert data["acsi_number"] == 12345
+        assert data["acsi_number"] == "12345"
         assert data["acsi_starting_date"] == "2026-12-31"
         assert data["acsi_expiration_date"] == "2027-12-31"
         assert data["privacy_consent"] is True
@@ -222,7 +222,7 @@ class TestMePutProfile:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["acsi"] is True
-        assert response.data["acsi_number"] == 99999
+        assert response.data["acsi_number"] == "99999"
         assert response.data["acsi_starting_date"] == "2028-06-30"
         assert response.data["acsi_expiration_date"] == "2029-06-30"
 
