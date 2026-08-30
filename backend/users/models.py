@@ -91,7 +91,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     country = models.ForeignKey(Country, on_delete=models.PROTECT, null=True, blank=True)
 
     acsi = models.BooleanField(default=False)
-    acsi_number = models.IntegerField(null=True, blank=True)
+    acsi_number = models.CharField(max_length=20, null=True, blank=True)
     acsi_starting_date = models.DateField(null=True, blank=True)
     acsi_expiration_date = models.DateField(null=True, blank=True)
 

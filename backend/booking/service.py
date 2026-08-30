@@ -99,11 +99,25 @@ def _send_contribution_email(contribution: Contribution)->None:
                 template = "booking_email"
         else:
             template = "booking_single_email"
+
+        # The partner's own contribution (mirrored record) lives on
+        # whichever side of the original_contribution/twin_contributions
+        # pair this one isn't.
+        partner_contribution = contribution.original_contribution or contribution.twin_contributions.first()
+
+        from django.conf import settings
+        event = contribution.events.first()
+
         context = {
+                "name": f"{contribution.user.first_name} {contribution.user.last_name}",
                 "partner_user": f"{contribution.partner.first_name} {contribution.partner.last_name}" \
                     if contribution.partner else None,
-                "event_name": contribution.events.first().name,
+                "partner": f"{contribution.partner.first_name} {contribution.partner.last_name}" \
+                    if contribution.partner else None,
+                "event_name": event.name,
                 "role": contribution.role.name if contribution.role else None,
+                "partner_role": partner_contribution.role.name if partner_contribution and partner_contribution.role else None,
+                "event_link": f"{settings.FRONTEND_URL.rstrip('/')}/events/{event.id}",
             }
         send_email.delay(
             contribution.user.id,

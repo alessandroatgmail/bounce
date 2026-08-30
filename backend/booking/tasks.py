@@ -111,10 +111,12 @@ def send_contribution_expiry_reminder_email(user_id: int, contribution_id: int) 
     user = User.objects.get(pk=user_id)
     contribution = Contribution.objects.get(pk=contribution_id)
     event = contribution.events.first()
+    deadline = contribution.date.date() + timedelta(days=event.payment_days)
     context = {
         "user": user,
         "contribution": contribution,
         "event": event,
+        "deadline": deadline,
     }
     try:
         mail.send(
