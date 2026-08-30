@@ -162,7 +162,7 @@ export function Register() {
       postal_code: formData.postcode,
       country: Number(formData.country),
       acsi: formData.isAcsiMember,
-      acsi_number: formData.acsiNumber ? Number(formData.acsiNumber) : undefined,
+      acsi_number: formData.acsiNumber || undefined,
       acsi_starting_date: formData.acsiStartingDate || undefined,
       privacy_consent: formData.termsAccepted,
       marketing_consent: formData.marketingConsent,

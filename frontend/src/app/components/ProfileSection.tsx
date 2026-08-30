@@ -191,7 +191,7 @@ export function ProfileSection() {
     } else if (section === 'acsi') {
       payload = {
         acsi: acsiDraft.acsi,
-        acsi_number: acsiDraft.acsi_number ? Number(acsiDraft.acsi_number) : null,
+        acsi_number: acsiDraft.acsi_number || null,
         acsi_starting_date: acsiDraft.acsi_starting_date || null,
       };
     } else if (section === 'consents') {
@@ -651,7 +651,7 @@ export function ProfileSection() {
                         <div>
                           <Label>{t('Numero Tessera', 'Membership Number')}</Label>
                           <Input
-                            type="number"
+                            type="text"
                             value={acsiDraft.acsi_number}
                             onChange={e => setAcsiDraft(p => ({ ...p, acsi_number: e.target.value }))}
                           />

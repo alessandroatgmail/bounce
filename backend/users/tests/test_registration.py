@@ -103,6 +103,18 @@ class TestRegistration:
         user = User.objects.get(email=payload["email"])
         assert user.acsi_expiration_date.isoformat() == "2026-12-31"
 
+    def test_acsi_true_with_alphanumeric_number_returns_201(self, client, world_data):
+        payload = make_user_payload(
+            acsi=True,
+            acsi_number="AB12345",
+            acsi_starting_date="2025-12-31",
+        )
+
+        response = client.post(REGISTER_URL, payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        user = User.objects.get(email=payload["email"])
+        assert user.acsi_number == "AB12345"
+
     def test_acsi_true_missing_number_returns_400(self, client, world_data):
         payload = make_user_payload(
             acsi=True,

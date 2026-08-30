@@ -53,7 +53,7 @@ def make_user_payload(**overrides) -> dict:
         "postal_code": _fake.postcode(),
         "country": city.country.pk,
         "acsi": acsi,
-        "acsi_number": _fake.random_number(digits=5) if acsi else None,
+        "acsi_number": _fake.bothify("??#####").upper() if acsi else None,
         "acsi_starting_date": _fake.date_between(start_date="-2y", end_date="today").isoformat() if acsi else None,
         "privacy_consent": True,
         "marketing_consent": False,

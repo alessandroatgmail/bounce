@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiUrl, authFetch } from '../../lib/api';
@@ -133,6 +133,14 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
                   </AccordionTrigger>
                   <AccordionContent>
                     <EventScheduleTable festival={event} childEvents={children} language={language} />
+                    <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 mt-4 text-sm text-amber-800">
+                      <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+                      <span>
+                        {it
+                          ? 'Il programma potrebbe subire variazioni di orario e location. Si consiglia di verificarlo prima di partecipare.'
+                          : 'This schedule may be subject to changes in time and location. Please check it again before attending.'}
+                      </span>
+                    </div>
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
