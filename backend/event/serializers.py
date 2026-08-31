@@ -366,7 +366,7 @@ class EventSerializer(serializers.ModelSerializer):
         # level is enough to compute level-wide availability, since
         # booking into a level books every one of its classes as a bundle.
         representative_by_level = {}
-        for child in obj.events.all():
+        for child in obj.events.all().order_by("level__name"):
             if child.level_id is not None and child.level_id not in representative_by_level:
                 representative_by_level[child.level_id] = child
         if not representative_by_level:
