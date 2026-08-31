@@ -136,10 +136,7 @@ export function Home() {
                           <Clock className="size-4 text-[#d4b896]" />
                           {event.start_date.slice(11, 16)}{!event.multi_events && ` (${event.duration} min)`}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Users className="size-4 text-[#d4b896]" />
-                          {event.available_spot} {language === 'it' ? 'posti disponibili' : 'spots available'}
-                        </div>
+
                       </div>
                       {event.info && (
                         <p className="text-sm text-gray-600 mb-4 line-clamp-2">{event.info}</p>
