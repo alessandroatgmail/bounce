@@ -24,7 +24,7 @@ class ContributionAdmin(admin.ModelAdmin):
     ordering = ("-date", "user__last_name", "user__first_name")
     list_filter = ("status", "membership")
     filter_horizontal = ("events", "discounts")
-    autocomplete_fields = ("membership")
+    autocomplete_fields = ("membership", )
     readonly_fields = ("start_date", "end_date", "upgraded_from", "original_contribution")
     fieldsets = (
         (None, {"fields": ("user", "status", "amount", "date")}),
@@ -32,4 +32,4 @@ class ContributionAdmin(admin.ModelAdmin):
         ("Partner", {"fields": ("role", "partner", "partner_email")}),
         ("System", {"fields": ("start_date", "end_date", "upgraded_from", "original_contribution")}),
     )
-    raw_id_fields = ("user", "event", "partner")
+    raw_id_fields = ("user", "partner")
