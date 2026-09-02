@@ -336,6 +336,46 @@ export function EventJoinPanel({
                 </div>
               )}
 
+              {hasLevelChoice && (
+                <div className="rounded-md border border-[#d4b896]/30 p-2.5 space-y-1.5 text-[11px] text-gray-600">
+                  <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
+                    {it ? 'Legenda disponibilità' : 'Availability legend'}
+                  </p>
+                  <div className="flex items-start gap-1.5">
+                    <span className="size-2.5 rounded-full bg-green-600 mt-0.5 flex-shrink-0" />
+                    <span>
+                      {it
+                        ? "Posti disponibili, nessuna lista d'attesa."
+                        : 'Spots available, no waiting list.'}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="size-2.5 rounded-full bg-yellow-500 mt-0.5 flex-shrink-0" />
+                    <span>
+                      {it
+                        ? 'Pochi posti rimasti, affrettati!'
+                        : 'Few spots left, hurry!'}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="size-2.5 rounded-full bg-orange-500 mt-0.5 flex-shrink-0" />
+                    <span>
+                      {it
+                        ? "Troppe iscrizioni per questo ruolo: le coppie vengono accettate, mentre le iscrizioni singole restano in attesa e vengono confermate non appena aumentano le iscrizioni per l'altro ruolo."
+                        : "Too many registrations for this role: couples are accepted, while single registrations are put on hold and confirmed once registrations for the other role increase."}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="size-2.5 rounded-full bg-red-600 mt-0.5 flex-shrink-0" />
+                    <span>
+                      {it
+                        ? "Nessun posto disponibile: le nuove iscrizioni vengono messe in lista d'attesa. Se un/a partecipante annulla l'iscrizione, il primo posto in lista d'attesa viene accettato."
+                        : "No spots available: new registrations are placed on the waiting list. If a participant cancels their registration, the first waiting-list spot is accepted."}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {hasRoles && (
                 <>
                   <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
