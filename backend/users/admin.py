@@ -34,6 +34,8 @@ class BounceUserAdmin(BaseUserAdmin):
     search_fields = ("email", "first_name", "last_name", "phone", "ci")
     ordering = ("email",)
     readonly_fields = ("acsi_expiration_date",)
+    # autocomplete_fields = ("city", "place_of_birth", "country")
+    raw_id_fields = ("city", "place_of_birth", "country")
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
