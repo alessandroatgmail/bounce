@@ -34,12 +34,19 @@ class EmailViewSet(
     pagination_class = StandardPagination
 
     def get_queryset(self):
-        return (
+        qs = (
             Email.objects
             .select_related('template')
             .prefetch_related('logs')
             .order_by('-created')
         )
+        to = self.request.query_params.get('to')
+        if to:
+            qs = qs.filter(to__icontains=to)
+        template_name = self.request.query_params.get('template')
+        if template_name:
+            qs = qs.filter(template__name=template_name)
+        return qs
 
 
 class SendEmailView(APIView):
