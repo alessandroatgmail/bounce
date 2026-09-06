@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { authFetch } from '../../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useEmails, SentEmail } from '../hooks/useEmails';
@@ -7,6 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+
+const ALL_TEMPLATES = '__all__';
 
 function toList(value: string | string[] | null | undefined): string[] {
   if (!value) return [];
@@ -92,7 +97,35 @@ function EmailRow({ email }: { email: SentEmail }) {
 export function EmailsPanel() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
-  const { emails, count, page, setPage, totalPages, loading, error } = useEmails(accessToken ?? '');
+  const [toInput, setToInput] = useState('');
+  const [toFilter, setToFilter] = useState('');
+  const [templateFilter, setTemplateFilter] = useState('');
+  const [templateOptions, setTemplateOptions] = useState<string[]>([]);
+  const { emails, count, page, setPage, totalPages, loading, error } = useEmails(accessToken ?? '', {
+    to: toFilter,
+    template: templateFilter,
+  });
+
+  useEffect(() => {
+    const id = setTimeout(() => setToFilter(toInput.trim()), 400);
+    return () => clearTimeout(id);
+  }, [toInput]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    authFetch('/api/emails/templates/?page_size=100', accessToken)
+      .then(res => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data: { results: { name: string }[] }) => {
+        setTemplateOptions(Array.from(new Set(data.results.map(t => t.name))).sort());
+      })
+      .catch(() => {});
+  }, [accessToken]);
+
+  const hasFilters = toInput !== '' || templateFilter !== '';
+  const clearFilters = () => {
+    setToInput('');
+    setTemplateFilter('');
+  };
 
   return (
     <Card>
@@ -103,6 +136,34 @@ export function EmailsPanel() {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <Input
+            value={toInput}
+            onChange={e => setToInput(e.target.value)}
+            placeholder={language === 'it' ? 'Filtra per email utente…' : 'Filter by user email…'}
+            className="max-w-xs"
+          />
+          <Select
+            value={templateFilter || ALL_TEMPLATES}
+            onValueChange={v => setTemplateFilter(v === ALL_TEMPLATES ? '' : v)}
+          >
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder={language === 'it' ? 'Tutti i template' : 'All templates'} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_TEMPLATES}>{language === 'it' ? 'Tutti i template' : 'All templates'}</SelectItem>
+              {templateOptions.map(name => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {hasFilters && (
+            <Button size="sm" variant="ghost" onClick={clearFilters}>
+              <X className="size-4 mr-1" />
+              {language === 'it' ? 'Cancella filtri' : 'Clear filters'}
+            </Button>
+          )}
+        </div>
         {loading && (
           <div className="flex justify-center py-8">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />

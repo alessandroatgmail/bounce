@@ -124,6 +124,40 @@ class TestEmailList:
         assert res.status_code == 200
         assert len(res.data['results']) == 25
 
+    def test_filter_by_to(self, admin_client):
+        Email.objects.create(from_email='noreply@bounce.com', to=['alice@b.com'], subject='A')
+        Email.objects.create(from_email='noreply@bounce.com', to=['bob@b.com'], subject='B')
+        res = admin_client.get(f'{EMAILS_URL}?to=alice')
+        assert res.status_code == 200
+        assert res.data['count'] == 1
+        assert res.data['results'][0]['subject'] == 'A'
+
+    def test_filter_by_to_no_match(self, admin_client):
+        Email.objects.create(from_email='noreply@bounce.com', to=['alice@b.com'], subject='A')
+        res = admin_client.get(f'{EMAILS_URL}?to=nobody')
+        assert res.status_code == 200
+        assert res.data['count'] == 0
+
+    def test_filter_by_template(self, admin_client):
+        tpl1 = EmailTemplate.objects.create(name='welcome', subject='S', html_content='x')
+        tpl2 = EmailTemplate.objects.create(name='reminder', subject='S', html_content='x')
+        Email.objects.create(from_email='noreply@bounce.com', to=['a@b.com'], subject='A', template=tpl1)
+        Email.objects.create(from_email='noreply@bounce.com', to=['b@b.com'], subject='B', template=tpl2)
+        res = admin_client.get(f'{EMAILS_URL}?template=welcome')
+        assert res.status_code == 200
+        assert res.data['count'] == 1
+        assert res.data['results'][0]['subject'] == 'A'
+
+    def test_filter_by_to_and_template(self, admin_client):
+        tpl1 = EmailTemplate.objects.create(name='welcome', subject='S', html_content='x')
+        tpl2 = EmailTemplate.objects.create(name='reminder', subject='S', html_content='x')
+        Email.objects.create(from_email='noreply@bounce.com', to=['alice@b.com'], subject='A', template=tpl1)
+        Email.objects.create(from_email='noreply@bounce.com', to=['alice@b.com'], subject='B', template=tpl2)
+        res = admin_client.get(f'{EMAILS_URL}?to=alice&template=welcome')
+        assert res.status_code == 200
+        assert res.data['count'] == 1
+        assert res.data['results'][0]['subject'] == 'A'
+
     def test_admin_cannot_create(self, admin_client):
         res = admin_client.post(EMAILS_URL, {'to': ['x@x.com'], 'subject': 'X'}, format='json')
         assert res.status_code == 405

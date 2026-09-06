@@ -264,11 +264,11 @@ class UserListView(ListAPIView):
 
         membership_id = self.request.query_params.get('membership', '').strip()
         if membership_id:
-            qs = qs.filter(contribution_set__membership__id=membership_id).distinct()
+            qs = qs.filter(contribution__membership__id=membership_id).distinct()
 
         event_id = self.request.query_params.get('event', '').strip()
         if event_id:
-            qs = qs.filter(contribution_set__events__id=event_id).distinct()
+            qs = qs.filter(contribution__events__id=event_id).distinct()
 
         return qs
 

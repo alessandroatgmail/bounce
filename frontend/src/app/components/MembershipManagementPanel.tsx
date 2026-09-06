@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, Mail } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useUserList, type UserListItem } from '../hooks/useUserList';
 import { useMemberships } from '../hooks/useMemberships';
 import { useEvents } from '../hooks/useEvents';
+import { authFetch } from '../../lib/api';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
+import { Checkbox } from './ui/checkbox';
+import { Button } from './ui/button';
 import {
   Pagination,
   PaginationContent,
@@ -33,6 +37,22 @@ export function MembershipManagementPanel() {
   const [debouncedName, setDebouncedName] = useState('');
   const [membershipFilter, setMembershipFilter] = useState<number | ''>('');
   const [eventFilter, setEventFilter] = useState<number | ''>('');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [templateNames, setTemplateNames] = useState<string[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [sending, setSending] = useState(false);
+
+  // Template names for the send-email picker — language variants share a name.
+  useEffect(() => {
+    if (!accessToken) return;
+    authFetch('/api/emails/templates/?page_size=100', accessToken)
+      .then(res => res.json())
+      .then(data => {
+        const names: string[] = Array.from(new Set(data.results.map((t: { name: string }) => t.name)));
+        setTemplateNames(names);
+      })
+      .catch(() => {});
+  }, [accessToken]);
 
   // Debounce name input 300 ms
   useEffect(() => {
@@ -61,6 +81,55 @@ export function MembershipManagementPanel() {
 
   // Only show parent events (those that have children)
   const parentEvents = events.filter(e => e.events.length > 0);
+
+  const pageIds = users.map(u => u.id);
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const someOnPageSelected = pageIds.some(id => selectedIds.has(id));
+
+  const toggleUser = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allOnPageSelected) pageIds.forEach(id => next.delete(id));
+      else pageIds.forEach(id => next.add(id));
+      return next;
+    });
+  };
+
+  const handleSend = async () => {
+    if (!accessToken || !templateName || selectedIds.size === 0) return;
+    const confirmMsg = language === 'it'
+      ? `Inviare l'email a ${selectedIds.size} utenti selezionati?`
+      : `Send this email to ${selectedIds.size} selected users?`;
+    if (!confirm(confirmMsg)) return;
+
+    setSending(true);
+    try {
+      const res = await authFetch('/api/emails/send/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          user_ids: Array.from(selectedIds),
+          template: templateName,
+          ...(eventFilter ? { event_id: eventFilter } : {}),
+          ...(membershipFilter ? { membership_id: membershipFilter } : {}),
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      toast.success(language === 'it' ? 'Email in invio.' : 'Emails queued for sending.');
+      setSelectedIds(new Set());
+    } catch {
+      toast.error(language === 'it' ? 'Invio email fallito.' : 'Failed to send emails.');
+    } finally {
+      setSending(false);
+    }
+  };
 
   const goTo = (p: number) => setPage(Math.max(1, Math.min(p, totalPages)));
 
@@ -124,6 +193,36 @@ export function MembershipManagementPanel() {
           </Select>
         </div>
 
+        {/* Selection toolbar */}
+        {selectedIds.size > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+            <span className="text-sm text-gray-700">
+              {language === 'it' ? `${selectedIds.size} selezionati` : `${selectedIds.size} selected`}
+            </span>
+            <div className="flex items-center gap-2">
+              <Input
+                className="w-48"
+                list="email-template-names"
+                placeholder={language === 'it' ? 'Nome template...' : 'Template name...'}
+                value={templateName}
+                onChange={e => setTemplateName(e.target.value)}
+              />
+              <datalist id="email-template-names">
+                {templateNames.map(name => <option key={name} value={name} />)}
+              </datalist>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())} disabled={sending}>
+                {language === 'it' ? 'Deseleziona tutto' : 'Clear selection'}
+              </Button>
+              <Button size="sm" onClick={handleSend} disabled={sending || !templateName}>
+                {sending
+                  ? <Loader2 className="size-3.5 mr-1 animate-spin" />
+                  : <Mail className="size-3.5 mr-1" />}
+                {language === 'it' ? 'Invia email' : 'Send email'}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Table */}
         {loading ? (
           <div className="flex justify-center py-10">
@@ -136,6 +235,13 @@ export function MembershipManagementPanel() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8">
+                    <Checkbox
+                      checked={allOnPageSelected ? true : someOnPageSelected ? 'indeterminate' : false}
+                      onCheckedChange={toggleSelectAllOnPage}
+                      aria-label={language === 'it' ? 'Seleziona tutti' : 'Select all'}
+                    />
+                  </TableHead>
                   <TableHead>{language === 'it' ? 'Nome' : 'Name'}</TableHead>
                   <TableHead>{language === 'it' ? 'Email' : 'Email'}</TableHead>
                   <TableHead>{language === 'it' ? 'Ruolo' : 'Role'}</TableHead>
@@ -145,7 +251,7 @@ export function MembershipManagementPanel() {
               <TableBody>
                 {users.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-400 py-8">
+                    <TableCell colSpan={5} className="text-center text-gray-400 py-8">
                       {language === 'it' ? 'Nessun socio trovato.' : 'No members found.'}
                     </TableCell>
                   </TableRow>
@@ -155,6 +261,13 @@ export function MembershipManagementPanel() {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => setSelectedUser(u)}
                   >
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedIds.has(u.id)}
+                        onCheckedChange={() => toggleUser(u.id)}
+                        aria-label={`select ${u.email}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">
                       {u.first_name} {u.last_name}
                     </TableCell>

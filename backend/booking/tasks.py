@@ -301,6 +301,62 @@ def send_spot_available_email(user_id: int, contribution_id: int) -> None:
         print(exc)
 
 
+def _send_templated_email(user, template, context):
+    try:
+        mail.send(
+            user.email,
+            template=template,
+            context=context,
+            language=user.language,
+        )
+    except Exception as exc:
+        print(f"email failed user {user.email} - template {template} - {context}")
+        print(exc)
+
+
+@shared_task
+def send_bulk_emails(user_ids: list, template: str, event_id: int = None, membership_id: int = None) -> None:
+    """Admin-triggered bulk send from the Packs management screen.
+
+    - event_id given: a user may hold several contributions, so the event
+      is what pins down which one this email is about — one send per
+      matching Contribution (a user with two contributions for that event
+      gets two emails). membership_id, if also given, narrows those
+      contributions further rather than changing the per-user branch below.
+    - event_id absent: there's no contribution to pin down, so it's one
+      send per user; membership_id (if given) is only there to be quoted
+      in the email, not to look up a specific contribution.
+    """
+    from membership.models import Membership
+
+    if event_id:
+        contributions = (
+            Contribution.objects
+            .filter(user_id__in=user_ids, events=event_id)
+            .select_related('user', 'membership')
+            .prefetch_related('events')
+        )
+        if membership_id:
+            contributions = contributions.filter(membership_id=membership_id)
+
+        for contribution in contributions:
+            context = {"user": contribution.user, "contribution": contribution}
+            event = contribution.events.filter(id=event_id).first()
+            if event:
+                context["event"] = event
+            if contribution.membership:
+                context["membership"] = contribution.membership
+            _send_templated_email(contribution.user, template, context)
+    else:
+        membership = Membership.objects.filter(id=membership_id).first() if membership_id else None
+        users = get_user_model().objects.filter(id__in=user_ids)
+        for user in users:
+            context = {"user": user}
+            if membership:
+                context["membership"] = membership
+            _send_templated_email(user, template, context)
+
+
 @shared_task
 def send_email_accept_email(user_id: int, contribution_id: int) -> None:
     User = get_user_model()
