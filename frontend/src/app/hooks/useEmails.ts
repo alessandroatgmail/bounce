@@ -43,19 +43,28 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
-export function useEmails(token: string) {
+export interface EmailFilters {
+  to?: string;
+  template?: string;
+}
+
+export function useEmails(token: string, filters: EmailFilters = {}) {
   const [emails, setEmails] = useState<SentEmail[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { to, template } = filters;
 
   const load = useCallback(async (p: number) => {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(`${BASE}?page=${p}`, token);
+      const params = new URLSearchParams({ page: String(p) });
+      if (to) params.set('to', to);
+      if (template) params.set('template', template);
+      const res = await authFetch(`${BASE}?${params.toString()}`, token);
       if (!res.ok) throw new Error(`${res.status}`);
       const data: PaginatedResponse<SentEmail> = await res.json();
       setEmails(data.results);
@@ -65,8 +74,9 @@ export function useEmails(token: string) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, to, template]);
 
+  useEffect(() => { setPage(1); }, [to, template]);
   useEffect(() => { load(page); }, [page, load]);
 
   const totalPages = Math.ceil(count / 25);
