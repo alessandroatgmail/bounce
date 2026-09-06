@@ -1,9 +1,12 @@
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.permissions import IsAdminUser
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from post_office.models import Email, EmailTemplate, Log
 
-from .serializers import EmailSerializer, EmailTemplateSerializer, LogSerializer
+from booking.tasks import send_bulk_emails
+from .serializers import EmailSerializer, EmailTemplateSerializer, LogSerializer, SendEmailSerializer
 
 
 class StandardPagination(PageNumberPagination):
@@ -37,6 +40,22 @@ class EmailViewSet(
             .prefetch_related('logs')
             .order_by('-created')
         )
+
+
+class SendEmailView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        serializer = SendEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        send_bulk_emails.delay(
+            data['user_ids'],
+            data['template'],
+            data.get('event_id'),
+            data.get('membership_id'),
+        )
+        return Response(status=status.HTTP_202_ACCEPTED)
 
 
 class LogViewSet(

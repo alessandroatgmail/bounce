@@ -1,5 +1,42 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from post_office.models import Email, EmailTemplate, Log
+
+from event.models import Event
+from membership.models import Membership
+
+User = get_user_model()
+
+
+class SendEmailSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(), allow_empty=False,
+    )
+    template = serializers.CharField()
+    event_id = serializers.IntegerField(required=False, allow_null=True)
+    membership_id = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_user_ids(self, value):
+        existing = set(User.objects.filter(id__in=value).values_list('id', flat=True))
+        missing = sorted(set(value) - existing)
+        if missing:
+            raise serializers.ValidationError(f"User(s) not found: {missing}")
+        return value
+
+    def validate_template(self, value):
+        if not EmailTemplate.objects.filter(name=value).exists():
+            raise serializers.ValidationError(f"Unknown email template: {value}")
+        return value
+
+    def validate_event_id(self, value):
+        if value is not None and not Event.objects.filter(id=value).exists():
+            raise serializers.ValidationError(f"Event not found: {value}")
+        return value
+
+    def validate_membership_id(self, value):
+        if value is not None and not Membership.objects.filter(id=value).exists():
+            raise serializers.ValidationError(f"Membership not found: {value}")
+        return value
 
 
 class EmailTemplateSerializer(serializers.ModelSerializer):
