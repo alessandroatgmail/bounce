@@ -369,6 +369,18 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 if contribution.partner:
                     partner_contribution.status = ContributionStatus.WAITING
                     partner_contribution.save()
+            elif event.block_payment:
+                # Payment is blocked for this event — hold the contribution
+                # for manual approval instead of auto-accepting, and don't
+                # send the acceptance email yet.
+                contribution.status = ContributionStatus.APPROVING
+                contribution.save()
+                if contribution.partner:
+                    partner_contribution.status = ContributionStatus.APPROVING
+                    partner_contribution.save()
+                if event.multi_events and not event.free and contribution.level_id:
+                    from .tasks import promote_waiting_for_level
+                    promote_waiting_for_level.delay(event.id, contribution.level_id)
             else:
                 contribution.status = ContributionStatus.ACCEPTED
                 contribution.save()

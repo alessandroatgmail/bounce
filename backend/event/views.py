@@ -191,7 +191,9 @@ class EventViewSet(viewsets.ModelViewSet):
         ).annotate(
             occupied_count=Count(
                 "contributions",
-                filter=Q(contributions__status__in=[ContributionStatus.PAYED, ContributionStatus.ACCEPTED]),
+                filter=Q(contributions__status__in=[
+                    ContributionStatus.PAYED, ContributionStatus.ACCEPTED, ContributionStatus.APPROVING,
+                ]),
                 distinct=True,
             ),
         ).order_by('start_date')
@@ -228,7 +230,7 @@ class EventViewSet(viewsets.ModelViewSet):
             counts = {}
             rows = Contribution.objects.filter(
                 events__id__in=multi_ids,
-                status__in=[ContributionStatus.PAYED, ContributionStatus.ACCEPTED],
+                status__in=[ContributionStatus.PAYED, ContributionStatus.ACCEPTED, ContributionStatus.APPROVING],
             ).values("events__id", "level_id", "role__name").annotate(n=Count("id"))
             for row in rows:
                 counts.setdefault(row["events__id"], {}).setdefault(
@@ -333,7 +335,9 @@ class EventAdminListView(ListAPIView):
             .annotate(
                 occupied_count=Count(
                     "contributions",
-                    filter=Q(contributions__status__in=[ContributionStatus.PAYED, ContributionStatus.ACCEPTED]),
+                    filter=Q(contributions__status__in=[
+                        ContributionStatus.PAYED, ContributionStatus.ACCEPTED, ContributionStatus.APPROVING,
+                    ]),
                     distinct=True,
                 ),
             )
