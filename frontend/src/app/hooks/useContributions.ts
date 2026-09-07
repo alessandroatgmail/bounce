@@ -5,7 +5,7 @@ import { type ExtraItem } from './useUserMemberships';
 
 const BASE = '/api/booking/contributions/';
 
-export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed' | 'cancelled' | 'waiting';
+export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed' | 'cancelled' | 'waiting' | 'approving';
 
 export interface Contribution {
   id: number;

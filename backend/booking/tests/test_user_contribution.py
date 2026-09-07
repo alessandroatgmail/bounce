@@ -750,6 +750,79 @@ class TestAutomaticAcceptance:
         # Verify that 2 emails were sent — 1 for receiving the registration and 1 for being accepted
         assert len(mail.outbox) == 2
 
+    def test_create_contribution_single_with_block_payment_goes_to_approving(
+        self, world_data, student_client, student_user, partner_user, db
+    ):
+        """
+        When the event has block_payment=True, a booking that would otherwise
+        be auto-accepted goes to APPROVING instead, and no acceptance email
+        is sent.
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.block_payment = True
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+        assert original_contribution.status == ContributionStatus.APPROVING
+
+        # Only the "registration received" email is sent — no acceptance email
+        assert len(mail.outbox) == 1
+        assert not any("accettazione" in e.subject for e in mail.outbox)
+
+    def test_create_contribution_with_partner_and_block_payment_goes_to_approving(
+        self, world_data, student_client, student_user, partner_user, db
+    ):
+        """
+        Same as above but for a couple booking: both contributions go to
+        APPROVING and neither triggers an acceptance email.
+        """
+        from django.core import mail
+
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        first_event.capacity = 20
+        first_event.block_payment = True
+        first_event.save()
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "partner@email.com",
+            "partner_id": partner_user.id,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+
+        partner_contribution = Contribution.objects.filter(user=partner_user).first()
+        original_contribution = Contribution.objects.get(id=response.data['id'])
+
+        assert original_contribution.status == ContributionStatus.APPROVING
+        assert partner_contribution.status == ContributionStatus.APPROVING
+
+        # Only the 2 "registration received" emails are sent — no acceptance emails
+        assert len(mail.outbox) == 2
+        assert not any("accettazione" in e.subject for e in mail.outbox)
+
     def test_retreve_event_after_booked_show_already_booked(self, world_data, student_client, student_user, partner_user, db):
         """
         Test if event has update already_booked

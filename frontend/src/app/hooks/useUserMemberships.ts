@@ -5,7 +5,7 @@ import type { Discount } from './useDiscounts';
 
 const BASE = '/api/booking/my-memberships/';
 
-export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed' | 'waiting' | 'cancelled';
+export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed' | 'waiting' | 'cancelled' | 'approving';
 
 export interface ExtraItem {
   id: number;

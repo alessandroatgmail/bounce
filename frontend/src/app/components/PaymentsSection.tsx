@@ -24,6 +24,7 @@ const STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
   payed:     { it: 'Pagato',     en: 'Paid'      },
   waiting:   { it: 'In attesa',  en: 'Waiting'   },
   cancelled: { it: 'Annullato',  en: 'Cancelled' },
+  approving: { it: 'In approvazione', en: 'Approving' },
 };
 const STATUS_CLASS: Record<ContributionStatus, string> = {
   received:  'bg-yellow-100 text-yellow-800',
@@ -32,6 +33,7 @@ const STATUS_CLASS: Record<ContributionStatus, string> = {
   payed:     'bg-purple-600 text-white',
   waiting:   'bg-orange-100 text-orange-800',
   cancelled: 'bg-gray-100 text-gray-500',
+  approving: 'bg-orange-200 text-orange-900',
 };
 
 function statusBadge(status: ContributionStatus, lang: 'it' | 'en') {

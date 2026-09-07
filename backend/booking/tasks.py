@@ -202,7 +202,9 @@ def notify_next_waiting(event_id: int, role_id: int = None) -> None:
                 'contribution',
                 filter=Q(
                     contribution__events=event,
-                    contribution__status__in=[ContributionStatus.ACCEPTED, ContributionStatus.PAYED],
+                    contribution__status__in=[
+                        ContributionStatus.ACCEPTED, ContributionStatus.PAYED, ContributionStatus.APPROVING,
+                    ],
                 ),
                 distinct=True,
             )
@@ -232,14 +234,15 @@ def notify_next_waiting(event_id: int, role_id: int = None) -> None:
         )
 
     if waiting:
-        waiting.status = ContributionStatus.ACCEPTED
+        waiting.status = ContributionStatus.APPROVING if event.block_payment else ContributionStatus.ACCEPTED
         waiting.save(update_fields=['status'])
         if event.multi_events and waiting.level_id:
             children = event.events.filter(
                 Q(level=waiting.level) | Q(event_type__party=True)
             )
             waiting.events.add(*children)
-        send_spot_available_email.delay(waiting.user.id, waiting.id)
+        if not event.block_payment:
+            send_spot_available_email.delay(waiting.user.id, waiting.id)
 
 
 @shared_task
@@ -269,13 +272,15 @@ def promote_waiting_for_level(festival_event_id: int, level_id: int) -> None:
         if waiting.status != ContributionStatus.WAITING or waiting_list(waiting):
             continue
 
-        waiting.status = ContributionStatus.ACCEPTED
+        new_status = ContributionStatus.APPROVING if festival_event.block_payment else ContributionStatus.ACCEPTED
+        waiting.status = new_status
         waiting.save(update_fields=['status'])
         partner = waiting.twin_contributions.first() or waiting.original_contribution
         if partner and partner.status == ContributionStatus.WAITING:
-            partner.status = ContributionStatus.ACCEPTED
+            partner.status = new_status
             partner.save(update_fields=['status'])
-        send_spot_available_email.delay(waiting.user.id, waiting.id)
+        if not festival_event.block_payment:
+            send_spot_available_email.delay(waiting.user.id, waiting.id)
 
 
 @shared_task

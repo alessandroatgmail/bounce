@@ -204,7 +204,7 @@ class EventAdminListSerializer(serializers.ModelSerializer):
 
 
 def _level_counts_for(obj):
-    """level_id -> {role_name: count} of PAYED/ACCEPTED contributions for
+    """level_id -> {role_name: count} of PAYED/ACCEPTED/APPROVING contributions for
     this multi_events festival. EventViewSet.list bulk-computes this for
     every multi_events event on the page in one query (prefetched_level_counts);
     outside that path (e.g. retrieve) fall back to one direct grouped query."""
@@ -215,7 +215,7 @@ def _level_counts_for(obj):
     from booking.models import ContributionStatus as CS
 
     rows = obj.contributions.filter(
-        status__in=[CS.PAYED, CS.ACCEPTED],
+        status__in=[CS.PAYED, CS.ACCEPTED, CS.APPROVING],
     ).values('level_id', 'role__name').annotate(n=Count('id'))
     result = {}
     for row in rows:
@@ -336,6 +336,7 @@ class EventSerializer(serializers.ModelSerializer):
             "payment_days",
             "multi_events",
             "free",
+            "block_payment",
             "already_booked", "booked_by", "available_spot",
             "children_levels",
         ]

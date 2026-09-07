@@ -38,6 +38,7 @@ interface FestivalInfoData {
   duration: string;
   capacity: string;
   info: string;
+  blockPayment: boolean;
   selectedArtists: { id: number; name: string }[];
   selectedGenres: { id: number; name: string }[];
   selectedStyles: { id: number; name: string }[];
@@ -51,7 +52,7 @@ interface DayConfig {
 const EMPTY_INFO: FestivalInfoData = {
   name: '', status: 'draft', accessType: 'members', levelId: '', roomId: '',
   startDate: '', startTime: '', endDate: '', endTime: '',
-  duration: '', capacity: '', info: '',
+  duration: '', capacity: '', info: '', blockPayment: false,
   selectedArtists: [], selectedGenres: [], selectedStyles: [],
 };
 
@@ -213,6 +214,20 @@ function FestivalInfoStep({
         <div className="col-span-2 space-y-2">
           <Label htmlFor="f-info">Info</Label>
           <Textarea id="f-info" value={data.info} onChange={e => set('info', e.target.value)} placeholder="Additional information about this festival…" rows={3} />
+        </div>
+
+        <div className="col-span-2 flex items-center gap-3">
+          <input
+            id="f-block-payment"
+            type="checkbox"
+            checked={data.blockPayment}
+            onChange={e => set('blockPayment', e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+          />
+          <Label htmlFor="f-block-payment" className="cursor-pointer">
+            Block payment
+            <span className="ml-1.5 font-normal text-gray-400 text-xs">(registrations stay pending approval instead of being auto-accepted, and no acceptance email is sent)</span>
+          </Label>
         </div>
       </div>
 
@@ -413,6 +428,7 @@ function FestivalWizard({ onComplete, onCancel, onRefetch }: { onComplete: (fest
         style_ids: infoData.selectedStyles.map(s => s.id),
         info: infoData.info || null,
         multi_events: true,
+        block_payment: infoData.blockPayment,
       };
 
       const eventRes = await authFetch('/api/events/events/', accessToken, {

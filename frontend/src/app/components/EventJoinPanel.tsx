@@ -18,6 +18,7 @@ const BOOKING_STATUS_LABEL: Record<ContributionStatus, { it: string; en: string 
   payed:     { it: 'Pagato',      en: 'Paid'      },
   waiting:   { it: 'In attesa',   en: 'Waiting'   },
   cancelled: { it: 'Annullato',   en: 'Cancelled' },
+  approving: { it: 'In approvazione', en: 'Approving' },
 };
 const BOOKING_STATUS_CLASS: Record<ContributionStatus, string> = {
   received:  'text-yellow-700',
@@ -26,6 +27,7 @@ const BOOKING_STATUS_CLASS: Record<ContributionStatus, string> = {
   payed:     'text-purple-700',
   waiting:   'text-orange-600',
   cancelled: 'text-gray-500',
+  approving: 'text-orange-700',
 };
 
 const AVAILABILITY_DOT_CLASS: Record<string, string> = {

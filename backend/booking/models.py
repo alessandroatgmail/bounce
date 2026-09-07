@@ -12,6 +12,7 @@ class ContributionStatus(models.TextChoices):
     PAYED = "payed", "Payed"
     CANCELLED = "cancelled", "Cancelled"
     WAITING = "waiting", "Waiting"
+    APPROVING = "approving", "Approving"
 
 
 class ExtraItem(models.Model):
@@ -62,7 +63,7 @@ class Contribution(models.Model):
             and self._previous_status != ContributionStatus.PAYED
         )
         was_accepted_now_cancelled = (
-            self._previous_status == ContributionStatus.ACCEPTED
+            self._previous_status in (ContributionStatus.ACCEPTED, ContributionStatus.APPROVING)
             and self.status == ContributionStatus.CANCELLED
         )
         super().save(*args, **kwargs)
