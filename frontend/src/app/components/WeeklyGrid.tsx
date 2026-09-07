@@ -176,6 +176,7 @@ function WeeklyEventDialog({
   const [paymentDays, setPaymentDays] = useState(editEvent?.payment_days?.toString() ?? '7');
   const [warningThreshold, setWarningThreshold] = useState(editEvent?.warning_threshold?.toString() ?? '5');
   const [extras, setExtras] = useState((editEvent?.extras ?? 0).toString());
+  const [blockPayment, setBlockPayment] = useState(editEvent?.block_payment ?? false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(editEvent?.effective_image ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -234,6 +235,7 @@ function WeeklyEventDialog({
         extras: Number(extras) || 0,
         accepted_role_ids: selectedRoles.map(r => r.id),
         membership_ids: selectedMemberships.map(m => m.id),
+        block_payment: blockPayment,
       };
 
       const url = isEdit ? `/api/events/events/${editEvent!.id}/` : '/api/events/events/';
@@ -368,6 +370,19 @@ function WeeklyEventDialog({
               <Label>Warning threshold</Label>
               <Input type="number" min={0} value={warningThreshold} onChange={e => setWarningThreshold(e.target.value)} placeholder="5" />
             </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              id="we-block-payment"
+              type="checkbox"
+              checked={blockPayment}
+              onChange={e => setBlockPayment(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+            />
+            <Label htmlFor="we-block-payment" className="cursor-pointer">
+              Block payment
+              <span className="ml-1.5 font-normal text-gray-400 text-xs">Bookings need manual approval instead of auto-accepting</span>
+            </Label>
           </div>
           <div className="space-y-1.5">
             <Label>Extras / Notes</Label>
@@ -698,6 +713,7 @@ export function WeeklyGrid() {
         warning_threshold: ev.warning_threshold,
         extras: ev.extras ?? 0,
         accepted_role_ids: ev.accepted_roles.map(r => r.id),
+        block_payment: ev.block_payment,
       } satisfies EventPayload),
     });
     onRefetch();

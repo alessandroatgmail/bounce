@@ -152,7 +152,7 @@ class TestEventStaffList:
             "styles", "genres", "artists", "events", "info", "color",
             "image", "effective_image", "booked_by", "available_spot",
             "accepted_roles", "warning_threshold", "extras", "payment_days",
-            "multi_events", "free",
+            "multi_events", "free", "block_payment",
             "children_levels",
             "memberships",
         }

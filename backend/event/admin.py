@@ -76,5 +76,5 @@ class EventAdmin(admin.ModelAdmin):
         ("Schedule", {"fields": ("start_date", "end_date", "duration")}),
         ("Venue", {"fields": ("room", "capacity")}),
         ("Details", {"fields": ("styles", "genres", "artists", "events", "info", "extras")}),
-        ("Registration", {"fields": ("payment_days", "warning_threshold", "accepted_roles")}),
+        ("Registration", {"fields": ("payment_days", "warning_threshold", "accepted_roles", "block_payment")}),
     )

@@ -33,6 +33,7 @@ const CONTRIBUTION_STATUSES: { value: ContributionStatus; labelIt: string; label
   { value: 'payed',     labelIt: 'Pagato',     labelEn: 'Paid'      },
   { value: 'cancelled', labelIt: 'Annullato',  labelEn: 'Cancelled' },
   { value: 'waiting',   labelIt: 'In attesa',  labelEn: 'Waiting'   },
+  { value: 'approving', labelIt: 'In approvazione', labelEn: 'Approving' },
 ];
 
 const STATUS_BADGE: Record<ContributionStatus, string> = {
@@ -42,6 +43,7 @@ const STATUS_BADGE: Record<ContributionStatus, string> = {
   payed:     'bg-purple-100 text-purple-800 border-purple-200',
   cancelled: 'bg-red-100 text-red-800 border-red-200',
   waiting:   'bg-gray-100 text-gray-600 border-gray-200',
+  approving: 'bg-orange-100 text-orange-800 border-orange-200',
 };
 
 interface FormState {

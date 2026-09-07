@@ -101,12 +101,11 @@ export function Home() {
                       <img src={event.effective_image} alt={event.name} className="w-full h-auto" />
                     )}
                     <CardHeader>
-                      <div className="flex justify-between items-start mb-2">
-                        <Badge className="bg-[#d4b896] text-[#2b2b2b]">{event.event_type.name.toUpperCase()}</Badge>
-                        {event.level && (
+                      {event.level && (
+                        <div className="flex justify-end items-start mb-2">
                           <Badge variant="outline" className="border-[#2b2b2b] text-[#2b2b2b]">{event.level.name}</Badge>
-                        )}
-                      </div>
+                        </div>
+                      )}
                       <CardTitle className="text-xl text-[#2b2b2b] group-hover:text-[#e67e22] transition-colors">{event.name}</CardTitle>
                       <button
                         type="button"

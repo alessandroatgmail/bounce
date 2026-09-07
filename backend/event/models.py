@@ -113,6 +113,7 @@ class Event(models.Model):
     multi_events = models.BooleanField(default=False)
     free = models.BooleanField(default=False)
     memberships = models.ManyToManyField("membership.membership", blank=True, related_name="events")
+    block_payment = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"
@@ -138,10 +139,12 @@ class Event(models.Model):
             if self.event_set.first().multi_events and not self.event_set.first().free:
                 return self.capacity - self.event_set.first().contributions.filter(
                     Q(level=self.level),
-                    Q(status=CS.PAYED) | Q(status=CS.ACCEPTED)
+                    Q(status=CS.PAYED) | Q(status=CS.ACCEPTED) | Q(status=CS.APPROVING)
                 ).count()
 
-        return self.capacity - self.contributions.filter(Q(status=CS.PAYED) | Q(status=CS.ACCEPTED)).count()
+        return self.capacity - self.contributions.filter(
+            Q(status=CS.PAYED) | Q(status=CS.ACCEPTED) | Q(status=CS.APPROVING)
+        ).count()
 
     @property
     def spot_booked(self):
@@ -164,7 +167,7 @@ class Event(models.Model):
             if self.event_set.first().multi_events and not self.event_set.first().free:
                 parent = self.event_set.first()
                 roles = list (parent.contributions.filter(
-                    status__in=[CS.ACCEPTED, CS.PAYED], level=self.level,
+                    status__in=[CS.ACCEPTED, CS.PAYED, CS.APPROVING], level=self.level,
                 ).values("role__name")
                 )
                 roles = dict(Counter([r["role__name"] for r in roles]))
@@ -173,7 +176,7 @@ class Event(models.Model):
                         roles[role.name] = 0
                 return roles
         roles = list(
-            self.contributions.filter(status__in=[CS.ACCEPTED, CS.PAYED]).values("role__name")
+            self.contributions.filter(status__in=[CS.ACCEPTED, CS.PAYED, CS.APPROVING]).values("role__name")
         )
         roles = dict(Counter([r["role__name"] for r in roles]))
 
