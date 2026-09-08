@@ -10,6 +10,7 @@ import { Button } from './ui/button';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { EventJoinPanel } from './EventJoinPanel';
 import { EventScheduleTable } from './EventScheduleTable';
+import { EventWeeklySchedule } from './EventWeeklySchedule';
 
 // The event's full description (image, title, rendered HTML), with a back
 // arrow. Used both as a standalone page (public visitors) and nested inside
@@ -124,7 +125,7 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
             </AccordionItem>
           </Accordion>
 
-          {event.multi_events && (
+          {event.multi_events ? (
             <div className="mt-8">
               <Accordion type="single" collapsible defaultValue="schedule">
                 <AccordionItem value="schedule" className="border-none">
@@ -141,6 +142,19 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
                           : 'This schedule may be subject to changes in time and location. Please check it again before attending.'}
                       </span>
                     </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
+          ) : children.length > 0 && (
+            <div className="mt-8">
+              <Accordion type="single" collapsible defaultValue="schedule">
+                <AccordionItem value="schedule" className="border-none">
+                  <AccordionTrigger className="text-[#2b2b2b] text-base font-semibold py-2">
+                    {it ? 'Programma' : 'Schedule'}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <EventWeeklySchedule childEvents={children} language={language} />
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
