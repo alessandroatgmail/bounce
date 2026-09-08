@@ -101,16 +101,26 @@ function getWeekMonday(date: Date): Date {
   return d;
 }
 
+// Greedy interval packing into lanes, sticky by room: once a room lands on
+// a lane, later classes in that same room reuse it (rooms never host
+// overlapping classes, so the lane is always free by then) instead of
+// sliding into whichever lane happens to be free — keeps a room in the
+// same visual column all day instead of hopping lanes.
 function computeLanes(events: EventItem[]): Map<number, number> {
   const sorted = [...events].sort((a, b) => eventMinutes(a.start_date) - eventMinutes(b.start_date));
   const laneEnds: number[] = [];
+  const roomLane = new Map<number, number>();
   const result = new Map<number, number>();
   for (const ev of sorted) {
     const start = eventMinutes(ev.start_date);
     const end = start + ev.duration;
-    let lane = laneEnds.findIndex(t => t <= start);
+    const roomId = ev.room?.id;
+    const preferred = roomId != null ? roomLane.get(roomId) : undefined;
+    let lane = preferred !== undefined && laneEnds[preferred] <= start ? preferred : -1;
+    if (lane === -1) lane = laneEnds.findIndex(t => t <= start);
     if (lane === -1) { lane = laneEnds.length; laneEnds.push(end); }
     else laneEnds[lane] = end;
+    if (roomId != null) roomLane.set(roomId, lane);
     result.set(ev.id, lane);
   }
   return result;
