@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, Loader2, AlertTriangle, Upload, X, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import { Plus, Loader2, AlertTriangle, Upload, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays, Pencil, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { type EventItem, type EventPayload } from '../hooks/useEvents';
 import { useEventsPaginated } from '../hooks/useEventsPaginated';
@@ -125,6 +125,287 @@ function computeLanes(events: EventItem[]): Map<number, number> {
 interface WeekSlot {
   dayIndex: number;
   startTime: string; // HH:MM
+}
+
+// ── Children (weekly occurrences) ───────────────────────────────────────────
+
+// Everything a new occurrence clones from the parent template — only date
+// and time are ever asked for when adding or editing one.
+interface ChildTemplate {
+  name: string;
+  status: string;
+  eventTypeId: string;
+  roomId: string;
+  capacity: string;
+  levelId: string;
+  color: string | null;
+  artistIds: number[];
+  genreIds: number[];
+  styleIds: number[];
+  acceptedRoleIds: number[];
+  membershipIds: number[];
+  paymentDays: string;
+  warningThreshold: string;
+  extras: string;
+  blockPayment: boolean;
+}
+
+function formatChildDate(dateStr: string) {
+  return new Date(dateStr.slice(0, 10) + 'T00:00').toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+
+// Lists a weekly class's generated occurrences (one Event per week, linked
+// via the parent's `events` M2M) with inline edit/delete, and lets the
+// admin add one more occurrence that only varies by date/time — everything
+// else is cloned from the parent form's current values.
+function ChildrenSection({
+  parentId,
+  initialChildIds,
+  accessToken,
+  template,
+}: {
+  parentId: number;
+  initialChildIds: number[];
+  accessToken: string | null;
+  template: ChildTemplate;
+}) {
+  const [childIds, setChildIds] = useState<number[]>(initialChildIds);
+  const [expanded, setExpanded] = useState(false);
+  const [children, setChildren] = useState<EventItem[] | null>(null);
+  const [loadingChildren, setLoadingChildren] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editStart, setEditStart] = useState('');
+  const [editEnd, setEditEnd] = useState('');
+  const [rowError, setRowError] = useState<string | null>(null);
+  const [savingChild, setSavingChild] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const [adding, setAdding] = useState(false);
+  const [newDate, setNewDate] = useState('');
+  const [newStart, setNewStart] = useState('');
+  const [newEnd, setNewEnd] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!expanded || children !== null || !accessToken || childIds.length === 0) return;
+    let cancelled = false;
+    setLoadingChildren(true);
+    setListError(null);
+    Promise.all(
+      childIds.map(id =>
+        authFetch(`/api/events/events/${id}/`, accessToken).then(r => {
+          if (!r.ok) throw new Error();
+          return r.json() as Promise<EventItem>;
+        }),
+      ),
+    )
+      .then(list => { if (!cancelled) setChildren([...list].sort((a, b) => a.start_date.localeCompare(b.start_date))); })
+      .catch(() => { if (!cancelled) setListError('Failed to load classes.'); })
+      .finally(() => { if (!cancelled) setLoadingChildren(false); });
+    return () => { cancelled = true; };
+  }, [expanded, childIds, children, accessToken]);
+
+  const startEdit = (child: EventItem) => {
+    setEditingId(child.id);
+    setEditDate(child.start_date.slice(0, 10));
+    setEditStart(formatTime(child.start_date));
+    setEditEnd(formatTime(child.end_date));
+    setRowError(null);
+  };
+
+  const saveEdit = async (childId: number) => {
+    if (!accessToken) return;
+    const [sh, sm] = editStart.split(':').map(Number);
+    const [eh, em] = editEnd.split(':').map(Number);
+    const duration = (eh * 60 + em) - (sh * 60 + sm);
+    if (!editDate) { setRowError('Date is required.'); return; }
+    if (duration <= 0) { setRowError('End time must be after start time.'); return; }
+    setSavingChild(true);
+    setRowError(null);
+    try {
+      const res = await authFetch(`/api/events/events/${childId}/`, accessToken, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          start_date: `${editDate}T${editStart}:00`,
+          end_date: `${editDate}T${editEnd}:00`,
+          duration,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const updated: EventItem = await res.json();
+      setChildren(prev =>
+        (prev?.map(c => (c.id === childId ? updated : c)) ?? [updated])
+          .sort((a, b) => a.start_date.localeCompare(b.start_date)),
+      );
+      setEditingId(null);
+    } catch {
+      setRowError('Failed to save.');
+    } finally {
+      setSavingChild(false);
+    }
+  };
+
+  const deleteChild = async (childId: number) => {
+    if (!accessToken) return;
+    setDeletingId(childId);
+    setRowError(null);
+    try {
+      const res = await authFetch(`/api/events/events/${childId}/`, accessToken, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || 'Failed to delete.');
+      }
+      setChildIds(prev => prev.filter(id => id !== childId));
+      setChildren(prev => prev?.filter(c => c.id !== childId) ?? null);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : 'Failed to delete.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const addChild = async () => {
+    if (!accessToken) return;
+    const [sh, sm] = newStart.split(':').map(Number);
+    const [eh, em] = newEnd.split(':').map(Number);
+    const duration = (eh * 60 + em) - (sh * 60 + sm);
+    if (!newDate) { setAddError('Date is required.'); return; }
+    if (duration <= 0) { setAddError('End time must be after start time.'); return; }
+    if (!template.roomId || !template.eventTypeId) { setAddError('Save the class first.'); return; }
+    setSavingChild(true);
+    setAddError(null);
+    try {
+      const payload: EventPayload = {
+        name: `${template.name} - ${formatChildDate(newDate).replace(/ /g, '/')}`,
+        status: template.status,
+        event_type_id: Number(template.eventTypeId),
+        type: 'members',
+        start_date: `${newDate}T${newStart}:00`,
+        end_date: `${newDate}T${newEnd}:00`,
+        duration,
+        room_id: Number(template.roomId),
+        capacity: Number(template.capacity) || 20,
+        artist_ids: template.artistIds,
+        genre_ids: template.genreIds,
+        style_ids: template.styleIds,
+        color: template.color || null,
+        level_id: template.levelId ? Number(template.levelId) : null,
+        payment_days: Number(template.paymentDays) || 7,
+        warning_threshold: Number(template.warningThreshold) || 5,
+        extras: Number(template.extras) || 0,
+        accepted_role_ids: template.acceptedRoleIds,
+        membership_ids: template.membershipIds,
+        block_payment: template.blockPayment,
+      };
+      const createRes = await authFetch('/api/events/events/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!createRes.ok) {
+        const body = await createRes.json().catch(() => ({}));
+        throw new Error(JSON.stringify(body));
+      }
+      const created: EventItem = await createRes.json();
+      const nextIds = [...childIds, created.id];
+      // event_ids replaces the whole set server-side, so send the full
+      // list back — PATCH (not PUT) so the rest of the parent's fields,
+      // and the PUT-only cascade-to-children logic, are left untouched.
+      const linkRes = await authFetch(`/api/events/events/${parentId}/`, accessToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ event_ids: nextIds }),
+      });
+      if (!linkRes.ok) throw new Error('Class was created but could not be linked to this event.');
+      setChildIds(nextIds);
+      setChildren(prev => (prev ? [...prev, created] : [created]).sort((a, b) => a.start_date.localeCompare(b.start_date)));
+      setAdding(false);
+      setNewDate(''); setNewStart(''); setNewEnd('');
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add.');
+    } finally {
+      setSavingChild(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5 border-t pt-3">
+      <button type="button" onClick={() => setExpanded(e => !e)} className="flex items-center justify-between w-full text-left">
+        <Label className="cursor-pointer">Classes ({childIds.length})</Label>
+        {expanded ? <ChevronUp className="size-3.5 text-gray-400" /> : <ChevronDown className="size-3.5 text-gray-400" />}
+      </button>
+
+      {expanded && (
+        <div className="space-y-2 pt-1">
+          {loadingChildren && <Loader2 className="size-4 animate-spin text-gray-400" />}
+          {listError && <p className="text-xs text-red-500">{listError}</p>}
+
+          {children?.map(child => (
+            <div key={child.id} className="rounded-md border border-gray-200 px-2 py-1.5 text-xs">
+              {editingId === child.id ? (
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="h-7 text-xs" />
+                    <Input type="time" value={editStart} onChange={e => setEditStart(e.target.value)} className="h-7 text-xs" />
+                    <Input type="time" value={editEnd} onChange={e => setEditEnd(e.target.value)} className="h-7 text-xs" />
+                  </div>
+                  <div className="flex justify-end gap-1.5">
+                    <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => setEditingId(null)}>Cancel</Button>
+                    <Button type="button" size="sm" className="h-6 text-[10px] px-2" disabled={savingChild} onClick={() => saveEdit(child.id)}>
+                      {savingChild ? <Loader2 className="size-3 animate-spin" /> : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span>{formatChildDate(child.start_date)} · {formatTime(child.start_date)}–{formatTime(child.end_date)}</span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => startEdit(child)} className="text-gray-400 hover:text-[#e67e22]" title="Edit">
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteChild(child.id)}
+                      disabled={deletingId === child.id}
+                      className="text-gray-400 hover:text-red-600"
+                      title="Delete"
+                    >
+                      {deletingId === child.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {rowError && <p className="text-xs text-red-500">{rowError}</p>}
+
+          {adding ? (
+            <div className="rounded-md border border-dashed border-gray-300 px-2 py-1.5 space-y-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
+                <Input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} className="h-7 text-xs" />
+                <Input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} className="h-7 text-xs" />
+                <Input type="time" value={newEnd} onChange={e => setNewEnd(e.target.value)} className="h-7 text-xs" />
+              </div>
+              {addError && <p className="text-[10px] text-red-500">{addError}</p>}
+              <div className="flex justify-end gap-1.5">
+                <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { setAdding(false); setAddError(null); }}>Cancel</Button>
+                <Button type="button" size="sm" className="h-6 text-[10px] px-2" disabled={savingChild} onClick={addChild}>
+                  {savingChild ? <Loader2 className="size-3 animate-spin" /> : 'Add'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setAdding(true)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#e67e22] transition-colors">
+              <Plus className="size-3.5" /> Add a class occurrence
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
@@ -439,6 +720,31 @@ function WeeklyEventDialog({
               onChange={handleImageChange}
             />
           </div>
+          {isEdit && (
+            <ChildrenSection
+              parentId={editEvent!.id}
+              initialChildIds={editEvent!.events}
+              accessToken={accessToken}
+              template={{
+                name,
+                status,
+                eventTypeId,
+                roomId,
+                capacity,
+                levelId,
+                color,
+                artistIds: selectedArtists.map(a => a.id),
+                genreIds: selectedGenres.map(g => g.id),
+                styleIds: selectedStyles.map(s => s.id),
+                acceptedRoleIds: selectedRoles.map(r => r.id),
+                membershipIds: selectedMemberships.map(m => m.id),
+                paymentDays,
+                warningThreshold,
+                extras,
+                blockPayment,
+              }}
+            />
+          )}
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
