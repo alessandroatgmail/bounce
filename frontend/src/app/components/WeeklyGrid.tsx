@@ -101,26 +101,20 @@ function getWeekMonday(date: Date): Date {
   return d;
 }
 
-// Greedy interval packing into lanes, sticky by room: once a room lands on
-// a lane, later classes in that same room reuse it (rooms never host
-// overlapping classes, so the lane is always free by then) instead of
-// sliding into whichever lane happens to be free — keeps a room in the
-// same visual column all day instead of hopping lanes.
+// One lane per physical room, not interval packing — a room can never host
+// two overlapping classes, so there's nothing to pack: every class in the
+// same room belongs in the same lane, full stop. Lanes are handed out in
+// order of each room's first class that day, so the grid stays stable
+// class to class instead of a room hopping columns depending on what else
+// happens to be running alongside it.
 function computeLanes(events: EventItem[]): Map<number, number> {
   const sorted = [...events].sort((a, b) => eventMinutes(a.start_date) - eventMinutes(b.start_date));
-  const laneEnds: number[] = [];
   const roomLane = new Map<number, number>();
   const result = new Map<number, number>();
   for (const ev of sorted) {
-    const start = eventMinutes(ev.start_date);
-    const end = start + ev.duration;
-    const roomId = ev.room?.id;
-    const preferred = roomId != null ? roomLane.get(roomId) : undefined;
-    let lane = preferred !== undefined && laneEnds[preferred] <= start ? preferred : -1;
-    if (lane === -1) lane = laneEnds.findIndex(t => t <= start);
-    if (lane === -1) { lane = laneEnds.length; laneEnds.push(end); }
-    else laneEnds[lane] = end;
-    if (roomId != null) roomLane.set(roomId, lane);
+    const roomId = ev.room?.id ?? -ev.id;
+    let lane = roomLane.get(roomId);
+    if (lane === undefined) { lane = roomLane.size; roomLane.set(roomId, lane); }
     result.set(ev.id, lane);
   }
   return result;
