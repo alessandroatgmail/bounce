@@ -40,6 +40,7 @@ export interface EventItem {
   payment_days: number;
   multi_events: boolean;
   free: boolean;
+  block_payment: boolean;
   children_levels: { id: number; name: string; colors: Record<string, string> }[];
   already_booked: boolean;
   booked_by: string | null;
@@ -69,6 +70,7 @@ export interface EventPayload {
   membership_ids?: number[];
   multi_events?: boolean;
   free?: boolean;
+  block_payment?: boolean;
   event_ids?: number[];
 }
 

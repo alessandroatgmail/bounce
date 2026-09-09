@@ -121,6 +121,7 @@ function EventSlotDialog({
   const [selectedMemberships, setSelectedMemberships] = useState<{ id: number; name: string }[]>(
     editEvent?.memberships?.map(m => ({ id: m.id, name: m.name })) ?? []
   );
+  const [blockPayment, setBlockPayment] = useState(editEvent?.block_payment ?? false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +184,7 @@ function EventSlotDialog({
         style_ids: selectedStyles.map(s => s.id),
         color: color || null,
         membership_ids: selectedMemberships.map(m => m.id),
+        block_payment: blockPayment,
       };
 
       if (isEdit) {
@@ -293,6 +295,20 @@ function EventSlotDialog({
               <input type="color" value={color ?? '#e67e22'} onChange={e => setColor(e.target.value)} className="h-8 w-12 rounded border cursor-pointer p-0.5" />
               <Input value={color ?? ''} onChange={e => setColor(e.target.value || null as any)} placeholder="#rrggbb" className="flex-1 h-8 text-sm" />
             </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              id="ae-block-payment"
+              type="checkbox"
+              checked={blockPayment}
+              onChange={e => setBlockPayment(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+            />
+            <Label htmlFor="ae-block-payment" className="cursor-pointer">
+              {t('festival.event.blockPayment')}
+              <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.event.blockPaymentNote')}</span>
+            </Label>
           </div>
 
           {error && <p className="text-xs text-red-500">{error}</p>}
@@ -737,6 +753,7 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
     info:            festival.info ?? '',
     multi_events:    festival.multi_events,
     free:            festival.free,
+    block_payment:   festival.block_payment,
     selectedArtists: festival.artists.map(a => ({ id: a.id, name: a.full_name })),
     selectedGenres:  festival.genres.map(g => ({ id: g.id, name: g.name })),
     selectedStyles:  festival.styles.map(s => ({ id: s.id, name: s.name })),
@@ -772,6 +789,7 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
         info:           form.info || null,
         multi_events:   form.multi_events,
         free:           form.free,
+        block_payment:  form.block_payment,
       };
       const res = await authFetch(`/api/events/events/${festival.id}/`, accessToken, {
         method: 'PATCH',
@@ -847,6 +865,20 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
           <Label htmlFor="fi-free" className="cursor-pointer">
             {t('festival.info.freeChoice')}
             <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.info.freeChoiceNote')}</span>
+          </Label>
+        </div>
+
+        <div className="col-span-2 flex items-center gap-3">
+          <input
+            id="fi-block-payment"
+            type="checkbox"
+            checked={form.block_payment}
+            onChange={e => set('block_payment', e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+          />
+          <Label htmlFor="fi-block-payment" className="cursor-pointer">
+            {t('festival.info.blockPayment')}
+            <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.info.blockPaymentNote')}</span>
           </Label>
         </div>
 

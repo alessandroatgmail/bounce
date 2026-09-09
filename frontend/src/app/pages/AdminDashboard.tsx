@@ -1117,6 +1117,7 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   const [paymentDays, setPaymentDays] = useState(initialData?.payment_days?.toString() ?? '7');
   const [warningThreshold, setWarningThreshold] = useState(initialData?.warning_threshold?.toString() ?? '5');
   const [extras, setExtras] = useState((initialData?.extras ?? 0).toString());
+  const [blockPayment, setBlockPayment] = useState(initialData?.block_payment ?? false);
   const [selectedRoles, setSelectedRoles] = useState<{ id: number; name: string }[]>(
     initialData?.accepted_roles ?? []
   );
@@ -1171,6 +1172,7 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
       extras: Number(extras) || 0,
       accepted_role_ids: selectedRoles.map(r => r.id),
       membership_ids: selectedMemberships.map(m => m.id),
+      block_payment: blockPayment,
     };
     try {
       if (isEdit) {
@@ -1327,6 +1329,19 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
               placeholder="Search membership…"
               onChange={setSelectedMemberships}
             />
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <input
+              id="ef-block-payment"
+              type="checkbox"
+              checked={blockPayment}
+              onChange={e => setBlockPayment(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 accent-[#e67e22]"
+            />
+            <Label htmlFor="ef-block-payment" className="cursor-pointer">
+              Block payment
+              <span className="ml-1.5 font-normal text-gray-400 text-xs">(registrations stay pending approval instead of being auto-accepted, and no acceptance email is sent)</span>
+            </Label>
           </div>
         </div>
 
