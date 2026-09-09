@@ -297,13 +297,13 @@ class EventViewSet(viewsets.ModelViewSet):
             day_delta = child.start_date.date() - instance.start_date.date()
             new_start = instance.start_date + timedelta(days=day_delta.days)
             new_end = new_start + timedelta(minutes=instance.duration)
-
+            child.status = instance.status
             child.room = instance.room
             child.start_date = new_start
             child.end_date = new_end
             child.duration = instance.duration
             child.color = instance.color
-            child.save(update_fields=['room', 'start_date', 'end_date', 'duration', 'color'])
+            child.save(update_fields=['room', 'start_date', 'end_date', 'duration', 'color', 'status'])
             child.artists.set(instance.artists.all())
             child.styles.set(instance.styles.all())
             child.genres.set(instance.genres.all())

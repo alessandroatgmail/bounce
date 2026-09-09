@@ -322,3 +322,50 @@ class TestWeeklyRecurrenceLinkage:
         confirm_payload = {**payload, "status": "confirmed", "event_ids": []}
         res = staff_client.put(detail(event_id), confirm_payload, format="json")
         assert len(res.data["events"]) == 2
+
+
+# ── Weekly recurrence — student visibility after publishing ─────────────────
+#
+# Children are stamped with the parent's status once, at the moment
+# recurrence fires (draft -> confirmed), and never revisited after that. A
+# student can only ever see PUBLISHED events (EventViewSet.get_queryset
+# filters non-staff users to that status) — so if publishing the parent
+# doesn't also push "published" onto its children, they become invisible to
+# students even though the parent itself is published.
+
+class TestWeeklyRecurrenceStudentVisibilityAfterPublish:
+
+    def test_student_can_see_children_of_a_published_weekly_event(
+        self, staff_client, student_client, world_data,
+    ):
+        et = make_weekly_event_type()
+        event_id, payload = create_weekly_event(
+            staff_client, et,
+            start_date=datetime(2026, 4, 21, 10, 0).isoformat(),
+            end_date=datetime(2026, 4, 28, 10, 0).isoformat(),
+        )
+        original = confirm_event(staff_client, event_id, payload)
+        original.refresh_from_db()
+
+        # `payload` still carries the `event_ids: []` that make_event_payload()
+        # bakes in by default — spreading it into publish_payload wouldn't
+        # remove that key, and event_ids IS in validated_data even as an
+        # empty list, so it would wipe the children just linked by
+        # confirm_event(). The real admin UI never sends event_ids on an
+        # ordinary save (see WeeklyEventDialog.handleSubmit), so drop it here
+        # too to match production behavior.
+        publish_payload = {**payload, "status": "published"}
+        publish_payload.pop("event_ids", None)
+        res = staff_client.put(detail(event_id), publish_payload, format="json")
+        assert res.status_code == 200
+
+        original.refresh_from_db()
+        print(original.events.all().values("name", "status"))
+        assert original.events.count() > 0
+        child_id = original.events.first().id
+        assert child_id
+        assert original.events.first().status=="published"
+
+
+        res = student_client.get(detail(child_id))
+        assert res.status_code == 200
