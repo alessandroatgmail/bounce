@@ -47,13 +47,19 @@ def student_user(db):
 
 
 @pytest.fixture
-def staff_client(client, staff_user):
+def staff_client(staff_user):
+    # Its own APIClient instance rather than depending on the shared `client`
+    # fixture — a test requesting both staff_client and student_client would
+    # otherwise get force_authenticate() called twice on the *same* object,
+    # leaving both names pointing at whichever identity was set last.
+    client = APIClient()
     client.force_authenticate(user=staff_user)
     return client
 
 
 @pytest.fixture
-def student_client(client, student_user):
+def student_client(student_user):
+    client = APIClient()
     client.force_authenticate(user=student_user)
     return client
 
