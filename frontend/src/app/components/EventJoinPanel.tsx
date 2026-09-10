@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, UserCheck, UserX, CreditCard, Info, XCircle } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -61,6 +71,7 @@ export function EventJoinPanel({
   const [partnerId, setPartnerId] = useState<number | null>(null);
   const [partnerName, setPartnerName] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
   const [includePartner, setIncludePartner] = useState(true);
@@ -195,6 +206,7 @@ export function EventJoinPanel({
 
   async function handleCancel() {
     if (!myContribution) return;
+    setShowCancelConfirm(false);
     setCancelling(true);
     try {
       await cancel(myContribution.id);
@@ -270,7 +282,7 @@ export function EventJoinPanel({
                   variant="outline"
                   disabled={cancelling}
                   className="text-red-600 border-red-300 hover:bg-red-50 flex items-center gap-1"
-                  onClick={handleCancel}
+                  onClick={() => setShowCancelConfirm(true)}
                 >
                   {cancelling
                     ? <Loader2 className="size-3.5 animate-spin" />
@@ -540,6 +552,30 @@ export function EventJoinPanel({
           )}
         </div>
       )}
+
+      <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {it ? 'Annullare la prenotazione?' : 'Cancel this booking?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {it
+                ? `Stai per annullare la tua prenotazione per "${event.name}". L'operazione non può essere annullata: per tornare a iscriverti dovrai contattare la segreteria via email.`
+                : `You're about to cancel your booking for "${event.name}". This can't be undone — you'll need to email customer service to rebook.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{it ? 'Annulla' : 'Cancel'}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleCancel}
+            >
+              {it ? 'Sì, annulla prenotazione' : 'Yes, cancel booking'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
