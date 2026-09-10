@@ -59,9 +59,9 @@ class TransactionSerializer(serializers.ModelSerializer):
         instance = super().create(validated_data)
         contributions = list(instance.contributions.select_related('user', 'membership').prefetch_related('events').all())
         if contributions:
-            from booking.utils import mark_contributions_payed, send_payment_emails
-            mark_contributions_payed(contributions)
-            send_payment_emails(contributions)
+            from booking.utils import mark_contributions_payed, send_transaction_emails
+            # mark_contributions_payed(contributions)
+            send_transaction_emails([instance])
         return instance
 
     def to_representation(self, instance):

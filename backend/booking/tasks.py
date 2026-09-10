@@ -131,6 +131,32 @@ def send_contribution_expiry_reminder_email(user_id: int, contribution_id: int) 
     print("Celery Task reminder ended")
 
 @shared_task
+def send_transaction_completed_email(transaction_id: int) -> None:
+    from payments.models import Transaction
+
+    transaction = (
+        Transaction.objects
+        .select_related('user')
+        .prefetch_related('contributions__events', 'contributions__extra_items')
+        .get(pk=transaction_id)
+    )
+    context = {
+        "transaction": transaction,
+        "url": settings.FRONTEND_URL + '/?section=payments',
+    }
+    try:
+        mail.send(
+            transaction.user.email,
+            template="transaction_completed",
+            context=context,
+            language=transaction.user.language,
+        )
+    except Exception as exc:
+        print(f"email failed user {transaction.user.email} - template transaction_completed - {context}")
+        print(exc)
+
+
+@shared_task
 def send_waiting_list_for_role_email(user_id: int, contribution_id: int) -> None:
     User = get_user_model()
     user = User.objects.get(pk=user_id)

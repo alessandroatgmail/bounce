@@ -122,16 +122,22 @@ class TestCreateTransaction:
         transaction = Transaction.objects.get(id=res.data["id"])
         assert list(transaction.contributions.all()) == [contribution]
 
-    def test_linking_a_contribution_marks_it_payed(self, staff_client, student_user, accepted_contribution):
+    def test_linking_a_contribution_does_not_change_its_status(
+        self, staff_client, student_user, accepted_contribution,
+    ):
+        """Manual (cash/bank) payments must not auto-mark the contribution
+        PAYED — an admin can record several installment payments against the
+        same contribution, and only an explicit, separate status change
+        (still to be decided) should flip it to PAYED."""
         res = staff_client.post(URL, {
             "user": student_user.id, "method": "cash",
-            "receipt_number": "RCPT-003", "amount_total": "100.00",
+            "receipt_number": "RCPT-011", "amount_total": "30.00",
             "contribution_ids": [accepted_contribution.id],
         }, format="json")
 
         assert res.status_code == http_status.HTTP_201_CREATED
         accepted_contribution.refresh_from_db()
-        assert accepted_contribution.status == ContributionStatus.PAYED
+        assert accepted_contribution.status == ContributionStatus.ACCEPTED
 
     def test_without_contributions_nothing_is_marked_payed(self, staff_client, student_user):
         res = staff_client.post(URL, {
@@ -140,8 +146,8 @@ class TestCreateTransaction:
         }, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
 
-    @patch("booking.utils.send_email_task.delay")
-    def test_linking_a_contribution_sends_payment_email(
+    @patch("booking.tasks.send_transaction_completed_email.delay")
+    def test_linking_a_contribution_sends_transaction_email(
         self, mock_send_email, staff_client, student_user, accepted_contribution
     ):
         res = staff_client.post(URL, {
@@ -151,12 +157,9 @@ class TestCreateTransaction:
         }, format="json")
 
         assert res.status_code == http_status.HTTP_201_CREATED
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        assert call_args[0][0] == student_user.id
-        assert call_args[1]['template'] == 'payment_success_email'
+        mock_send_email.assert_called_once_with(res.data["id"])
 
-    @patch("booking.utils.send_email_task.delay")
+    @patch("booking.tasks.send_transaction_completed_email.delay")
     def test_without_contributions_no_payment_email_is_sent(self, mock_send_email, staff_client, student_user):
         res = staff_client.post(URL, {
             "user": student_user.id, "method": "cash",
@@ -164,6 +167,29 @@ class TestCreateTransaction:
         }, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
         mock_send_email.assert_not_called()
+
+    @patch("booking.tasks.send_transaction_completed_email.delay")
+    def test_transaction_email_dispatches_for_the_installment_transaction(
+        self, mock_send_email, staff_client, student_user, accepted_contribution,
+    ):
+        """Installments: dispatch must carry *this* 30€ transaction's id, not
+        the 100€ contribution's — send_transaction_completed_email reads the
+        amount from the Transaction it's given, so the id has to be right.
+        The actual rendered amount is covered directly in
+        booking/tests/test_transaction_completed_email.py, since mocking
+        .delay() here never runs the task body that builds that context."""
+        assert accepted_contribution.amount == Decimal("100.00")
+
+        res = staff_client.post(URL, {
+            "user": student_user.id, "method": "cash",
+            "receipt_number": "RCPT-012", "amount_total": "30.00",
+            "contribution_ids": [accepted_contribution.id],
+        }, format="json")
+
+        assert res.status_code == http_status.HTTP_201_CREATED
+        transaction = Transaction.objects.get(id=res.data["id"])
+        assert transaction.amount_total == Decimal("30.00")
+        mock_send_email.assert_called_once_with(transaction.id)
 
     def test_date_defaults_to_now(self, staff_client, student_user):
         res = staff_client.post(URL, {

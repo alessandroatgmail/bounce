@@ -117,6 +117,22 @@ def send_payment_emails(contributions):
         )
 
 
+def send_transaction_emails(transactions):
+    """Sent for the amount actually paid in each transaction — not the full
+    amount owed on its linked contribution(s), since a contribution can be
+    settled across several installment payments. See the transaction_completed
+    template (booking/migrations/0034_load_transaction_completed_email_template.py).
+
+    Dispatches by id, not by passing the Transaction instance itself — Celery
+    serializes .delay() arguments to JSON, and an ORM instance isn't
+    serializable. send_transaction_completed_email re-fetches it inside the
+    task instead."""
+    from booking.tasks import send_transaction_completed_email
+
+    for t in transactions:
+        send_transaction_completed_email.delay(t.id)
+
+
 def sync_bookings(user, added_events, removed_events):
     from booking.models import Booking
 
