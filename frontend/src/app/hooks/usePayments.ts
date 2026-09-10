@@ -4,6 +4,7 @@ import { authFetch } from '../../lib/api';
 const BASE = '/api/payments/transactions/';
 
 export type PaymentMethod = 'stripe' | 'cash' | 'bank';
+export type PaymentStatus = 'pending' | 'processing' | 'completed';
 
 export interface TransactionUser {
   id: number;
@@ -16,6 +17,7 @@ export interface Transaction {
   id: number;
   user: TransactionUser;
   method: PaymentMethod;
+  status: PaymentStatus;
   receipt_number: string;
   amount_total: string;
   currency: string;

@@ -13,7 +13,7 @@ from unittest.mock import patch
 from django.utils import timezone
 from rest_framework import status as http_status
 
-from payments.models import Transaction, PaymentMethod
+from payments.models import Transaction, PaymentMethod, PaymentStatus
 from booking.models import Contribution, ContributionStatus
 from membership.models import Membership
 from users.models import User
@@ -248,3 +248,43 @@ class TestListTransactions:
 
         assert len(res.data) == 1
         assert res.data[0]["method"] == "stripe"
+
+    def test_list_shows_status(self, staff_client, student_user):
+        Transaction.objects.create(
+            user=student_user, method=PaymentMethod.STRIPE,
+            stripe_session_id="cs_test_status", amount_total=Decimal("75.00"),
+            status=PaymentStatus.COMPLETED,
+        )
+
+        res = staff_client.get(URL)
+
+        assert res.data[0]["status"] == "completed"
+
+    def test_list_shows_contribution_event_name(self, staff_client, student_user, contribution, world_data):
+        from utils.mock_festival import make_festival_event
+        event = make_festival_event(name="Lindy Hop Beginners")
+        contribution.events.add(event)
+        transaction = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-009", amount_total=Decimal("100.00"),
+        )
+        transaction.contributions.add(contribution)
+
+        res = staff_client.get(URL)
+
+        payment = next(t for t in res.data if t["id"] == transaction.id)
+        assert payment["contributions"][0]["event_name"] == "Lindy Hop Beginners"
+
+    def test_event_name_is_none_when_contribution_has_no_event(self, staff_client, student_user, contribution):
+        transaction = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-010", amount_total=Decimal("100.00"),
+        )
+        transaction.contributions.add(contribution)
+
+        res = staff_client.get(URL)
+
+        payment = next(t for t in res.data if t["id"] == transaction.id)
+        contrib_data = payment["contributions"][0]
+        assert "event_name" in contrib_data
+        assert contrib_data["event_name"] is None

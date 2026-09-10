@@ -4,7 +4,6 @@ from django.utils import timezone
 from event.models import Event, PartnerRole
 from membership.models import Membership, Discount
 
-
 class ContributionStatus(models.TextChoices):
     RECEIVED = "received", "Received"
     ACCEPTED = "accepted", "Accepted"
@@ -51,6 +50,12 @@ class Contribution(models.Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._previous_status = self.status
+
+    def __str__(self):
+        if self.events.exists():
+            return f"{self.user.email} - {self.membership.name} - {self.events.first().name}"
+        else:
+            return f"{self.user.email} - {self.membership.name}"
 
     def save(self, *args, **kwargs):
 

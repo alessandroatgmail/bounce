@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { usePayments, type PaymentMethod } from '../hooks/usePayments';
+import { usePayments, type PaymentMethod, type PaymentStatus } from '../hooks/usePayments';
 import { type UserListItem } from '../hooks/useUserList';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -15,6 +15,12 @@ const METHOD_LABELS: Record<PaymentMethod, { label: string; variant: 'default' |
   stripe: { label: 'Stripe', variant: 'default' },
   cash:   { label: 'Cash',   variant: 'secondary' },
   bank:   { label: 'Bank transfer', variant: 'outline' },
+};
+
+const STATUS_LABELS: Record<PaymentStatus, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
+  pending:    { label: 'Pending',    variant: 'outline' },
+  processing: { label: 'Processing', variant: 'secondary' },
+  completed:  { label: 'Completed',  variant: 'default' },
 };
 
 export function PaymentsPanel() {
@@ -64,6 +70,7 @@ export function PaymentsPanel() {
                 <TableHead>{language === 'it' ? 'Data' : 'Date'}</TableHead>
                 <TableHead>{language === 'it' ? 'Utente' : 'User'}</TableHead>
                 <TableHead>{language === 'it' ? 'Metodo' : 'Method'}</TableHead>
+                <TableHead>{language === 'it' ? 'Stato' : 'Status'}</TableHead>
                 <TableHead>{language === 'it' ? 'Importo' : 'Amount'}</TableHead>
                 <TableHead>{language === 'it' ? 'Ricevuta' : 'Receipt'}</TableHead>
               </TableRow>
@@ -71,6 +78,7 @@ export function PaymentsPanel() {
             <TableBody>
               {transactions.map(t => {
                 const method = METHOD_LABELS[t.method] ?? { label: t.method, variant: 'outline' as const };
+                const paymentStatus = STATUS_LABELS[t.status] ?? { label: t.status, variant: 'outline' as const };
                 return (
                   <TableRow key={t.id}>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
@@ -83,6 +91,9 @@ export function PaymentsPanel() {
                     <TableCell>
                       <Badge variant={method.variant}>{method.label}</Badge>
                     </TableCell>
+                    <TableCell>
+                      <Badge variant={paymentStatus.variant}>{paymentStatus.label}</Badge>
+                    </TableCell>
                     <TableCell className="text-sm whitespace-nowrap">
                       {t.amount_total} {t.currency.toUpperCase()}
                     </TableCell>
@@ -92,7 +103,7 @@ export function PaymentsPanel() {
               })}
               {transactions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     {language === 'it' ? 'Nessun pagamento.' : 'No payments.'}
                   </TableCell>
                 </TableRow>

@@ -11,7 +11,7 @@ from rest_framework import status
 
 from .models import Contribution, ContributionStatus
 from .utils import mark_contributions_payed, send_payment_emails
-from payments.models import Transaction, PaymentMethod
+from payments.models import Transaction, PaymentMethod, PaymentStatus
 
 
 def _register_stripe_transaction(session, contributions):
@@ -37,6 +37,10 @@ def _register_stripe_transaction(session, contributions):
         defaults={
             'user': payer,
             'method': PaymentMethod.STRIPE,
+            # This webhook only ever fires on checkout.session.completed —
+            # Stripe has already confirmed the charge by this point, unlike
+            # cash/bank transfers which stay PENDING until an admin follows up.
+            'status': PaymentStatus.COMPLETED,
             'stripe_payment_intent_id': getattr(session, 'payment_intent', '') or '',
             'amount_total': Decimal(amount_total_cents) / 100,
             'currency': getattr(session, 'currency', None) or 'eur',

@@ -21,10 +21,15 @@ class TransactionEventSerializer(serializers.ModelSerializer):
 class TransactionContributionSerializer(serializers.ModelSerializer):
     events = TransactionEventSerializer(many=True, read_only=True)
     membership_name = serializers.CharField(source='membership.name', read_only=True, default=None)
+    event_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Contribution
-        fields = ['id', 'membership_name', 'events']
+        fields = ['id', 'membership_name', 'events', 'event_name']
+
+    def get_event_name(self, obj):
+        first_event = obj.events.first()
+        return first_event.name if first_event else None
 
 
 class TransactionSerializer(serializers.ModelSerializer):
@@ -32,7 +37,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         (PaymentMethod.CASH, PaymentMethod.CASH.label),
         (PaymentMethod.BANK, PaymentMethod.BANK.label),
     ])
-    contributions = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    contributions = TransactionContributionSerializer(many=True, read_only=True)
     contribution_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Contribution.objects.all(), source='contributions',
         write_only=True, required=False,
@@ -41,7 +46,7 @@ class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
         fields = [
-            'id', 'user', 'method', 'receipt_number', 'amount_total', 'currency',
+            'id', 'user', 'method', 'status', 'receipt_number', 'amount_total', 'currency',
             'contributions', 'contribution_ids', 'date',
         ]
 

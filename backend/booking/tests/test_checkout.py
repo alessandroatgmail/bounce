@@ -13,7 +13,7 @@ from rest_framework import status as http_status
 
 from booking.models import Contribution, ContributionStatus, ExtraItem
 from membership.models import Membership
-from payments.models import Transaction, PaymentMethod
+from payments.models import Transaction, PaymentMethod, PaymentStatus
 
 CHECKOUT_URL = "/api/booking/checkout-session/"
 WEBHOOK_URL = "/api/booking/stripe-webhook/"
@@ -370,6 +370,10 @@ class TestStripeWebhookTransaction:
         assert transaction.amount_total == Decimal("100.00")
         assert transaction.currency == "eur"
         assert list(transaction.contributions.all()) == [accepted_contribution]
+        # Stripe already confirmed the charge by the time this webhook fires
+        # (checkout.session.completed) — unlike cash/bank transfers, a Stripe
+        # transaction is never left "pending".
+        assert transaction.status == PaymentStatus.COMPLETED
 
     @patch("booking.views_checkout.stripe.Webhook.construct_event")
     def test_retried_webhook_does_not_duplicate_transaction(
