@@ -116,6 +116,71 @@ class TestUserContributionList:
         assert res.data[0]["membership"]["name"] == "Gold"
 
 
+# ── Payment eligibility fields (remaining_amount / stripe_payment_enabled) ──────
+
+class TestUserContributionPaymentFields:
+
+    def test_no_transactions_exposes_full_remaining_and_stripe_enabled(self, student_client, student_user, db):
+        m = make_membership()
+        Contribution.objects.create(
+            amount=50, user=student_user, membership=m, status=ContributionStatus.ACCEPTED,
+        )
+        res = student_client.get(LIST_URL)
+        assert res.data[0]["remaining_amount"] == "50.00"
+        assert res.data[0]["stripe_payment_enabled"] is True
+
+    def test_own_partial_transaction_reduces_remaining_amount(self, student_client, student_user, db):
+        from payments.models import Transaction, PaymentMethod
+        m = make_membership()
+        c = Contribution.objects.create(
+            amount=50, user=student_user, membership=m, status=ContributionStatus.ACCEPTED,
+        )
+        Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-1", amount_total=Decimal("20.00"),
+        ).contributions.add(c)
+
+        res = student_client.get(LIST_URL)
+
+        assert res.data[0]["remaining_amount"] == "30.00"
+        assert res.data[0]["stripe_payment_enabled"] is True
+
+    def test_shared_transaction_disables_stripe_field(self, student_client, student_user, subject_user, db):
+        from payments.models import Transaction, PaymentMethod
+        m = make_membership()
+        c = Contribution.objects.create(
+            amount=50, user=student_user, membership=m, status=ContributionStatus.ACCEPTED,
+        )
+        other = Contribution.objects.create(
+            amount=50, user=subject_user, membership=m, status=ContributionStatus.ACCEPTED,
+        )
+        txn = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-2", amount_total=Decimal("20.00"),
+        )
+        txn.contributions.add(c, other)
+
+        res = student_client.get(LIST_URL)
+
+        assert res.data[0]["stripe_payment_enabled"] is False
+
+    def test_twin_contribution_exposes_payment_fields(self, student_client, student_user, partner_user, db):
+        m = make_membership()
+        original = Contribution.objects.create(
+            amount=50, user=student_user, membership=m, status=ContributionStatus.ACCEPTED,
+        )
+        Contribution.objects.create(
+            amount=50, user=partner_user, membership=m, status=ContributionStatus.ACCEPTED,
+            original_contribution=original,
+        )
+
+        res = student_client.get(LIST_URL)
+
+        twin = res.data[0]["twin_contributions"][0]
+        assert twin["remaining_amount"] == "50.00"
+        assert twin["stripe_payment_enabled"] is True
+
+
 # ── Retrieve ──────────────────────────────────────────────────────────────────
 
 class TestUserContributionRetrieve:

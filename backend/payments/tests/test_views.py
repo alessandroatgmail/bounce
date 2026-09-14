@@ -13,12 +13,16 @@ from unittest.mock import patch
 from django.utils import timezone
 from rest_framework import status as http_status
 
-from payments.models import Transaction, PaymentMethod
+from payments.models import Transaction, PaymentMethod, PaymentStatus
 from booking.models import Contribution, ContributionStatus
 from membership.models import Membership
 from users.models import User
 
 URL = "/api/payments/transactions/"
+
+
+def detail_url(pk):
+    return f"{URL}{pk}/"
 
 
 @pytest.fixture
@@ -51,6 +55,14 @@ def other_user(db):
     return User.objects.create_user(
         email="other@bounce.com", password="StrongPass123!",
         is_staff=False, is_active=True,
+    )
+
+
+@pytest.fixture
+def transaction(db, student_user):
+    return Transaction.objects.create(
+        user=student_user, method=PaymentMethod.CASH,
+        receipt_number="RCPT-100", amount_total=Decimal("30.00"),
     )
 
 
@@ -122,16 +134,22 @@ class TestCreateTransaction:
         transaction = Transaction.objects.get(id=res.data["id"])
         assert list(transaction.contributions.all()) == [contribution]
 
-    def test_linking_a_contribution_marks_it_payed(self, staff_client, student_user, accepted_contribution):
+    def test_linking_a_contribution_does_not_change_its_status(
+        self, staff_client, student_user, accepted_contribution,
+    ):
+        """Manual (cash/bank) payments must not auto-mark the contribution
+        PAYED — an admin can record several installment payments against the
+        same contribution, and only an explicit, separate status change
+        (still to be decided) should flip it to PAYED."""
         res = staff_client.post(URL, {
             "user": student_user.id, "method": "cash",
-            "receipt_number": "RCPT-003", "amount_total": "100.00",
+            "receipt_number": "RCPT-011", "amount_total": "30.00",
             "contribution_ids": [accepted_contribution.id],
         }, format="json")
 
         assert res.status_code == http_status.HTTP_201_CREATED
         accepted_contribution.refresh_from_db()
-        assert accepted_contribution.status == ContributionStatus.PAYED
+        assert accepted_contribution.status == ContributionStatus.ACCEPTED
 
     def test_without_contributions_nothing_is_marked_payed(self, staff_client, student_user):
         res = staff_client.post(URL, {
@@ -140,8 +158,8 @@ class TestCreateTransaction:
         }, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
 
-    @patch("booking.utils.send_email_task.delay")
-    def test_linking_a_contribution_sends_payment_email(
+    @patch("booking.tasks.send_transaction_completed_email.delay")
+    def test_linking_a_contribution_sends_transaction_email(
         self, mock_send_email, staff_client, student_user, accepted_contribution
     ):
         res = staff_client.post(URL, {
@@ -151,12 +169,9 @@ class TestCreateTransaction:
         }, format="json")
 
         assert res.status_code == http_status.HTTP_201_CREATED
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        assert call_args[0][0] == student_user.id
-        assert call_args[1]['template'] == 'payment_success_email'
+        mock_send_email.assert_called_once_with(res.data["id"])
 
-    @patch("booking.utils.send_email_task.delay")
+    @patch("booking.tasks.send_transaction_completed_email.delay")
     def test_without_contributions_no_payment_email_is_sent(self, mock_send_email, staff_client, student_user):
         res = staff_client.post(URL, {
             "user": student_user.id, "method": "cash",
@@ -164,6 +179,29 @@ class TestCreateTransaction:
         }, format="json")
         assert res.status_code == http_status.HTTP_201_CREATED
         mock_send_email.assert_not_called()
+
+    @patch("booking.tasks.send_transaction_completed_email.delay")
+    def test_transaction_email_dispatches_for_the_installment_transaction(
+        self, mock_send_email, staff_client, student_user, accepted_contribution,
+    ):
+        """Installments: dispatch must carry *this* 30€ transaction's id, not
+        the 100€ contribution's — send_transaction_completed_email reads the
+        amount from the Transaction it's given, so the id has to be right.
+        The actual rendered amount is covered directly in
+        booking/tests/test_transaction_completed_email.py, since mocking
+        .delay() here never runs the task body that builds that context."""
+        assert accepted_contribution.amount == Decimal("100.00")
+
+        res = staff_client.post(URL, {
+            "user": student_user.id, "method": "cash",
+            "receipt_number": "RCPT-012", "amount_total": "30.00",
+            "contribution_ids": [accepted_contribution.id],
+        }, format="json")
+
+        assert res.status_code == http_status.HTTP_201_CREATED
+        transaction = Transaction.objects.get(id=res.data["id"])
+        assert transaction.amount_total == Decimal("30.00")
+        mock_send_email.assert_called_once_with(transaction.id)
 
     def test_date_defaults_to_now(self, staff_client, student_user):
         res = staff_client.post(URL, {
@@ -248,3 +286,109 @@ class TestListTransactions:
 
         assert len(res.data) == 1
         assert res.data[0]["method"] == "stripe"
+
+    def test_list_shows_status(self, staff_client, student_user):
+        Transaction.objects.create(
+            user=student_user, method=PaymentMethod.STRIPE,
+            stripe_session_id="cs_test_status", amount_total=Decimal("75.00"),
+            status=PaymentStatus.COMPLETED,
+        )
+
+        res = staff_client.get(URL)
+
+        assert res.data[0]["status"] == "completed"
+
+    def test_list_shows_contribution_event_name(self, staff_client, student_user, contribution, world_data):
+        from utils.mock_festival import make_festival_event
+        event = make_festival_event(name="Lindy Hop Beginners")
+        contribution.events.add(event)
+        transaction = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-009", amount_total=Decimal("100.00"),
+        )
+        transaction.contributions.add(contribution)
+
+        res = staff_client.get(URL)
+
+        payment = next(t for t in res.data if t["id"] == transaction.id)
+        assert payment["contributions"][0]["event_name"] == "Lindy Hop Beginners"
+
+    def test_event_name_is_none_when_contribution_has_no_event(self, staff_client, student_user, contribution):
+        transaction = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-010", amount_total=Decimal("100.00"),
+        )
+        transaction.contributions.add(contribution)
+
+        res = staff_client.get(URL)
+
+        payment = next(t for t in res.data if t["id"] == transaction.id)
+        contrib_data = payment["contributions"][0]
+        assert "event_name" in contrib_data
+        assert contrib_data["event_name"] is None
+
+
+@pytest.mark.integration
+class TestUpdateTransaction:
+    """GET/PUT/PATCH /api/payments/transactions/{id}/ — admin-only editing
+    of an existing transaction (status, receipt, amount, date, linked
+    contributions). No endpoint existed for this before; TransactionSerializer
+    itself is unchanged, only reused against the new detail view."""
+
+    def test_unauthenticated_returns_401(self, client, transaction):
+        res = client.patch(detail_url(transaction.pk), {"status": "completed"}, format="json")
+        assert res.status_code == http_status.HTTP_401_UNAUTHORIZED
+
+    def test_non_admin_returns_403(self, student_client, transaction):
+        res = student_client.patch(detail_url(transaction.pk), {"status": "completed"}, format="json")
+        assert res.status_code == http_status.HTTP_403_FORBIDDEN
+
+    def test_admin_can_retrieve(self, staff_client, transaction):
+        res = staff_client.get(detail_url(transaction.pk))
+        assert res.status_code == http_status.HTTP_200_OK
+        assert res.data["id"] == transaction.pk
+
+    def test_admin_can_patch_status_only(self, staff_client, transaction):
+        res = staff_client.patch(detail_url(transaction.pk), {"status": "completed"}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.status == PaymentStatus.COMPLETED
+
+    def test_patching_status_only_does_not_require_receipt_number(self, staff_client, transaction):
+        """PATCH is a partial update — validate() must fall back to the
+        instance's existing receipt_number instead of requiring it on every
+        payload, or any status-only edit would 400."""
+        res = staff_client.patch(detail_url(transaction.pk), {"status": "processing"}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+
+    def test_admin_can_patch_receipt_number(self, staff_client, transaction):
+        res = staff_client.patch(detail_url(transaction.pk), {"receipt_number": "RCPT-101"}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.receipt_number == "RCPT-101"
+
+    def test_admin_can_full_update_via_put(self, staff_client, transaction, student_user):
+        res = staff_client.put(detail_url(transaction.pk), {
+            "user": student_user.id, "method": "bank",
+            "receipt_number": "RCPT-102", "amount_total": "45.00",
+            "status": "completed",
+        }, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.method == PaymentMethod.BANK
+        assert transaction.receipt_number == "RCPT-102"
+        assert transaction.amount_total == Decimal("45.00")
+        assert transaction.status == PaymentStatus.COMPLETED
+
+    def test_admin_can_update_linked_contributions(self, staff_client, transaction, accepted_contribution):
+        res = staff_client.patch(
+            detail_url(transaction.pk),
+            {"contribution_ids": [accepted_contribution.id]},
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert list(transaction.contributions.all()) == [accepted_contribution]
+
+    def test_stripe_method_is_rejected_on_update(self, staff_client, transaction):
+        res = staff_client.patch(detail_url(transaction.pk), {"method": "stripe"}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST

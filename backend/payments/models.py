@@ -8,9 +8,15 @@ class PaymentMethod(models.TextChoices):
     CASH = "cash", "Cash"
     BANK = "bank", "Bank transfer"
 
+class PaymentStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    PROCESSING = "processing", "Processing"
+    COMPLETED = "completed", "Completed"
+
 
 class Transaction(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='transactions')
+    status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
     contributions = models.ManyToManyField('booking.Contribution', blank=True, related_name='transactions')
     method = models.CharField(max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.STRIPE)
     stripe_session_id = models.CharField(max_length=255, unique=True, null=True, blank=True)

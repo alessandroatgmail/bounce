@@ -10,8 +10,8 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Contribution, ContributionStatus
-from .utils import mark_contributions_payed, send_payment_emails
-from payments.models import Transaction, PaymentMethod
+from .utils import mark_contributions_payed, send_payment_emails, send_transaction_emails
+from payments.models import Transaction, PaymentMethod, PaymentStatus
 
 
 def _register_stripe_transaction(session, contributions):
@@ -37,6 +37,10 @@ def _register_stripe_transaction(session, contributions):
         defaults={
             'user': payer,
             'method': PaymentMethod.STRIPE,
+            # This webhook only ever fires on checkout.session.completed —
+            # Stripe has already confirmed the charge by this point, unlike
+            # cash/bank transfers which stay PENDING until an admin follows up.
+            'status': PaymentStatus.COMPLETED,
             'stripe_payment_intent_id': getattr(session, 'payment_intent', '') or '',
             'amount_total': Decimal(amount_total_cents) / 100,
             'currency': getattr(session, 'currency', None) or 'eur',
@@ -44,6 +48,7 @@ def _register_stripe_transaction(session, contributions):
     )
     if created:
         transaction.contributions.set(contributions)
+        send_transaction_emails([transaction])
 
 
 @api_view(['POST'])
@@ -66,6 +71,14 @@ def create_checkout_session(request):
     if not contributions.exists():
         return Response({'error': 'No valid contributions'}, status=status.HTTP_400_BAD_REQUEST)
 
+    blocked_ids = [c.id for c in contributions if not c.stripe_payment_enabled]
+    if blocked_ids:
+        return Response(
+            {'error': 'Stripe payment is not available for some contributions',
+             'contribution_ids': blocked_ids},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
     line_items = []
@@ -74,6 +87,20 @@ def create_checkout_session(request):
         event_name = first_event.name if first_event else 'Registration'
         membership_name = c.membership.name if c.membership else ''
         product_name = f'{event_name} — {membership_name}' if membership_name else event_name
+
+        if c.remaining_amount < c.discounted_amount:
+            # Already partially settled (e.g. cash) — charge only the
+            # balance still owed, as a single line item.
+            line_items.append({
+                'price_data': {
+                    'currency': 'eur',
+                    'unit_amount': int(round(float(c.remaining_amount) * 100)),
+                    'product_data': {'name': f'Balance due — {product_name}'},
+                },
+                'quantity': 1,
+            })
+            continue
+
         amount_cents = int(round(float(c.discounted_event_amount) * 100))
         line_items.append({
             'price_data': {

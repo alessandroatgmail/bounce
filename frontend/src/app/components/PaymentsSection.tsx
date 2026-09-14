@@ -149,7 +149,8 @@ interface RelatedRowProps {
 function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggle, lang }: RelatedRowProps) {
   const c = entry.contribution;
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
-  const canPay = c.status === 'accepted';
+  const canPay = c.status === 'accepted' && c.stripe_payment_enabled;
+  const isPartial = c.remaining_amount !== c.discounted_amount;
   // Upgrade history rows are the same user, not a couple — no "Partner" line.
   const info = entry.kind === 'partner' ? payerPartnerMap.get(c.id) : { payerEmail: c.user_email, payerRole: c.role, partnerEmail: null, partnerRole: null };
   return (
@@ -167,8 +168,15 @@ function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggl
           </span>
         </div>
         <PayerPartnerLines info={info} lang={lang} className="text-xs text-gray-400 ml-5" />
+        {c.status === 'accepted' && !c.stripe_payment_enabled && (
+          <p className="text-xs text-gray-400 ml-5 mt-0.5">
+            {lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school'}
+          </p>
+        )}
       </div>
-      <span className="text-sm font-semibold shrink-0">€{c.discounted_amount}</span>
+      <span className="text-sm font-semibold shrink-0">
+        {isPartial ? `€${c.remaining_amount} / €${c.discounted_amount}` : `€${c.discounted_amount}`}
+      </span>
       {statusBadge(c.status, lang === 'it' ? 'it' : 'en')}
     </div>
   );
@@ -195,6 +203,7 @@ function ReadyCard({
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
   const related = getRelatedContribs(c, contribMap);
   const isExpanded = expanded.has(c.id);
+  const isPartial = c.remaining_amount !== c.discounted_amount;
 
   return (
     <Card className="border-2 border-[#e67e22] overflow-hidden flex flex-col">
@@ -207,6 +216,7 @@ function ReadyCard({
           <Checkbox
             checked={selected.has(c.id)}
             onCheckedChange={() => onToggleSelect(c.id)}
+            disabled={!c.stripe_payment_enabled}
             className="mt-0.5 shrink-0"
           />
           <div className="flex-1 min-w-0">
@@ -216,6 +226,11 @@ function ReadyCard({
             </div>
             <span className="text-sm text-gray-500 ml-5 block">{c.membership?.name ?? '—'}</span>
             <PayerPartnerLines info={payerPartnerMap.get(c.id)} lang={lang} className="text-xs text-gray-400 ml-5" />
+            {!c.stripe_payment_enabled && (
+              <p className="text-xs text-gray-400 ml-5 mt-0.5">
+                {lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school'}
+              </p>
+            )}
           </div>
           {related.length > 0 && (
             <button
@@ -240,6 +255,12 @@ function ReadyCard({
             </>
           ) : (
             <span className="font-semibold">€{c.amount}</span>
+          )}
+          {isPartial && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              {lang === 'it' ? 'Saldo residuo: ' : 'Balance due: '}
+              <span className="font-semibold">€{c.remaining_amount}</span>
+            </p>
           )}
         </div>
 
@@ -339,7 +360,7 @@ export function PaymentsSection() {
 
   const totalSelected = [...selected].reduce((sum, id) => {
     const c = contribMap.get(id) ?? linkedMap.get(id);
-    return sum + (c ? parseFloat(c.discounted_amount) : 0);
+    return sum + (c ? parseFloat(c.remaining_amount) : 0);
   }, 0);
 
   const goToCheckout = () => {
@@ -359,6 +380,7 @@ export function PaymentsSection() {
         partnerRole: info?.partnerRole ?? null,
         amount: c.amount,
         discounted_amount: c.discounted_amount,
+        remaining_amount: c.remaining_amount,
         discounts: c.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
         extra_items: c.extra_items,
       };
