@@ -55,6 +55,67 @@ def _mock_session(url="https://checkout.stripe.com/pay/cs_test_123"):
     return session
 
 
+# ── Contribution payment-eligibility properties ─────────────────────────────────
+
+@pytest.mark.integration
+class TestContributionPaymentEligibility:
+    """has_shared_transaction / remaining_amount / stripe_payment_enabled.
+
+    A contribution's Stripe eligibility depends on whether any of its
+    transactions is shared with another contribution (ambiguous split ->
+    Stripe disabled entirely) versus only ever linked to itself (safe to
+    compute a remaining balance and let Stripe collect it).
+    """
+
+    def test_no_transactions_full_amount_remains_and_stripe_enabled(self, accepted_contribution):
+        assert accepted_contribution.has_shared_transaction is False
+        assert accepted_contribution.remaining_amount == Decimal("100.00")
+        assert accepted_contribution.stripe_payment_enabled is True
+
+    def test_own_partial_transaction_reduces_remaining_amount(self, accepted_contribution):
+        Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-1", amount_total=Decimal("40.00"),
+        ).contributions.add(accepted_contribution)
+
+        assert accepted_contribution.remaining_amount == Decimal("60.00")
+        assert accepted_contribution.has_shared_transaction is False
+        assert accepted_contribution.stripe_payment_enabled is True
+
+    def test_pending_transaction_still_counts_toward_remaining_amount(self, accepted_contribution):
+        """A cash/bank payment not yet reconciled must still reduce the
+        Stripe balance immediately, otherwise an admin would have to
+        manually delete it to "free up" the rest for card payment."""
+        txn = Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-2", amount_total=Decimal("40.00"),
+            status=PaymentStatus.PENDING,
+        )
+        txn.contributions.add(accepted_contribution)
+
+        assert txn.status == PaymentStatus.PENDING
+        assert accepted_contribution.remaining_amount == Decimal("60.00")
+
+    def test_shared_transaction_disables_stripe(self, accepted_contribution, twin_contribution):
+        txn = Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-3", amount_total=Decimal("50.00"),
+        )
+        txn.contributions.add(accepted_contribution, twin_contribution)
+
+        assert accepted_contribution.has_shared_transaction is True
+        assert accepted_contribution.stripe_payment_enabled is False
+
+    def test_fully_paid_contribution_disables_stripe(self, accepted_contribution):
+        Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-4", amount_total=Decimal("100.00"),
+        ).contributions.add(accepted_contribution)
+
+        assert accepted_contribution.remaining_amount == Decimal("0.00")
+        assert accepted_contribution.stripe_payment_enabled is False
+
+
 def _mock_event(contribution_ids: list[int], event_type="checkout.session.completed"):
     metadata = MagicMock()
     metadata.__contains__ = lambda self, k: k == "contribution_ids"
@@ -181,6 +242,83 @@ class TestCreateCheckoutSession:
         assert res.status_code == http_status.HTTP_200_OK
         call_kwargs = mock_create.call_args[1]
         assert len(call_kwargs["line_items"]) == 2
+
+    @patch("booking.views_checkout.stripe.checkout.Session.create")
+    def test_shared_transaction_contribution_returns_400(
+        self, mock_create, student_client, accepted_contribution, twin_contribution
+    ):
+        txn = Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-5", amount_total=Decimal("30.00"),
+        )
+        txn.contributions.add(accepted_contribution, twin_contribution)
+        mock_create.return_value = _mock_session()
+
+        res = student_client.post(
+            CHECKOUT_URL, {"contribution_ids": [accepted_contribution.id]}, format="json",
+        )
+
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+    @patch("booking.views_checkout.stripe.checkout.Session.create")
+    def test_mixed_selection_one_blocked_hard_rejects_whole_request(
+        self, mock_create, student_client, accepted_contribution, twin_contribution
+    ):
+        """A shared transaction on ONE of the selected contributions must
+        reject the entire checkout request, not silently drop it and pay
+        for the rest."""
+        txn = Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-6", amount_total=Decimal("30.00"),
+        )
+        txn.contributions.add(accepted_contribution, twin_contribution)
+        mock_create.return_value = _mock_session()
+
+        res = student_client.post(
+            CHECKOUT_URL,
+            {"contribution_ids": [accepted_contribution.id, twin_contribution.id]},
+            format="json",
+        )
+
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+    @patch("booking.views_checkout.stripe.checkout.Session.create")
+    def test_already_fully_paid_contribution_returns_400(
+        self, mock_create, student_client, accepted_contribution
+    ):
+        Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-7", amount_total=Decimal("100.00"),
+        ).contributions.add(accepted_contribution)
+        mock_create.return_value = _mock_session()
+
+        res = student_client.post(
+            CHECKOUT_URL, {"contribution_ids": [accepted_contribution.id]}, format="json",
+        )
+
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+    @patch("booking.views_checkout.stripe.checkout.Session.create")
+    def test_line_item_charges_remaining_amount_after_partial_cash_payment(
+        self, mock_create, student_client, accepted_contribution
+    ):
+        Transaction.objects.create(
+            user=accepted_contribution.user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-8", amount_total=Decimal("40.00"),
+        ).contributions.add(accepted_contribution)
+        mock_create.return_value = _mock_session()
+
+        res = student_client.post(
+            CHECKOUT_URL, {"contribution_ids": [accepted_contribution.id]}, format="json",
+        )
+
+        assert res.status_code == http_status.HTTP_200_OK
+        line_items = mock_create.call_args[1]["line_items"]
+        assert len(line_items) == 1
+        assert line_items[0]["price_data"]["unit_amount"] == 6000  # €100 - €40 already paid
 
 
 # ── stripe_webhook ────────────────────────────────────────────────────────────

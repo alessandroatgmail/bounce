@@ -221,13 +221,16 @@ class LinkedContributionSerializer(serializers.ModelSerializer):
     discounts = DiscountSerializer(many=True, read_only=True)
     extra_items = ExtraItemSerializer(many=True, read_only=True)
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    remaining_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    stripe_payment_enabled = serializers.BooleanField(read_only=True)
     role = serializers.StringRelatedField(read_only=True)
     partner = serializers.StringRelatedField(read_only=True)
     user_email = serializers.EmailField(source='user.email', read_only=True)
 
     class Meta:
         model = Contribution
-        fields = ['id', 'status', 'amount', 'discounted_amount', 'events',
+        fields = ['id', 'status', 'amount', 'discounted_amount', 'remaining_amount',
+                  'stripe_payment_enabled', 'events',
                   'membership', 'discounts', 'extra_items', 'role', 'partner', 'user_email']
 
 
@@ -264,6 +267,8 @@ class UserContributionSerializer(serializers.ModelSerializer):
     level = serializers.StringRelatedField(read_only=True)
     discounts = DiscountSerializer(many=True, read_only=True)
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    remaining_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    stripe_payment_enabled = serializers.BooleanField(read_only=True)
     user_email = serializers.EmailField(source='user.email', read_only=True)
     extra_items = ExtraItemSerializer(many=True, read_only=True)
 
@@ -275,7 +280,7 @@ class UserContributionSerializer(serializers.ModelSerializer):
             'twin_contributions', 'partner_email',
             'partner_id', 'role_id', 'role', 'partner',
             'level_id', 'level',
-            'discounts', 'discounted_amount', 'extra_items',
+            'discounts', 'discounted_amount', 'remaining_amount', 'stripe_payment_enabled', 'extra_items',
         ]
         read_only_fields = ['id', 'status', 'amount', 'start_date', 'end_date', 'upgraded_from',
                             'original_contribution', 'twin_contributions']

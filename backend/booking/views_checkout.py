@@ -71,6 +71,14 @@ def create_checkout_session(request):
     if not contributions.exists():
         return Response({'error': 'No valid contributions'}, status=status.HTTP_400_BAD_REQUEST)
 
+    blocked_ids = [c.id for c in contributions if not c.stripe_payment_enabled]
+    if blocked_ids:
+        return Response(
+            {'error': 'Stripe payment is not available for some contributions',
+             'contribution_ids': blocked_ids},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
     line_items = []
@@ -79,6 +87,20 @@ def create_checkout_session(request):
         event_name = first_event.name if first_event else 'Registration'
         membership_name = c.membership.name if c.membership else ''
         product_name = f'{event_name} — {membership_name}' if membership_name else event_name
+
+        if c.remaining_amount < c.discounted_amount:
+            # Already partially settled (e.g. cash) — charge only the
+            # balance still owed, as a single line item.
+            line_items.append({
+                'price_data': {
+                    'currency': 'eur',
+                    'unit_amount': int(round(float(c.remaining_amount) * 100)),
+                    'product_data': {'name': f'Balance due — {product_name}'},
+                },
+                'quantity': 1,
+            })
+            continue
+
         amount_cents = int(round(float(c.discounted_event_amount) * 100))
         line_items.append({
             'price_data': {
