@@ -21,6 +21,10 @@ from users.models import User
 URL = "/api/payments/transactions/"
 
 
+def detail_url(pk):
+    return f"{URL}{pk}/"
+
+
 @pytest.fixture
 def membership(db):
     return Membership.objects.create(name="Full Pass", contribution=100)
@@ -51,6 +55,14 @@ def other_user(db):
     return User.objects.create_user(
         email="other@bounce.com", password="StrongPass123!",
         is_staff=False, is_active=True,
+    )
+
+
+@pytest.fixture
+def transaction(db, student_user):
+    return Transaction.objects.create(
+        user=student_user, method=PaymentMethod.CASH,
+        receipt_number="RCPT-100", amount_total=Decimal("30.00"),
     )
 
 
@@ -314,3 +326,69 @@ class TestListTransactions:
         contrib_data = payment["contributions"][0]
         assert "event_name" in contrib_data
         assert contrib_data["event_name"] is None
+
+
+@pytest.mark.integration
+class TestUpdateTransaction:
+    """GET/PUT/PATCH /api/payments/transactions/{id}/ — admin-only editing
+    of an existing transaction (status, receipt, amount, date, linked
+    contributions). No endpoint existed for this before; TransactionSerializer
+    itself is unchanged, only reused against the new detail view."""
+
+    def test_unauthenticated_returns_401(self, client, transaction):
+        res = client.patch(detail_url(transaction.pk), {"status": "completed"}, format="json")
+        assert res.status_code == http_status.HTTP_401_UNAUTHORIZED
+
+    def test_non_admin_returns_403(self, student_client, transaction):
+        res = student_client.patch(detail_url(transaction.pk), {"status": "completed"}, format="json")
+        assert res.status_code == http_status.HTTP_403_FORBIDDEN
+
+    def test_admin_can_retrieve(self, staff_client, transaction):
+        res = staff_client.get(detail_url(transaction.pk))
+        assert res.status_code == http_status.HTTP_200_OK
+        assert res.data["id"] == transaction.pk
+
+    def test_admin_can_patch_status_only(self, staff_client, transaction):
+        res = staff_client.patch(detail_url(transaction.pk), {"status": "completed"}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.status == PaymentStatus.COMPLETED
+
+    def test_patching_status_only_does_not_require_receipt_number(self, staff_client, transaction):
+        """PATCH is a partial update — validate() must fall back to the
+        instance's existing receipt_number instead of requiring it on every
+        payload, or any status-only edit would 400."""
+        res = staff_client.patch(detail_url(transaction.pk), {"status": "processing"}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+
+    def test_admin_can_patch_receipt_number(self, staff_client, transaction):
+        res = staff_client.patch(detail_url(transaction.pk), {"receipt_number": "RCPT-101"}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.receipt_number == "RCPT-101"
+
+    def test_admin_can_full_update_via_put(self, staff_client, transaction, student_user):
+        res = staff_client.put(detail_url(transaction.pk), {
+            "user": student_user.id, "method": "bank",
+            "receipt_number": "RCPT-102", "amount_total": "45.00",
+            "status": "completed",
+        }, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.method == PaymentMethod.BANK
+        assert transaction.receipt_number == "RCPT-102"
+        assert transaction.amount_total == Decimal("45.00")
+        assert transaction.status == PaymentStatus.COMPLETED
+
+    def test_admin_can_update_linked_contributions(self, staff_client, transaction, accepted_contribution):
+        res = staff_client.patch(
+            detail_url(transaction.pk),
+            {"contribution_ids": [accepted_contribution.id]},
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        assert list(transaction.contributions.all()) == [accepted_contribution]
+
+    def test_stripe_method_is_rejected_on_update(self, staff_client, transaction):
+        res = staff_client.patch(detail_url(transaction.pk), {"method": "stripe"}, format="json")
+        assert res.status_code == http_status.HTTP_400_BAD_REQUEST

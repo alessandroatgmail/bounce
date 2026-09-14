@@ -375,6 +375,27 @@ class TestStripeWebhookTransaction:
         # transaction is never left "pending".
         assert transaction.status == PaymentStatus.COMPLETED
 
+    @patch("booking.tasks.send_transaction_completed_email.delay")
+    @patch("booking.views_checkout.stripe.Webhook.construct_event")
+    def test_completed_event_dispatches_transaction_email(
+        self, mock_construct, mock_send_transaction_email, client, accepted_contribution
+    ):
+        """A Stripe payment must also get the new transaction_completed
+        receipt — in addition to (not instead of) the existing
+        payment_success_email sent via mark_contributions_payed/
+        send_payment_emails, which stays untouched for Stripe."""
+        mock_construct.return_value = _mock_payment_event([accepted_contribution.id])
+
+        client.post(
+            WEBHOOK_URL,
+            data=json.dumps({}),
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="t=1,v1=abc",
+        )
+
+        transaction = Transaction.objects.get(stripe_session_id="cs_test_txn")
+        mock_send_transaction_email.assert_called_once_with(transaction.id)
+
     @patch("booking.views_checkout.stripe.Webhook.construct_event")
     def test_retried_webhook_does_not_duplicate_transaction(
         self, mock_construct, client, accepted_contribution

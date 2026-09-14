@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Contribution, ContributionStatus
-from .utils import mark_contributions_payed, send_payment_emails
+from .utils import mark_contributions_payed, send_payment_emails, send_transaction_emails
 from payments.models import Transaction, PaymentMethod, PaymentStatus
 
 
@@ -48,6 +48,7 @@ def _register_stripe_transaction(session, contributions):
     )
     if created:
         transaction.contributions.set(contributions)
+        send_transaction_emails([transaction])
 
 
 @api_view(['POST'])

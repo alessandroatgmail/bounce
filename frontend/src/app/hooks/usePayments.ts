@@ -13,6 +13,18 @@ export interface TransactionUser {
   email: string;
 }
 
+export interface TransactionContributionEvent {
+  id: number;
+  name: string;
+}
+
+export interface TransactionContribution {
+  id: number;
+  membership_name: string | null;
+  events: TransactionContributionEvent[];
+  event_name: string | null;
+}
+
 export interface Transaction {
   id: number;
   user: TransactionUser;
@@ -21,13 +33,14 @@ export interface Transaction {
   receipt_number: string;
   amount_total: string;
   currency: string;
-  contributions: number[];
+  contributions: TransactionContribution[];
   date: string;
 }
 
 export interface TransactionPayload {
   user: number;
   method: 'cash' | 'bank';
+  status?: PaymentStatus;
   receipt_number: string;
   amount_total: string;
   currency?: string;
@@ -65,5 +78,12 @@ export function usePayments(token: string | null, userId?: number | null) {
     await fetchAll();
   }, [token, fetchAll]);
 
-  return { transactions, loading, error, refetch: fetchAll, create };
+  const update = useCallback(async (id: number, data: TransactionPayload): Promise<void> => {
+    if (!token) return;
+    const res = await authFetch(`${BASE}${id}/`, token, { method: 'PUT', body: JSON.stringify(data) });
+    if (!res.ok) throw new Error(JSON.stringify(await res.json().catch(() => ({}))));
+    await fetchAll();
+  }, [token, fetchAll]);
+
+  return { transactions, loading, error, refetch: fetchAll, create, update };
 }

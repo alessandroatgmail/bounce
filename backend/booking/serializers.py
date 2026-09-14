@@ -162,6 +162,10 @@ class ContributionSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
 
+        if old_status != ContributionStatus.PAYED and instance.status == ContributionStatus.PAYED:
+            from booking.utils import send_payment_emails
+            send_payment_emails([instance])
+
         if discounts is not None:
             instance.discounts.set(discounts)
 

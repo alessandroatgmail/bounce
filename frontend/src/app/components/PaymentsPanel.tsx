@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, Pencil } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { usePayments, type PaymentMethod, type PaymentStatus } from '../hooks/usePayments';
+import { usePayments, type PaymentMethod, type PaymentStatus, type Transaction } from '../hooks/usePayments';
 import { type UserListItem } from '../hooks/useUserList';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -28,7 +28,8 @@ export function PaymentsPanel() {
   const { language } = useLanguage();
   const [userFilter, setUserFilter] = useState<UserListItem | null>(null);
   const [showNewPayment, setShowNewPayment] = useState(false);
-  const { transactions, loading, error, create } = usePayments(accessToken ?? '', userFilter?.id ?? null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const { transactions, loading, error, create, update } = usePayments(accessToken ?? '', userFilter?.id ?? null);
 
   return (
     <Card>
@@ -73,6 +74,7 @@ export function PaymentsPanel() {
                 <TableHead>{language === 'it' ? 'Stato' : 'Status'}</TableHead>
                 <TableHead>{language === 'it' ? 'Importo' : 'Amount'}</TableHead>
                 <TableHead>{language === 'it' ? 'Ricevuta' : 'Receipt'}</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -98,12 +100,23 @@ export function PaymentsPanel() {
                       {t.amount_total} {t.currency.toUpperCase()}
                     </TableCell>
                     <TableCell className="text-xs">{t.receipt_number || '-'}</TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => setEditingTransaction(t)}
+                        title={language === 'it' ? 'Modifica pagamento' : 'Edit payment'}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })}
               {transactions.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     {language === 'it' ? 'Nessun pagamento.' : 'No payments.'}
                   </TableCell>
                 </TableRow>
@@ -113,7 +126,18 @@ export function PaymentsPanel() {
         )}
       </CardContent>
 
-      <NewPaymentDialog open={showNewPayment} onOpenChange={setShowNewPayment} onSubmit={create} />
+      <NewPaymentDialog
+        open={showNewPayment || !!editingTransaction}
+        onOpenChange={open => {
+          if (!open) {
+            setShowNewPayment(false);
+            setEditingTransaction(null);
+          }
+        }}
+        onCreate={create}
+        onUpdate={update}
+        editTransaction={editingTransaction}
+      />
     </Card>
   );
 }
