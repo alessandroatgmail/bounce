@@ -22,6 +22,8 @@ export interface LinkedContribution {
   user_email: string;
   amount: string;
   discounted_amount: string;
+  remaining_amount: string;
+  stripe_payment_enabled: boolean;
   events: number[];
   membership: Membership | null;
   discounts: Discount[];
@@ -47,6 +49,8 @@ export interface UserMembership {
   discounts: Discount[];
   extra_items: ExtraItem[];
   discounted_amount: string;
+  remaining_amount: string;
+  stripe_payment_enabled: boolean;
 }
 
 async function extractErrorMessage(res: Response): Promise<string> {

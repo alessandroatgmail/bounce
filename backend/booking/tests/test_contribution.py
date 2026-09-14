@@ -10,6 +10,7 @@ Sync rules:
 """
 import pytest
 from datetime import timedelta
+from unittest.mock import patch
 from django.utils import timezone
 from rest_framework import status as http_status
 
@@ -269,6 +270,56 @@ class TestBookingSyncOnConfirmation:
         c.save()
         c.save()  # second save, same status — no re-trigger
         assert Booking.objects.filter(user=subject_user).count() == 2
+
+
+# ── Payment email on status change to PAYED ───────────────────────────────────
+#
+# Manual (cash/bank) transactions no longer auto-mark a contribution PAYED —
+# an admin settles installments across several transactions, each getting
+# its own transaction_completed receipt (see payments/tests/test_views.py),
+# and only explicitly flips the contribution to PAYED once it's fully
+# settled. That explicit status change must still email the student the
+# same payment_success_email Stripe payments send.
+#
+# This belongs in ContributionSerializer.update() (an admin's explicit API
+# edit), not in Contribution.save() — the model save() also runs from
+# mark_contributions_payed() in the Stripe webhook path, which already sends
+# this same email itself; hooking it at the model level would double-send it
+# for Stripe. Driving these tests through admin_client.patch(...) (not a
+# raw ORM .save()) is what actually exercises the serializer path.
+
+class TestPaymentEmailOnStatusChange:
+
+    def _create(self, admin_client, subject_user, event_ids=None):
+        payload = make_contribution_payload(subject_user, event_ids=event_ids or [])
+        res = admin_client.post(LIST_URL, payload, format="json")
+        return Contribution.objects.get(pk=res.data["id"])
+
+    @patch("booking.utils.send_email_task.delay")
+    def test_marking_payed_sends_payment_success_email(self, mock_send_email, admin_client, subject_user, db):
+        c = self._create(admin_client, subject_user)
+        res = admin_client.patch(detail_url(c.pk), {"status": ContributionStatus.PAYED}, format="json")
+
+        assert res.status_code == http_status.HTTP_200_OK
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        assert call_args[0][0] == subject_user.id
+        assert call_args[1]['template'] == 'payment_success_email'
+
+    @patch("booking.utils.send_email_task.delay")
+    def test_marking_payed_twice_does_not_resend_email(self, mock_send_email, admin_client, subject_user, db):
+        c = self._create(admin_client, subject_user)
+        admin_client.patch(detail_url(c.pk), {"status": ContributionStatus.PAYED}, format="json")
+        admin_client.patch(detail_url(c.pk), {"status": ContributionStatus.PAYED}, format="json")
+
+        mock_send_email.assert_called_once()
+
+    @patch("booking.utils.send_email_task.delay")
+    def test_other_status_changes_do_not_send_payment_email(self, mock_send_email, admin_client, subject_user, db):
+        c = self._create(admin_client, subject_user)
+        admin_client.patch(detail_url(c.pk), {"status": ContributionStatus.CONFIRMED}, format="json")
+
+        mock_send_email.assert_not_called()
 
 
 # ── Booking sync on update (confirmed contributions) ──────────────────────────

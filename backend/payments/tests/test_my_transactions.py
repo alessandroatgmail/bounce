@@ -107,6 +107,7 @@ class TestMyTransactions:
         assert contrib_data["id"] == contribution.id
         assert contrib_data["membership_name"] == "Full Pass"
         assert contrib_data["events"] == [{"id": event.id, "name": event.name}]
+        assert contrib_data["event_name"] == event.name
 
     def test_contributions_empty_list_when_none_linked(self, student_client, student_user):
         Transaction.objects.create(
@@ -115,3 +116,21 @@ class TestMyTransactions:
         )
         res = student_client.get(URL)
         assert res.data[0]["contributions"] == []
+
+    def test_event_name_is_none_when_contribution_has_no_event(self, student_client, student_user):
+        membership = Membership.objects.create(name="Full Pass", contribution=100)
+        contribution = Contribution.objects.create(
+            user=student_user, membership=membership,
+            amount=Decimal("100.00"), status=ContributionStatus.PAYED,
+        )
+        transaction = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-005", amount_total=Decimal("100.00"),
+        )
+        transaction.contributions.add(contribution)
+
+        res = student_client.get(URL)
+
+        contrib_data = res.data[0]["contributions"][0]
+        assert "event_name" in contrib_data
+        assert contrib_data["event_name"] is None

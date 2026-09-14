@@ -18,6 +18,7 @@ export interface CheckoutItem {
   partnerRole: string | null;
   amount: string;
   discounted_amount: string;
+  remaining_amount: string;
   discounts: Array<{ id: number; name: string; name_ext: string | null }>;
   extra_items: ExtraItem[];
 }
@@ -56,7 +57,7 @@ export function CheckoutPage() {
     }
   }, [stateItems]);
 
-  const total = items.reduce((sum, item) => sum + parseFloat(item.discounted_amount), 0);
+  const total = items.reduce((sum, item) => sum + parseFloat(item.remaining_amount), 0);
 
   const handleBack = () => navigate('/?section=payments&tab=topay');
 
@@ -158,13 +159,16 @@ export function CheckoutPage() {
                   )}
                 </div>
                 <div className="text-right shrink-0">
-                  {item.amount !== item.discounted_amount ? (
+                  {item.amount !== item.discounted_amount && (
+                    <p className="text-xs line-through text-gray-400">€{item.amount}</p>
+                  )}
+                  {item.remaining_amount !== item.discounted_amount ? (
                     <>
-                      <p className="text-xs line-through text-gray-400">€{item.amount}</p>
-                      <p className="font-semibold text-[#2b2b2b]">€{item.discounted_amount}</p>
+                      <p className="text-xs line-through text-gray-400">€{item.discounted_amount}</p>
+                      <p className="font-semibold text-[#2b2b2b]">€{item.remaining_amount}</p>
                     </>
                   ) : (
-                    <p className="font-semibold text-[#2b2b2b]">€{item.amount}</p>
+                    <p className="font-semibold text-[#2b2b2b]">€{item.discounted_amount}</p>
                   )}
                 </div>
               </div>
