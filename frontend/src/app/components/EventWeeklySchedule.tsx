@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { EventItem } from '../hooks/useEvents';
+import type { EventSimple } from '../hooks/useEvents';
 
 function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale: string) {
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
@@ -13,7 +13,7 @@ export function EventWeeklySchedule({
   childEvents,
   language,
 }: {
-  childEvents: EventItem[];
+  childEvents: EventSimple[];
   language: string;
 }) {
   const it = language === 'it';
@@ -21,7 +21,7 @@ export function EventWeeklySchedule({
 
   const monthGroups = useMemo(() => {
     const sorted = [...childEvents].sort((a, b) => a.start_date.localeCompare(b.start_date));
-    const groups = new Map<string, EventItem[]>();
+    const groups = new Map<string, EventSimple[]>();
     for (const child of sorted) {
       const key = child.start_date.slice(0, 7); // "YYYY-MM"
       if (!groups.has(key)) groups.set(key, []);

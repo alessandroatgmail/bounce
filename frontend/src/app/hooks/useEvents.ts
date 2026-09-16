@@ -47,6 +47,32 @@ export interface EventItem {
   available_spot: number;
 }
 
+// Lightweight shape of a child event (a festival session, or one occurrence
+// of a weekly class) as returned nested under EventDetail's "events" field
+// by GET /api/events/events/<id>/detail/. Every field EventItem has too, so
+// an EventItem[] (e.g. from useEvents) can stand in wherever EventSimple[]
+// is expected.
+export interface EventSimple {
+  id: number;
+  name: string;
+  start_date: string;
+  end_date: string;
+  color: string | null;
+  event_type: { id: number; name: string; frequency: string; partners: number; partner_roles: { id: number; name: string }[] };
+  level: { id: number; name: string } | null;
+  room: { id: number; name: string; location: { id: number; name: string; city: { id: number; name: string } } };
+  styles: { id: number; name: string }[];
+  artists: { id: number; full_name: string }[];
+}
+
+// Shape returned by GET /api/events/events/<id>/detail/ — same as EventItem,
+// except "events" comes back fully resolved (EventSimple[]) instead of bare
+// ids, so the student/public detail page doesn't need to separately fetch
+// and filter the entire events table to render a festival/weekly schedule.
+export interface EventDetail extends Omit<EventItem, 'events'> {
+  events: EventSimple[];
+}
+
 export interface EventPayload {
   name: string;
   status: string;

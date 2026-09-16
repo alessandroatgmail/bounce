@@ -3,7 +3,7 @@ import { CheckCircle2, Loader2, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useFestivalDays } from '../hooks/useFestivalDays';
 import { useUserBookings } from '../hooks/useUserBookings';
-import type { EventItem } from '../hooks/useEvents';
+import type { EventSimple } from '../hooks/useEvents';
 import type { FestivalDay, FestivalRoom } from '../hooks/useFestivalDays';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 
@@ -39,7 +39,7 @@ function MapLink({ location, className }: { location: FestivalRoom['room']['loca
   );
 }
 
-function ClassCard({ cls, purchased, dimmed }: { cls: EventItem; purchased: boolean; dimmed: boolean }) {
+function ClassCard({ cls, purchased, dimmed }: { cls: EventSimple; purchased: boolean; dimmed: boolean }) {
   return (
     <div
       className="rounded-lg p-2 text-white shadow-sm h-full"
@@ -68,8 +68,8 @@ export function EventScheduleTable({
   childEvents,
   language,
 }: {
-  festival: EventItem;
-  childEvents: EventItem[];
+  festival: { id: number; already_booked: boolean };
+  childEvents: EventSimple[];
   language: string;
 }) {
   const { accessToken } = useAuth();
@@ -92,7 +92,7 @@ export function EventScheduleTable({
         const times = [...new Set(dayEvents.map(e => e.start_date.slice(11, 16)))].sort();
         return { day, dayEvents, times };
       })
-      .filter((b): b is { day: FestivalDay; dayEvents: EventItem[]; times: string[] } => b !== null);
+      .filter((b): b is { day: FestivalDay; dayEvents: EventSimple[]; times: string[] } => b !== null);
   }, [days, childEvents]);
 
   if (loadingDays || loadingBookings) {
