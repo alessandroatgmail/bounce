@@ -17,6 +17,12 @@ class TransactionListCreateView(generics.ListCreateAPIView):
         return qs
 
 
+class TransactionDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = TransactionSerializer
+    permission_classes = [IsAdminUser]
+    queryset = Transaction.objects.select_related('user').prefetch_related('contributions')
+
+
 class UserTransactionListView(generics.ListAPIView):
     serializer_class = UserTransactionSerializer
     permission_classes = [IsAuthenticated]

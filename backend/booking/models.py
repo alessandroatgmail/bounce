@@ -1,9 +1,11 @@
+from decimal import Decimal
+
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.db.models import Count, Sum
 from django.utils import timezone
 from event.models import Event, PartnerRole
 from membership.models import Membership, Discount
-
 
 class ContributionStatus(models.TextChoices):
     RECEIVED = "received", "Received"
@@ -51,6 +53,12 @@ class Contribution(models.Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._previous_status = self.status
+
+    def __str__(self):
+        if self.events.exists():
+            return f"{self.user.email} - {self.membership.name} - {self.events.first().name}"
+        else:
+            return f"{self.user.email} - {self.membership.name}"
 
     def save(self, *args, **kwargs):
 
@@ -103,6 +111,34 @@ class Contribution(models.Model):
         for extra_item in self.extra_items.all():
             new_amount += extra_item.value
         return new_amount
+
+    @property
+    def has_shared_transaction(self):
+        """True if any transaction linked to this contribution is also
+        linked to another contribution, making its split ambiguous."""
+        from payments.models import Transaction
+        transaction_ids = list(self.transactions.values_list('pk', flat=True))
+        return Transaction.objects.filter(pk__in=transaction_ids).annotate(
+            n_contributions=Count('contributions', distinct=True)
+        ).filter(n_contributions__gt=1).exists()
+
+    @property
+    def paid_amount(self):
+        """Sum of all transactions linked to this contribution, regardless
+        of status — a pending cash/bank transaction must still reduce what's
+        left to pay, or an admin would have to delete it to free up Stripe."""
+        return self.transactions.aggregate(total=Sum('amount_total'))['total'] or Decimal('0')
+
+    @property
+    def remaining_amount(self):
+        return self.discounted_amount - self.paid_amount
+
+    @property
+    def stripe_payment_enabled(self):
+        """Stripe is only offered when every transaction on this
+        contribution is exclusively its own (never shared with another
+        contribution) and there's still a positive balance left to pay."""
+        return not self.has_shared_transaction and self.remaining_amount > 0
 
 
 class Booking(models.Model):
