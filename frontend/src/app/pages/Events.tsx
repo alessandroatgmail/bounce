@@ -343,7 +343,7 @@ function EventCard({
           )}
           <div className="flex items-center gap-2">
             <MapPin className="size-4 text-[#d4b896]" />
-            {event.room.name} — {event.room.location.city.name}
+            {event.room.name} — {event.room.location.name}, {event.room.location.city.name}
           </div>
         </div>
         {event.info && (

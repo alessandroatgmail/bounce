@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router';
-import { Calendar, Clock, Users, Loader2, Info } from 'lucide-react';
+import { Calendar, Clock, Users, Loader2, Info, MapPin } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -135,7 +135,10 @@ export function Home() {
                           <Clock className="size-4 text-[#d4b896]" />
                           {event.start_date.slice(11, 16)}{!event.multi_events && ` (${event.duration} min)`}
                         </div>
-
+                        <div className="flex items-center gap-2">
+                          <MapPin className="size-4 text-[#d4b896]" />
+                          {event.room.name} — {event.room.location.name}, {event.room.location.city.name}
+                        </div>
                       </div>
                       {event.info && (
                         <p className="text-sm text-gray-600 mb-4 line-clamp-2">{event.info}</p>
