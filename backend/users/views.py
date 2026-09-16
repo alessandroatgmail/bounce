@@ -253,7 +253,7 @@ class UserListView(ListAPIView):
     def get_queryset(self):
         User = get_user_model()
         qs = (
-            User.objects
+            User.objects.exclude(email__icontains="deleted.invalid")
             .prefetch_related('contribution_set__membership')
             .order_by('last_name', 'first_name')
         )

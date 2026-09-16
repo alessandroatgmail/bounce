@@ -490,3 +490,33 @@ class EventDescriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventDescription
         fields = ["id", "event", "event_id", "language", "desc"]
+
+# Lightweight representation of a child event (a festival session, or one
+# occurrence of a weekly class), nested inside EventDetailSerializer's
+# "events" field. Only the fields the student detail page's schedule/
+# description components actually read — no memberships, accepted_roles,
+# genres, etc.
+class EventSimpleSerializer(serializers.ModelSerializer):
+    event_type = EventTypeSerializer(read_only=True)
+    level = LevelSerializer(read_only=True)
+    room = RoomSerializer(read_only=True)
+    styles = StyleSerializer(many=True, read_only=True)
+    artists = ArtistSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Event
+        fields = [
+            "id", "name", "start_date", "end_date", "color",
+            "event_type", "level", "room", "styles", "artists",
+        ]
+
+
+
+# Used by the student/public event detail page only: same shape as
+# EventSerializer, except "events" (a festival's sessions, or a weekly
+# class's occurrences) is nested via EventSimpleSerializer instead of being
+# just a list of ids — the detail page needs the children's own room/time/
+# level/etc. to render the schedule, without fetching every event in the
+# system to resolve them client-side.
+class EventDetailSerializer(EventSerializer):
+    events = EventSimpleSerializer(many=True, read_only=True)

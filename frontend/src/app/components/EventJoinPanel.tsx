@@ -56,7 +56,11 @@ export function EventJoinPanel({
   isAuthenticated,
   language,
 }: {
-  event: EventItem;
+  // Omit "events" — a festival's sessions / a weekly class's occurrences —
+  // since this panel never reads it, and its shape differs between the
+  // events list/EventItem (bare ids) and the detail page/EventDetail
+  // (nested EventSimple objects).
+  event: Omit<EventItem, 'events'>;
   isAuthenticated: boolean;
   language: string;
 }) {

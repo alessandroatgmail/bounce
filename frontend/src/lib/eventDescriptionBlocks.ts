@@ -1,4 +1,4 @@
-import type { EventItem } from '../app/hooks/useEvents';
+import type { EventSimple } from '../app/hooks/useEvents';
 import { SCHEDULE_BLOCK_SELECTOR } from '../app/components/tiptap/ScheduleBlockExtension';
 
 // Resolves dynamic blocks (currently just the Schedule block) embedded in an
@@ -7,7 +7,7 @@ import { SCHEDULE_BLOCK_SELECTOR } from '../app/components/tiptap/ScheduleBlockE
 // live data every time the description is displayed, so a later change to
 // a child event's room/time (or a newly added child) shows up automatically
 // without anyone re-editing the description.
-export function renderEventDescriptionHtml(html: string, children: EventItem[]): string {
+export function renderEventDescriptionHtml(html: string, children: EventSimple[]): string {
   if (!html.includes('data-event-block')) return html;
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -26,7 +26,7 @@ export function renderEventDescriptionHtml(html: string, children: EventItem[]):
   return doc.body.innerHTML;
 }
 
-function buildScheduleTableHtml(children: EventItem[]): string {
+function buildScheduleTableHtml(children: EventSimple[]): string {
   if (children.length === 0) {
     return '<p class="event-schedule-empty">No schedule available yet.</p>';
   }
