@@ -4,7 +4,7 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework import status as drf_status
-from rest_framework.generics import ListAPIView
+from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,7 +13,7 @@ from .paginations import EventPagination
 from .filters import EventFilter
 
 from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole, EventDescription
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventDetailSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer
 import logging
 logger = logging.getLogger('event view')
 logger.setLevel(logging.INFO)
@@ -307,6 +307,54 @@ class EventViewSet(viewsets.ModelViewSet):
             child.artists.set(instance.artists.all())
             child.styles.set(instance.styles.all())
             child.genres.set(instance.genres.all())
+
+
+class EventDetailView(RetrieveAPIView):
+    """
+    GET /api/events/events/<id>/detail/ — single-event detail for the
+    student/public event detail page.
+
+    Unlike EventViewSet.retrieve, "events" (a festival's sessions, or a
+    weekly class's occurrences) is returned fully resolved via
+    EventSimpleSerializer instead of a bare list of ids, so the page can
+    render its schedule from this one response instead of separately
+    fetching and filtering the entire events table client-side.
+    """
+    serializer_class = EventDetailSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Event.objects.all() if user.is_staff else Event.objects.filter(status=Status.PUBLISHED)
+        return qs.select_related(
+            "event_type", "level", "room__location__city__country",
+        ).prefetch_related(
+            "styles", "genres", "accepted_roles",
+            "event_type__partner_roles",
+            Prefetch(
+                "artists",
+                queryset=Artist.objects.select_related("user")
+                .prefetch_related("types", "styles", "genres"),
+            ),
+            Prefetch(
+                "events",
+                queryset=Event.objects.select_related(
+                    "level", "event_type", "room__location__city__country",
+                ).prefetch_related(
+                    "styles",
+                    Prefetch(
+                        "artists",
+                        queryset=Artist.objects.select_related("user")
+                        .prefetch_related("types", "styles", "genres"),
+                    ),
+                ),
+            ),
+            Prefetch(
+                "event_set",
+                queryset=Event.objects.only("id", "image"),
+                to_attr="prefetched_parents",
+            ),
+        )
 
 
 class EventAdminListView(ListAPIView):
