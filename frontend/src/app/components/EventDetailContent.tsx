@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiUrl, authFetch } from '../../lib/api';
-import { useEvents, type EventItem } from '../hooks/useEvents';
+import type { EventDetail } from '../hooks/useEvents';
 import { useEventDescription } from '../hooks/useEventDescription';
 import { renderEventDescriptionHtml } from '../../lib/eventDescriptionBlocks';
 import { Button } from './ui/button';
@@ -21,7 +21,7 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
   const { accessToken, isAuthenticated } = useAuth();
   const it = language === 'it';
 
-  const [event, setEvent] = useState<EventItem | null>(null);
+  const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,8 +30,8 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
     setError(null);
     try {
       const res = accessToken
-        ? await authFetch(`/api/events/events/${eventId}/`, accessToken)
-        : await fetch(apiUrl(`/api/events/events/${eventId}/`));
+        ? await authFetch(`/api/events/events/${eventId}/detail/`, accessToken)
+        : await fetch(apiUrl(`/api/events/events/${eventId}/detail/`));
       if (!res.ok) throw new Error(`${res.status}`);
       setEvent(await res.json());
     } catch {
@@ -44,13 +44,9 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
 
   useEffect(() => { fetchEvent(); }, [fetchEvent]);
 
-  // Full event list, used only to resolve a festival's child events for the
-  // description's dynamic Schedule block.
-  const { events: allEvents } = useEvents(accessToken);
-  const children = useMemo(
-    () => (event ? allEvents.filter(e => event.events.includes(e.id)) : []),
-    [event, allEvents],
-  );
+  // The detail endpoint already resolves a festival's sessions / a weekly
+  // class's occurrences inline — no separate full-table fetch needed.
+  const children = event?.events ?? [];
 
   const { desc, loading: descLoading, error: descError, fetchDescription } = useEventDescription();
   useEffect(() => {
