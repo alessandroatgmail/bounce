@@ -64,7 +64,6 @@ export function EventJoinPanel({
   const navigate = useNavigate();
   const { userMemberships, cancel } = useUserMemberships(accessToken);
   const [showPanel, setShowPanel] = useState(false);
-  const [bookingStep, setBookingStep] = useState<'role' | 'membership'>('membership');
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
   const [partnerEmail, setPartnerEmail] = useState('');
   const [partnerCheckStatus, setPartnerCheckStatus] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle');
@@ -87,6 +86,7 @@ export function EventJoinPanel({
   // possible until an admin assigns levels.
   const festivalHasNoLevels = isFixedFestival && event.children_levels.length === 0;
   const needsExtraStep = hasRoles || hasLevelChoice;
+  const missingSelection = (hasRoles && !selectedRoleId) || (hasLevelChoice && !selectedLevelId);
   const it = language === 'it';
   // Whatever status the current user's own contribution to this event is
   // in — shown next to "Already booked" so waiting/received bookings
@@ -224,9 +224,7 @@ export function EventJoinPanel({
       navigate(`/festival/${event.id}`);
       return;
     }
-    const next = !showPanel;
-    setShowPanel(next);
-    if (next) setBookingStep(needsExtraStep ? 'role' : 'membership');
+    setShowPanel(!showPanel);
   }
 
   return (
@@ -319,8 +317,7 @@ export function EventJoinPanel({
       {isAuthenticated && showPanel && (
         <div className="mt-3 border-t border-[#d4b896]/20 pt-3 space-y-3">
 
-          {/* Step 1: role + partner email + level */}
-          {bookingStep === 'role' && (
+          {needsExtraStep && (
             <>
               <div className="flex items-start gap-2 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
                 <Info className="size-4 mt-0.5 flex-shrink-0 text-blue-500" />
@@ -471,85 +468,64 @@ export function EventJoinPanel({
                 </>
               )}
 
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  disabled={
-                    (hasRoles && !selectedRoleId) ||
-                    (hasLevelChoice && !selectedLevelId)
-                  }
-                  className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white disabled:opacity-50"
-                  onClick={() => setBookingStep('membership')}
-                >
-                  {it ? 'Continua' : 'Continue'}
-                </Button>
-              </div>
             </>
           )}
 
-          {/* Step 2: membership selection */}
-          {bookingStep === 'membership' && (
-            <>
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
-                  {it ? 'Scegli un abbonamento' : 'Choose a membership'}
-                </p>
-                {needsExtraStep && (
-                  <button
-                    className="text-xs text-gray-400 hover:text-[#e67e22] underline"
-                    onClick={() => setBookingStep('role')}
-                  >
-                    {it ? '← Indietro' : '← Back'}
-                  </button>
-                )}
-              </div>
-              {(() => {
-                const eligible = event.memberships;
-                return eligible.length === 0 ? (
-                  <p className="text-xs text-gray-500">
-                    {it ? 'Nessun abbonamento disponibile per questo tipo di evento.' : 'No memberships available for this event type.'}
-                  </p>
-                ) : (
-                  eligible.map(m => (
-                    <div
-                      key={m.id}
-                      className="flex items-center justify-between rounded-md border border-[#d4b896]/40 px-3 py-2 hover:bg-[#d4b896]/10 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        {m.color && (
-                          <span className="size-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
-                        )}
-                        <div>
-                          <p className="text-sm font-medium text-[#2b2b2b]">{m.name}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-[#e67e22]">€{m.contribution}</span>
-                        {event.already_booked ? (
-                          <Badge className="h-7 text-xs bg-green-100 text-green-800 border border-green-200">
-                            <BookCheck className="size-3 mr-1" />
-                            {it ? 'Prenotato' : 'Booked'}
-                          </Badge>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={joinStatus === 'loading'}
-                            className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white"
-                            onClick={() => handleSelect(m.id)}
-                          >
-                            {joinStatus === 'loading'
-                              ? <Loader2 className="size-3 animate-spin" />
-                              : (it ? 'Seleziona' : 'Select')}
-                          </Button>
-                        )}
-                      </div>
+          <div>
+            <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
+              {it ? 'Scegli un abbonamento' : 'Choose a membership'}
+            </p>
+            {missingSelection && (
+              <p className="text-xs text-amber-600 mt-1">
+                {it ? 'Seleziona prima il ruolo e il livello sopra.' : 'Select a role and level above first.'}
+              </p>
+            )}
+          </div>
+          {(() => {
+            const eligible = event.memberships;
+            return eligible.length === 0 ? (
+              <p className="text-xs text-gray-500">
+                {it ? 'Nessun abbonamento disponibile per questo tipo di evento.' : 'No memberships available for this event type.'}
+              </p>
+            ) : (
+              eligible.map(m => (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between rounded-md border border-[#d4b896]/40 px-3 py-2 hover:bg-[#d4b896]/10 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    {m.color && (
+                      <span className="size-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
+                    )}
+                    <div>
+                      <p className="text-sm font-medium text-[#2b2b2b]">{m.name}</p>
                     </div>
-                  ))
-                );
-              })()}
-            </>
-          )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-[#e67e22]">€{m.contribution}</span>
+                    {event.already_booked ? (
+                      <Badge className="h-7 text-xs bg-green-100 text-green-800 border border-green-200">
+                        <BookCheck className="size-3 mr-1" />
+                        {it ? 'Prenotato' : 'Booked'}
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={joinStatus === 'loading' || missingSelection}
+                        className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white disabled:opacity-50"
+                        onClick={() => handleSelect(m.id)}
+                      >
+                        {joinStatus === 'loading'
+                          ? <Loader2 className="size-3 animate-spin" />
+                          : (it ? 'Seleziona' : 'Select')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))
+            );
+          })()}
         </div>
       )}
 
