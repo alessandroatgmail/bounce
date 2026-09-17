@@ -224,8 +224,8 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
           </div>
 
           <div className="space-y-1">
-            <Label>{language === 'it' ? 'N. ricevuta' : 'Receipt no.'}</Label>
-            <Input required value={receiptNumber} onChange={e => setReceiptNumber(e.target.value)} />
+            <Label>{language === 'it' ? 'N. ricevuta (opzionale)' : 'Receipt no. (optional)'}</Label>
+            <Input value={receiptNumber} onChange={e => setReceiptNumber(e.target.value)} />
           </div>
 
           {saveError && <p className="text-sm text-red-500">{saveError}</p>}
@@ -238,7 +238,7 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
             <Button
               type="submit"
               size="sm"
-              disabled={saving || (!isEdit && !selectedUser) || amountTotal === '' || receiptNumber === ''}
+              disabled={saving || (!isEdit && !selectedUser) || amountTotal === ''}
             >
               {saving && <Loader2 className="size-3.5 mr-1 animate-spin" />}
               {language === 'it' ? 'Salva' : 'Save'}

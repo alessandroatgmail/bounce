@@ -50,18 +50,6 @@ class TransactionSerializer(serializers.ModelSerializer):
             'contributions', 'contribution_ids', 'date',
         ]
 
-    def validate(self, attrs):
-        # A PATCH is partial — a field not in this payload isn't in attrs at
-        # all, so fall back to the instance's current value rather than
-        # treating "not included" the same as "cleared".
-        receipt_number = attrs.get(
-            'receipt_number',
-            getattr(self.instance, 'receipt_number', None) if self.instance else None,
-        )
-        if not receipt_number:
-            raise serializers.ValidationError({'receipt_number': 'Required for cash/bank transactions.'})
-        return attrs
-
     def create(self, validated_data):
         instance = super().create(validated_data)
         contributions = list(instance.contributions.select_related('user', 'membership').prefetch_related('events').all())

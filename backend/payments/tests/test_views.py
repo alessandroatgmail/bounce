@@ -108,13 +108,6 @@ class TestCreateTransaction:
         assert transaction.method == PaymentMethod.BANK
         assert transaction.receipt_number == "BANK-2026-001"
 
-    def test_receipt_number_required_for_cash(self, staff_client, student_user):
-        res = staff_client.post(URL, {
-            "user": student_user.id, "method": "cash", "amount_total": "30.00",
-        }, format="json")
-        assert res.status_code == http_status.HTTP_400_BAD_REQUEST
-        assert "receipt_number" in res.data
-
     def test_stripe_method_is_rejected(self, staff_client, student_user):
         res = staff_client.post(URL, {
             "user": student_user.id, "method": "stripe",
