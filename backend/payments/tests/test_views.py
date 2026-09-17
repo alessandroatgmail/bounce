@@ -240,7 +240,7 @@ class TestListTransactions:
         res = staff_client.get(URL)
 
         assert res.status_code == http_status.HTTP_200_OK
-        assert len(res.data) == 2
+        assert len(res.data["results"]) == 2
 
     def test_list_filtered_by_user(self, staff_client, student_user, other_user):
         mine = Transaction.objects.create(
@@ -255,8 +255,98 @@ class TestListTransactions:
         res = staff_client.get(URL, {"user": student_user.id})
 
         assert res.status_code == http_status.HTTP_200_OK
-        assert len(res.data) == 1
-        assert res.data[0]["id"] == mine.id
+        assert len(res.data["results"]) == 1
+        assert res.data["results"][0]["id"] == mine.id
+
+    def test_list_filtered_by_event(self, staff_client, student_user, contribution, world_data):
+        from utils.mock_festival import make_festival_event
+        matching_event = make_festival_event(name="Lindy Hop Beginners")
+        other_event = make_festival_event(name="Blues Fundamentals")
+        contribution.events.add(matching_event)
+        matching = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-020", amount_total=Decimal("30.00"),
+        )
+        matching.contributions.add(contribution)
+
+        other_contribution = Contribution.objects.create(
+            user=student_user, membership=contribution.membership, amount=Decimal("30.00"),
+            status=ContributionStatus.PAYED,
+        )
+        other_contribution.events.add(other_event)
+        other = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-021", amount_total=Decimal("30.00"),
+        )
+        other.contributions.add(other_contribution)
+
+        res = staff_client.get(URL, {"event": matching_event.id})
+
+        assert res.status_code == http_status.HTTP_200_OK
+        ids = [t["id"] for t in res.data["results"]]
+        assert matching.id in ids
+        assert other.id not in ids
+
+    def test_list_filtered_by_event_style(self, staff_client, student_user, contribution, world_data):
+        from utils.mock_festival import make_festival_event
+        from event.models import Style
+        matching_event = make_festival_event(name="Solo Jazz Intensive")
+        other_event = make_festival_event(name="Balboa Basics")
+        style = Style.objects.create(name="Solo Jazz")
+        matching_event.styles.add(style)
+        contribution.events.add(matching_event)
+        matching = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-022", amount_total=Decimal("30.00"),
+        )
+        matching.contributions.add(contribution)
+
+        other_contribution = Contribution.objects.create(
+            user=student_user, membership=contribution.membership, amount=Decimal("30.00"),
+            status=ContributionStatus.PAYED,
+        )
+        other_contribution.events.add(other_event)
+        other = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-023", amount_total=Decimal("30.00"),
+        )
+        other.contributions.add(other_contribution)
+
+        res = staff_client.get(URL, {"style": style.id})
+
+        assert res.status_code == http_status.HTTP_200_OK
+        ids = [t["id"] for t in res.data["results"]]
+        assert matching.id in ids
+        assert other.id not in ids
+
+    def test_list_filtered_by_event_level(self, staff_client, student_user, contribution, world_data):
+        from utils.mock_festival import make_festival_event
+        matching_event = make_festival_event(name="Intermediate Lindy")
+        other_event = make_festival_event(name="Advanced Lindy")
+        contribution.events.add(matching_event)
+        matching = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-024", amount_total=Decimal("30.00"),
+        )
+        matching.contributions.add(contribution)
+
+        other_contribution = Contribution.objects.create(
+            user=student_user, membership=contribution.membership, amount=Decimal("30.00"),
+            status=ContributionStatus.PAYED,
+        )
+        other_contribution.events.add(other_event)
+        other = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-025", amount_total=Decimal("30.00"),
+        )
+        other.contributions.add(other_contribution)
+
+        res = staff_client.get(URL, {"level": matching_event.level_id})
+
+        assert res.status_code == http_status.HTTP_200_OK
+        ids = [t["id"] for t in res.data["results"]]
+        assert matching.id in ids
+        assert other.id not in ids
 
     def test_list_shows_nested_user_info(self, staff_client, student_user):
         Transaction.objects.create(
@@ -266,8 +356,8 @@ class TestListTransactions:
 
         res = staff_client.get(URL)
 
-        assert res.data[0]["user"]["email"] == student_user.email
-        assert res.data[0]["user"]["id"] == student_user.id
+        assert res.data["results"][0]["user"]["email"] == student_user.email
+        assert res.data["results"][0]["user"]["id"] == student_user.id
 
     def test_list_includes_stripe_transactions(self, staff_client, student_user):
         Transaction.objects.create(
@@ -277,8 +367,8 @@ class TestListTransactions:
 
         res = staff_client.get(URL)
 
-        assert len(res.data) == 1
-        assert res.data[0]["method"] == "stripe"
+        assert len(res.data["results"]) == 1
+        assert res.data["results"][0]["method"] == "stripe"
 
     def test_list_shows_status(self, staff_client, student_user):
         Transaction.objects.create(
@@ -289,7 +379,7 @@ class TestListTransactions:
 
         res = staff_client.get(URL)
 
-        assert res.data[0]["status"] == "completed"
+        assert res.data["results"][0]["status"] == "completed"
 
     def test_list_shows_contribution_event_name(self, staff_client, student_user, contribution, world_data):
         from utils.mock_festival import make_festival_event
@@ -303,7 +393,7 @@ class TestListTransactions:
 
         res = staff_client.get(URL)
 
-        payment = next(t for t in res.data if t["id"] == transaction.id)
+        payment = next(t for t in res.data["results"] if t["id"] == transaction.id)
         assert payment["contributions"][0]["event_name"] == "Lindy Hop Beginners"
 
     def test_event_name_is_none_when_contribution_has_no_event(self, staff_client, student_user, contribution):
@@ -315,7 +405,7 @@ class TestListTransactions:
 
         res = staff_client.get(URL)
 
-        payment = next(t for t in res.data if t["id"] == transaction.id)
+        payment = next(t for t in res.data["results"] if t["id"] == transaction.id)
         contrib_data = payment["contributions"][0]
         assert "event_name" in contrib_data
         assert contrib_data["event_name"] is None
