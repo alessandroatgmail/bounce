@@ -1,14 +1,20 @@
 import { useState } from 'react';
-import { Loader2, Plus, Pencil } from 'lucide-react';
+import { Loader2, Plus, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { usePayments, type PaymentMethod, type PaymentStatus, type Transaction } from '../hooks/usePayments';
 import { type UserListItem } from '../hooks/useUserList';
+import { type AdminEventItem } from '../hooks/useAdminEventsPaginated';
+import { useStyles } from '../hooks/useStyles';
+import { useLevels } from '../hooks/useLevels';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { UserPickerInput } from './UserPickerInput';
+import { EventPickerInput } from './EventPickerInput';
 import { NewPaymentDialog } from './NewPaymentDialog';
 
 const METHOD_LABELS: Record<PaymentMethod, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
@@ -27,9 +33,20 @@ export function PaymentsPanel() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const [userFilter, setUserFilter] = useState<UserListItem | null>(null);
+  const [eventFilter, setEventFilter] = useState<AdminEventItem | null>(null);
+  const [styleFilter, setStyleFilter] = useState<string>('all');
+  const [levelFilter, setLevelFilter] = useState<string>('all');
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const { transactions, loading, error, create, update } = usePayments(accessToken ?? '', userFilter?.id ?? null);
+  const { styles } = useStyles(accessToken);
+  const { levels } = useLevels(accessToken);
+  const { transactions, count, page, setPage, totalPages, loading, error, create, update } = usePayments(
+    accessToken ?? '', userFilter?.id ?? null, {
+      eventId: eventFilter?.id ?? null,
+      styleId: styleFilter !== 'all' ? Number(styleFilter) : null,
+      levelId: levelFilter !== 'all' ? Number(levelFilter) : null,
+    },
+  );
 
   return (
     <Card>
@@ -38,7 +55,7 @@ export function PaymentsPanel() {
           <div>
             <CardTitle>{language === 'it' ? 'Pagamenti' : 'Payments'}</CardTitle>
             <CardDescription>
-              {language === 'it' ? `${transactions.length} pagamenti totali` : `${transactions.length} payments total`}
+              {language === 'it' ? `${count} pagamenti totali` : `${count} payments total`}
             </CardDescription>
           </div>
           <Button size="sm" onClick={() => setShowNewPayment(true)}>
@@ -48,7 +65,7 @@ export function PaymentsPanel() {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-4 max-w-sm">
+        <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <UserPickerInput
             token={accessToken ?? ''}
             label={language === 'it' ? 'Filtra per utente' : 'Filter by user'}
@@ -56,6 +73,41 @@ export function PaymentsPanel() {
             onChange={setUserFilter}
             placeholder={language === 'it' ? 'Cerca utente...' : 'Search user...'}
           />
+          <EventPickerInput
+            token={accessToken ?? ''}
+            label={language === 'it' ? 'Filtra per evento' : 'Filter by event'}
+            value={eventFilter}
+            onChange={setEventFilter}
+            placeholder={language === 'it' ? 'Cerca evento...' : 'Search event...'}
+          />
+          <div className="space-y-1">
+            <Label>{language === 'it' ? 'Filtra per stile' : 'Filter by style'}</Label>
+            <Select value={styleFilter} onValueChange={setStyleFilter}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{language === 'it' ? 'Tutti gli stili' : 'All styles'}</SelectItem>
+                {styles.map(s => (
+                  <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>{language === 'it' ? 'Filtra per livello' : 'Filter by level'}</Label>
+            <Select value={levelFilter} onValueChange={setLevelFilter}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{language === 'it' ? 'Tutti i livelli' : 'All levels'}</SelectItem>
+                {levels.map(l => (
+                  <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {loading && (
@@ -123,6 +175,22 @@ export function PaymentsPanel() {
               )}
             </TableBody>
           </Table>
+        )}
+
+        {!loading && totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4">
+            <p className="text-sm text-muted-foreground">
+              {language === 'it' ? `Pagina ${page} di ${totalPages}` : `Page ${page} of ${totalPages}`}
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          </div>
         )}
       </CardContent>
 
