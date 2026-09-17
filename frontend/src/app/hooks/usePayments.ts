@@ -48,42 +48,64 @@ export interface TransactionPayload {
   contribution_ids?: number[];
 }
 
-export function usePayments(token: string | null, userId?: number | null) {
+export interface TransactionFilters {
+  eventId?: number | null;
+  styleId?: number | null;
+  levelId?: number | null;
+}
+
+const PAGE_SIZE = 20;
+
+export function usePayments(token: string | null, userId?: number | null, filters: TransactionFilters = {}) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { eventId, styleId, levelId } = filters;
 
-  const fetchAll = useCallback(async () => {
+  const load = useCallback(async (p: number) => {
     if (!token) { setTransactions([]); return; }
     setLoading(true);
     setError(null);
     try {
-      const path = userId ? `${BASE}?user=${userId}` : BASE;
-      const res = await authFetch(path, token);
+      const params = new URLSearchParams({ page: String(p) });
+      if (userId)  params.set('user',  String(userId));
+      if (eventId) params.set('event', String(eventId));
+      if (styleId) params.set('style', String(styleId));
+      if (levelId) params.set('level', String(levelId));
+      const res = await authFetch(`${BASE}?${params.toString()}`, token);
       if (!res.ok) throw new Error(`${res.status}`);
-      setTransactions(await res.json());
+      const data = await res.json();
+      setTransactions(data.results);
+      setCount(data.count);
     } catch {
       setError('Failed to load payments.');
     } finally {
       setLoading(false);
     }
-  }, [token, userId]);
+  }, [token, userId, eventId, styleId, levelId]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { setPage(1); }, [userId, eventId, styleId, levelId]);
+  useEffect(() => { load(page); }, [page, load]);
+
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+
+  const refetch = useCallback(() => load(page), [load, page]);
 
   const create = useCallback(async (data: TransactionPayload): Promise<void> => {
     if (!token) return;
     const res = await authFetch(BASE, token, { method: 'POST', body: JSON.stringify(data) });
     if (!res.ok) throw new Error(JSON.stringify(await res.json().catch(() => ({}))));
-    await fetchAll();
-  }, [token, fetchAll]);
+    await refetch();
+  }, [token, refetch]);
 
   const update = useCallback(async (id: number, data: TransactionPayload): Promise<void> => {
     if (!token) return;
     const res = await authFetch(`${BASE}${id}/`, token, { method: 'PUT', body: JSON.stringify(data) });
     if (!res.ok) throw new Error(JSON.stringify(await res.json().catch(() => ({}))));
-    await fetchAll();
-  }, [token, fetchAll]);
+    await refetch();
+  }, [token, refetch]);
 
-  return { transactions, loading, error, refetch: fetchAll, create, update };
+  return { transactions, count, page, setPage, totalPages, loading, error, refetch, create, update };
 }
