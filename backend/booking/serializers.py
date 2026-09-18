@@ -84,6 +84,24 @@ class ExtraItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'name_it', 'name_en', 'value', 'description', 'description_en', 'description_en_it']
 
 
+class AcsiExtraItemUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = ['id', 'first_name', 'last_name', 'acsi_expiration_date']
+
+
+class AcsiExtraItemSerializer(serializers.ModelSerializer):
+    """A contribution carrying the ACSI Membership extra item, annotated with
+    event_start_date/event_name (the earliest linked event)."""
+    user = AcsiExtraItemUserSerializer(read_only=True)
+    event_start_date = serializers.DateTimeField(read_only=True)
+    event_name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Contribution
+        fields = ['id', 'user', 'event_start_date', 'event_name']
+
+
 class ContributionSerializer(serializers.ModelSerializer):
     events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
