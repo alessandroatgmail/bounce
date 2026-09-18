@@ -19,7 +19,7 @@ import { Badge } from './ui/badge';
 import { MultiSearchSelect } from './MultiSearchSelect';
 
 interface Props {
-  user: UserListItem | null;
+  user: Pick<UserListItem, 'id' | 'first_name' | 'last_name'> | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after a contribution is created, updated or deleted, so the parent list can refresh. */

@@ -1,10 +1,11 @@
 import datetime
 
 from dateutil.relativedelta import relativedelta
-from django.db.models import Prefetch
+from django.db.models import OuterRef, Prefetch, Subquery
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
@@ -13,15 +14,45 @@ from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from .models import Booking, Contribution, ContributionStatus, ExtraItem
-from .serializers import BookingSerializer, ContributionOverviewSerializer, ContributionSerializer, ExtraItemSerializer, FestivalContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
+from .serializers import AcsiExtraItemSerializer, BookingSerializer, ContributionOverviewSerializer, ContributionSerializer, ExtraItemSerializer, FestivalContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
 from utils.tasks import send_email
+
+
+class AcsiExtraItemPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 class ExtraItemViewSet(viewsets.ModelViewSet):
     serializer_class = ExtraItemSerializer
     queryset = ExtraItem.objects.all()
     permission_classes = [IsAdminUser]
+
+    @action(detail=False, methods=['get'], url_path='acsi')
+    def acsi(self, request):
+        """Contributions carrying the ACSI Membership extra item — who needs
+        their card checked/renewed, soonest event first."""
+        self.pagination_class = AcsiExtraItemPagination
+        earliest_event = Event.objects.filter(contributions=OuterRef('pk')).order_by('start_date')
+        qs = (
+            Contribution.objects
+            .filter(extra_items__name='ACSI Membership')
+            .exclude(status=ContributionStatus.CANCELLED)
+            .select_related('user')
+            .annotate(
+                event_start_date=Subquery(earliest_event.values('start_date')[:1]),
+                event_name=Subquery(earliest_event.values('name')[:1]),
+            )
+            .order_by('event_start_date', 'user__last_name', 'user__first_name')
+        )
+        user_id = request.query_params.get('user', '').strip()
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        page = self.paginate_queryset(qs)
+        serializer = AcsiExtraItemSerializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 class UserBookingViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
