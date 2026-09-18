@@ -236,7 +236,7 @@ class UserListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'email', 'role', 'memberships']
+        fields = ['id', 'first_name', 'last_name', 'email', 'phone', 'role', 'memberships']
 
     def get_memberships(self, obj):
         seen = set()
@@ -250,3 +250,9 @@ class UserListSerializer(serializers.ModelSerializer):
                     'color': c.membership.color,
                 })
         return result
+
+
+class UserPhonesRequestSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(), allow_empty=False,
+    )

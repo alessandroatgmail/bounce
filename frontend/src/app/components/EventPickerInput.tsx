@@ -11,11 +11,14 @@ interface Props {
   value: AdminEventItem | null;
   onChange: (event: AdminEventItem | null) => void;
   placeholder?: string;
+  getLabel?: (event: AdminEventItem) => string;
 }
 
 // Searchable event picker, scoped to top-level events (parent_only) — a
 // festival or weekly course, not each of its generated occurrences.
-export function EventPickerInput({ token, label, value, onChange, placeholder = 'Search by event name...' }: Props) {
+export function EventPickerInput({
+  token, label, value, onChange, placeholder = 'Search by event name...', getLabel = e => e.name,
+}: Props) {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [open, setOpen] = useState(false);
@@ -38,7 +41,7 @@ export function EventPickerInput({ token, label, value, onChange, placeholder = 
       {label && <Label>{label}</Label>}
       {value ? (
         <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-          <span>{value.name}</span>
+          <span>{getLabel(value)}</span>
           <button type="button" onClick={() => onChange(null)} className="text-gray-400 hover:text-red-500">
             <X className="size-3.5" />
           </button>
@@ -64,7 +67,7 @@ export function EventPickerInput({ token, label, value, onChange, placeholder = 
                     className="w-full text-left px-3 py-2 text-sm hover:bg-[#d4b896]/20"
                     onMouseDown={() => select(e)}
                   >
-                    {e.name}
+                    {getLabel(e)}
                   </button>
                 ))
               )}
