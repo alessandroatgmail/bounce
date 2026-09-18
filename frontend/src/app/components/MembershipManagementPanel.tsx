@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Search, Mail } from 'lucide-react';
+import { Loader2, Search, Mail, Phone, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useUserList, type UserListItem } from '../hooks/useUserList';
 import { useMemberships } from '../hooks/useMemberships';
-import { useEvents } from '../hooks/useEvents';
+import type { AdminEventItem } from '../hooks/useAdminEventsPaginated';
 import { authFetch } from '../../lib/api';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -14,6 +14,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { Textarea } from './ui/textarea';
+import { EventPickerInput } from './EventPickerInput';
 import {
   Pagination,
   PaginationContent,
@@ -29,18 +32,22 @@ export function MembershipManagementPanel() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const { memberships } = useMemberships(accessToken);
-  const { events } = useEvents(accessToken);
 
   const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
   const [page, setPage] = useState(1);
   const [nameInput, setNameInput] = useState('');
   const [debouncedName, setDebouncedName] = useState('');
   const [membershipFilter, setMembershipFilter] = useState<number | ''>('');
-  const [eventFilter, setEventFilter] = useState<number | ''>('');
+  const [selectedEvent, setSelectedEvent] = useState<AdminEventItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectingAll, setSelectingAll] = useState(false);
   const [templateNames, setTemplateNames] = useState<string[]>([]);
   const [templateName, setTemplateName] = useState('');
   const [sending, setSending] = useState(false);
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
+  const [phoneNumbers, setPhoneNumbers] = useState<string[]>([]);
+  const [loadingPhones, setLoadingPhones] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Template names for the send-email picker — language variants share a name.
   useEffect(() => {
@@ -68,10 +75,11 @@ export function MembershipManagementPanel() {
     setMembershipFilter(v === 'all' ? '' : Number(v));
     setPage(1);
   };
-  const handleEventFilter = (v: string) => {
-    setEventFilter(v === 'all' ? '' : Number(v));
+  const handleEventChange = (event: AdminEventItem | null) => {
+    setSelectedEvent(event);
     setPage(1);
   };
+  const eventFilter = selectedEvent?.id ?? '';
 
   const { results: users, count, totalPages, loading, error, refetch } = useUserList(
     accessToken,
@@ -79,12 +87,8 @@ export function MembershipManagementPanel() {
     { name: debouncedName, membership: membershipFilter, event: eventFilter },
   );
 
-  // Only show parent events (those that have children)
-  const parentEvents = events.filter(e => e.events.length > 0);
-
-  const pageIds = users.map(u => u.id);
-  const allOnPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
-  const someOnPageSelected = pageIds.some(id => selectedIds.has(id));
+  const allSelected = count > 0 && selectedIds.size === count;
+  const someSelected = selectedIds.size > 0 && !allSelected;
 
   const toggleUser = (id: number) => {
     setSelectedIds(prev => {
@@ -94,13 +98,27 @@ export function MembershipManagementPanel() {
     });
   };
 
-  const toggleSelectAllOnPage = () => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (allOnPageSelected) pageIds.forEach(id => next.delete(id));
-      else pageIds.forEach(id => next.add(id));
-      return next;
-    });
+  const handleToggleSelectAll = async () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    if (!accessToken) return;
+    setSelectingAll(true);
+    try {
+      const params = new URLSearchParams();
+      if (debouncedName) params.set('name', debouncedName);
+      if (membershipFilter) params.set('membership', String(membershipFilter));
+      if (eventFilter) params.set('event', String(eventFilter));
+      const res = await authFetch(`/api/auth/users/ids/?${params}`, accessToken);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      setSelectedIds(new Set(data.ids));
+    } catch {
+      toast.error(language === 'it' ? 'Impossibile selezionare tutti.' : 'Failed to select all.');
+    } finally {
+      setSelectingAll(false);
+    }
   };
 
   const handleSend = async () => {
@@ -128,6 +146,39 @@ export function MembershipManagementPanel() {
       toast.error(language === 'it' ? 'Invio email fallito.' : 'Failed to send emails.');
     } finally {
       setSending(false);
+    }
+  };
+
+  const phoneNumbersText = phoneNumbers.join(', ');
+
+  const handleOpenPhoneDialog = async () => {
+    if (!accessToken || selectedIds.size === 0) return;
+    setCopied(false);
+    setPhoneNumbers([]);
+    setPhoneDialogOpen(true);
+    setLoadingPhones(true);
+    try {
+      const res = await authFetch('/api/auth/users/phones/', accessToken, {
+        method: 'POST',
+        body: JSON.stringify({ user_ids: Array.from(selectedIds) }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      setPhoneNumbers(data.phones);
+    } catch {
+      toast.error(language === 'it' ? 'Impossibile caricare i numeri.' : 'Failed to load phone numbers.');
+    } finally {
+      setLoadingPhones(false);
+    }
+  };
+
+  const handleCopyPhoneNumbers = async () => {
+    try {
+      await navigator.clipboard.writeText(phoneNumbersText);
+      setCopied(true);
+      toast.success(language === 'it' ? 'Numeri copiati.' : 'Phone numbers copied.');
+    } catch {
+      toast.error(language === 'it' ? 'Copia fallita.' : 'Copy failed.');
     }
   };
 
@@ -177,20 +228,17 @@ export function MembershipManagementPanel() {
             </SelectContent>
           </Select>
 
-          <Select
-            value={eventFilter === '' ? 'all' : String(eventFilter)}
-            onValueChange={handleEventFilter}
-          >
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder={language === 'it' ? 'Tutti gli eventi' : 'All events'} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{language === 'it' ? 'Tutti gli eventi' : 'All events'}</SelectItem>
-              {parentEvents.map(e => (
-                <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="w-56">
+            <EventPickerInput
+              token={accessToken}
+              value={selectedEvent}
+              onChange={handleEventChange}
+              placeholder={language === 'it' ? 'Tutti gli eventi' : 'All events'}
+              getLabel={e => `${e.name} - ${new Date(e.start_date).toLocaleDateString(
+                language === 'it' ? 'it-IT' : 'en-GB', { month: 'long', year: 'numeric' },
+              )}`}
+            />
+          </div>
         </div>
 
         {/* Selection toolbar */}
@@ -212,6 +260,10 @@ export function MembershipManagementPanel() {
               </datalist>
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())} disabled={sending}>
                 {language === 'it' ? 'Deseleziona tutto' : 'Clear selection'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleOpenPhoneDialog}>
+                <Phone className="size-3.5 mr-1" />
+                {language === 'it' ? 'Esporta numeri' : 'Export numbers'}
               </Button>
               <Button size="sm" onClick={handleSend} disabled={sending || !templateName}>
                 {sending
@@ -237,13 +289,16 @@ export function MembershipManagementPanel() {
                 <TableRow>
                   <TableHead className="w-8">
                     <Checkbox
-                      checked={allOnPageSelected ? true : someOnPageSelected ? 'indeterminate' : false}
-                      onCheckedChange={toggleSelectAllOnPage}
+                      checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                      onCheckedChange={handleToggleSelectAll}
+                      disabled={selectingAll}
                       aria-label={language === 'it' ? 'Seleziona tutti' : 'Select all'}
                     />
                   </TableHead>
                   <TableHead>{language === 'it' ? 'Nome' : 'Name'}</TableHead>
                   <TableHead>{language === 'it' ? 'Email' : 'Email'}</TableHead>
+                  <TableHead>{language === 'it' ? 'Telefono' : 'Phone'}</TableHead>
+
                   <TableHead>{language === 'it' ? 'Ruolo' : 'Role'}</TableHead>
                   <TableHead>{language === 'it' ? 'Piani attivi' : 'Active plans'}</TableHead>
                 </TableRow>
@@ -251,7 +306,7 @@ export function MembershipManagementPanel() {
               <TableBody>
                 {users.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-gray-400 py-8">
+                    <TableCell colSpan={6} className="text-center text-gray-400 py-8">
                       {language === 'it' ? 'Nessun socio trovato.' : 'No members found.'}
                     </TableCell>
                   </TableRow>
@@ -272,6 +327,8 @@ export function MembershipManagementPanel() {
                       {u.first_name} {u.last_name}
                     </TableCell>
                     <TableCell className="text-sm text-gray-500">{u.email}</TableCell>
+                    <TableCell className="text-sm text-gray-500">{u.phone}</TableCell>
+
                     <TableCell>
                       <Badge variant="outline">{u.role}</Badge>
                     </TableCell>
@@ -351,6 +408,43 @@ export function MembershipManagementPanel() {
         onOpenChange={open => { if (!open) setSelectedUser(null); }}
         onChanged={refetch}
       />
+
+      <Dialog open={phoneDialogOpen} onOpenChange={setPhoneDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{language === 'it' ? 'Numeri di telefono' : 'Phone numbers'}</DialogTitle>
+            <DialogDescription>
+              {loadingPhones
+                ? (language === 'it' ? 'Caricamento...' : 'Loading...')
+                : language === 'it'
+                  ? `${phoneNumbers.length} numeri trovati su ${selectedIds.size} soci selezionati.`
+                  : `${phoneNumbers.length} numbers found for ${selectedIds.size} selected members.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingPhones ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="size-6 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <>
+              <Textarea
+                readOnly
+                value={phoneNumbersText}
+                onFocus={e => e.currentTarget.select()}
+                className="min-h-32 font-mono text-sm"
+              />
+
+              <Button onClick={handleCopyPhoneNumbers} disabled={!phoneNumbersText}>
+                {copied
+                  ? <Check className="size-3.5 mr-1" />
+                  : <Copy className="size-3.5 mr-1" />}
+                {language === 'it' ? 'Copia' : 'Copy'}
+              </Button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
