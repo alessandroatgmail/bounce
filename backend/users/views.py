@@ -31,7 +31,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from utils.tasks import send_password_reset_email
 
 from .models import City
-from .serializers import BounceTokenObtainPairSerializer, ChangePasswordSerializer, PasswordResetConfirmSerializer, PasswordResetRequestSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserProfileSerializer
+from .serializers import BounceTokenObtainPairSerializer, ChangePasswordSerializer, PasswordResetConfirmSerializer, PasswordResetRequestSerializer, ProfileImageSerializer, ProfileUpdateSerializer, RegisterSerializer, UserListSerializer, UserPhonesRequestSerializer, UserProfileSerializer
 
 
 def _blacklist_user_tokens(user):
@@ -245,6 +245,23 @@ class UserListPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def _filter_users_by_query_params(qs, query_params):
+    """Applies the name/membership/event filters shared by UserListView and UserIdsView."""
+    name = query_params.get('name', '').strip()
+    if name:
+        qs = qs.filter(Q(first_name__icontains=name) | Q(last_name__icontains=name))
+
+    membership_id = query_params.get('membership', '').strip()
+    if membership_id:
+        qs = qs.filter(contribution__membership__id=membership_id).distinct()
+
+    event_id = query_params.get('event', '').strip()
+    if event_id:
+        qs = qs.filter(contribution__events__id=event_id).distinct()
+
+    return qs
+
+
 class UserListView(ListAPIView):
     serializer_class = UserListSerializer
     permission_classes = [IsAdminUser]
@@ -257,20 +274,44 @@ class UserListView(ListAPIView):
             .prefetch_related('contribution_set__membership')
             .order_by('last_name', 'first_name')
         )
+        return _filter_users_by_query_params(qs, self.request.query_params)
 
-        name = self.request.query_params.get('name', '').strip()
-        if name:
-            qs = qs.filter(Q(first_name__icontains=name) | Q(last_name__icontains=name))
 
-        membership_id = self.request.query_params.get('membership', '').strip()
-        if membership_id:
-            qs = qs.filter(contribution__membership__id=membership_id).distinct()
+class UserIdsView(APIView):
+    """
+    Every user id matching the same filters as UserListView, unpaginated.
+    Lets the admin members table resolve a "select all" action across every page,
+    not just the current one.
+    """
+    permission_classes = [IsAdminUser]
 
-        event_id = self.request.query_params.get('event', '').strip()
-        if event_id:
-            qs = qs.filter(contribution__events__id=event_id).distinct()
+    def get(self, request):
+        User = get_user_model()
+        qs = _filter_users_by_query_params(
+            User.objects.exclude(email__icontains="deleted.invalid"),
+            request.query_params,
+        )
+        ids = list(qs.order_by('last_name', 'first_name').values_list('id', flat=True))
+        return Response({'ids': ids, 'count': len(ids)})
 
-        return qs
+
+class UserPhonesView(APIView):
+    """Phone numbers for a given set of user ids, resolved server-side so the client
+    never has to rely on cached table data for users it hasn't fetched."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        serializer = UserPhonesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        User = get_user_model()
+        phones = list(
+            User.objects.filter(id__in=serializer.validated_data['user_ids'])
+            .exclude(email__icontains="deleted.invalid")
+            .exclude(phone='')
+            .values_list('phone', flat=True)
+        )
+        return Response({'phones': phones})
 
 # We connect to the same Redis instance used by Channels/Celery.
 # decode_responses=True so we get strings back instead of bytes.
