@@ -10,9 +10,9 @@ from membership.models import Membership, Discount
 
 from django.contrib.auth import get_user_model
 from utils.tasks import  send_email
-from event.models import Event
+from event.models import Event, Frequency
 from .tasks import send_email_accept_email
-from .utils import book_events_for_contribution
+from .utils import book_events_for_contribution, _recurring_children_window
 
 def _create_partner_contribution(original: Contribution, partner: get_user_model()) -> Contribution:
     """
@@ -125,16 +125,21 @@ def _send_contribution_email(contribution: Contribution)->None:
             context=context,
         )
 
-def _contribution_date_range(membership: Membership, event: Event) -> tuple[date | None, date | None]:
+def _contribution_date_range(membership: Membership, event: Event, user) -> tuple[date | None, date | None]:
     start_date = None
     end_date = None
     if event:
-        if membership.duration:
-            start_date = max(event.start_date, timezone.now())
+        start_date = max(event.start_date, timezone.now())
+        window = _recurring_children_window(user, membership, event)
+        if window:
+            # The membership only pays for these occurrences — end the
+            # contribution on the date of the last one, not a generic
+            # start + duration window.
+            end_date = window[-1].end_date
+        elif membership.duration:
             end_date = min(start_date + relativedelta(months=membership.duration),
                                         event.end_date)
         else:
-            start_date = max(event.start_date, timezone.now())
             end_date = event.end_date
 
     return start_date, end_date
@@ -160,6 +165,12 @@ def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status
         send_email_accept_email.delay(user_id=user_id, contribution_id=contribution_id)
 
 def _validate_double_registrations(user, event):
+    """Block a second contribution for the same (user, event) pair — except
+    for a genuinely recurring, non-festival event (a weekly/monthly class),
+    which can be paid for one billing period at a time across separate
+    contributions."""
+    if event.event_type.frequency != Frequency.SINGLE and not event.multi_events:
+        return False
     return Contribution.objects.filter(user=user,
                                    events=event).exists()
 

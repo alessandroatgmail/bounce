@@ -15,7 +15,7 @@ from event.serializers import EventSerializer
 from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
 from .models import Booking, Contribution, ContributionStatus, ExtraItem
-from .utils import sync_bookings, book_events_for_contribution
+from .utils import sync_bookings, book_events_for_contribution, _recurring_children_window
 
 
 
@@ -140,7 +140,9 @@ class ContributionSerializer(serializers.ModelSerializer):
         contribution.extra_items.set(extra_items)
         if contribution.membership:
             first_event = events[0] if events else None
-            start_date, end_date = service._contribution_date_range(contribution.membership, first_event)
+            start_date, end_date = service._contribution_date_range(
+                contribution.membership, first_event, contribution.user,
+            )
             if start_date is None:
                 start_date = timezone.now()
             if end_date is None and contribution.membership.duration:
@@ -323,6 +325,16 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     'event_id': 'This endpoint only books multi-event festivals with a fixed level choice.'
                 })
             _validate_membership_events(membership, [event])
+            if self.instance is None:
+                window = _recurring_children_window(self.context["request"].user, membership, event)
+                if window is not None and len(window) < membership.max_events:
+                    raise serializers.ValidationError({
+                        'event_id': (
+                            f"Membership '{membership.name}' covers {membership.max_events} "
+                            f"classes, but only {len(window)} are left in this event — "
+                            "out of event boundaries."
+                        )
+                    })
             if event.event_type.partners > 1:
                 if not role:
                     raise serializers.ValidationError("For this event, you must specify a role.")
@@ -354,7 +366,7 @@ class UserContributionSerializer(serializers.ModelSerializer):
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
         # update start date and end date
-        start_date, end_date = service._contribution_date_range(membership, event)
+        start_date, end_date = service._contribution_date_range(membership, event, validated_data['user'])
         if start_date:
             validated_data.update({"start_date": start_date})
         if end_date:
