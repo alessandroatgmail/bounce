@@ -187,6 +187,7 @@ export function EventJoinPanel({
       role: string | null;
       amount: string;
       discounted_amount: string;
+      remaining_amount: string;
       discounts: { id: number; name: string; name_ext: string }[];
       extra_items: ExtraItem[];
     };
@@ -200,6 +201,7 @@ export function EventJoinPanel({
       partnerRole: partner?.role ?? null,
       amount: payer.amount,
       discounted_amount: payer.discounted_amount,
+      remaining_amount: payer.remaining_amount,
       discounts: payer.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
       extra_items: payer.extra_items,
     });
