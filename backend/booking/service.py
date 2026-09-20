@@ -166,10 +166,14 @@ def _dispatch_change_status_email(contribution_id: int, user_id: int, old_status
 
 def _validate_double_registrations(user, event):
     """Block a second contribution for the same (user, event) pair — except
-    for a genuinely recurring, non-festival event (a weekly/monthly class),
-    which can be paid for one billing period at a time across separate
-    contributions."""
-    if event.event_type.frequency != Frequency.SINGLE and not event.multi_events:
+    for a genuinely recurring, non-festival event (a weekly/monthly class
+    that was actually expanded into a series of children), which can be
+    paid for one billing period at a time across separate contributions."""
+    if (
+        not event.multi_events
+        and event.event_type.frequency != Frequency.SINGLE
+        and event.events.exists()
+    ):
         return False
     return Contribution.objects.filter(user=user,
                                    events=event).exists()

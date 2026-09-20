@@ -13,14 +13,20 @@ def _recurring_children_window(user, membership, event):
     right after their most recent booking on it, or starting from the very
     first class if they have none yet.
 
-    Returns None when the cap doesn't apply (single event, festival, or an
-    unlimited membership), so callers fall back to booking every child
+    Returns None when the cap doesn't apply — a single event, a festival,
+    an unlimited membership, or an event whose type is recurring but that
+    was never actually expanded into a series (no children yet, so there's
+    no window to speak of) — so callers fall back to booking every child
     alongside the parent event. The returned list may be shorter than
     `max_events` when the series doesn't have that many classes left —
     callers must treat that as a validation error, not book a partial
     window silently.
     """
-    if event.multi_events or event.event_type.frequency == Frequency.SINGLE:
+    if event.multi_events:
+        return None
+    if event.event_type.frequency == Frequency.SINGLE:
+        return None
+    if not event.events.exists():
         return None
     if not membership or not membership.max_events:
         return None
