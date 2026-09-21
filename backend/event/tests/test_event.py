@@ -486,7 +486,7 @@ class TestEventMemberships:
         response = staff_client.post(LIST_URL, payload, format="json")
         assert set(response.data["memberships"][0].keys()) == {
             "id", "name", "type", "contribution", "color", "max_events", "duration", "rules",
-            "start_date", "end_date", "fix_events",
+            "start_date", "end_date", "fix_events", "only_cash",
         }
 
     def test_admin_can_replace_memberships_via_put(self, staff_client, world_data):
