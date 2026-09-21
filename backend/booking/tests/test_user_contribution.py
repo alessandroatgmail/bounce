@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import status as http_status
 
 from booking.models import Booking, Contribution, ExtraItem
+from booking.tasks import cancel_expired_contributions
 from config.models import SiteSettings
 from event.models import Event, EventType, PartnerRole, Status
 from membership.models import Membership, MembershipRule, Discount
@@ -1206,6 +1207,81 @@ class TestRecurringMembershipFullCoverage:
         last_class = parent.events.order_by("start_date").last()
         assert contribution.start_date == first_class.start_date
         assert contribution.end_date == last_class.end_date
+
+
+# ── Cash-only recurring plan: payment reminder / auto-cancel ────────────────────
+
+class TestCashOnlyRecurringEventPaymentReminder:
+    """
+    A monthly, cash-only membership plan booked on a weekly recurring event
+    still goes through the ordinary payment-reminder / auto-cancel flow
+    (booking.tasks.cancel_expired_contributions) — only_cash only removes
+    the online card option, it doesn't exempt the booking from the payment
+    deadline.
+    """
+
+    def test_reminder_then_cancel_for_unpaid_only_cash_booking(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            payment_days=5,
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+
+        plan_payload = make_membership_payload(type="monthly", duration=1, max_events=4, only_cash=True)
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        assert plan_res.data["only_cash"] is True
+        plan_id = plan_res.data["id"]
+
+        booking_res = student_client.post(
+            LIST_URL, {"membership_id": plan_id, "event_id": parent.pk}, format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(id=booking_res.data["id"])
+        assert contribution.status == ContributionStatus.ACCEPTED
+
+        from django.core import mail
+
+        # Booking itself already sent its own emails (registration +
+        # acceptance) — clear those so the assertions below only count
+        # what cancel_expired_contributions sends.
+        mail.outbox.clear()
+
+        # payment_days=5, backdated 3 days → deadline is 2 days away: the
+        # reminder must fire even though this plan can only be paid cash.
+        Contribution.objects.filter(pk=contribution.pk).update(date=timezone.now() - timedelta(days=3))
+        cancel_expired_contributions()
+
+        assert len(mail.outbox) == 1
+        assert student_user.email in mail.outbox[0].to
+        contribution.refresh_from_db()
+        assert contribution.status == ContributionStatus.ACCEPTED
+
+        mail.outbox.clear()
+
+        # Backdate further so the 5-day deadline has now passed with no
+        # payment recorded — the contribution must be auto-cancelled.
+        Contribution.objects.filter(pk=contribution.pk).update(date=timezone.now() - timedelta(days=10))
+        cancel_expired_contributions()
+
+        contribution.refresh_from_db()
+        assert contribution.status == ContributionStatus.CANCELLED
+        assert len(mail.outbox) == 1
+        assert student_user.email in mail.outbox[0].to
 
 
 # ── Waiting list for role ──────────────────────────────────────────────────────

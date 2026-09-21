@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Badge } from './ui/badge';
+import { Checkbox } from './ui/checkbox';
 import { MultiSearchSelect } from './MultiSearchSelect';
 
 interface RuleDraft {
@@ -31,6 +32,7 @@ const EMPTY_PAYLOAD: MembershipPayload = {
   start_date: null,
   end_date: null,
   fix_event_ids: [],
+  only_cash: false,
 };
 
 // ISO (with timezone) ⇄ datetime-local input value ("YYYY-MM-DDTHH:mm")
@@ -213,6 +215,19 @@ function MembershipForm({
           </div>
         </div>
 
+        <div className="col-span-2 flex items-center gap-2">
+          <Checkbox
+            id="m-only-cash"
+            checked={form.only_cash}
+            onCheckedChange={v => set('only_cash', v === true)}
+          />
+          <Label htmlFor="m-only-cash" className="cursor-pointer font-normal">
+            {language === 'it'
+              ? 'Solo contanti (pagamento online disabilitato)'
+              : 'Cash only (online payment disabled)'}
+          </Label>
+        </div>
+
         {/* Rules section */}
         <div className="col-span-2 space-y-2">
           <div className="flex justify-between items-center">
@@ -356,6 +371,7 @@ export function MembershipPanel() {
     start_date: m.start_date,
     end_date: m.end_date,
     fix_event_ids: m.fix_events,
+    only_cash: m.only_cash,
   });
 
   const toFixEventDrafts = (m: Membership): { id: number; name: string }[] =>
@@ -432,6 +448,7 @@ export function MembershipPanel() {
                 <TableHead>{language === 'it' ? 'Nome' : 'Name'}</TableHead>
                 <TableHead>{language === 'it' ? 'Tipo' : 'Type'}</TableHead>
                 <TableHead>{language === 'it' ? 'Quota' : 'Contribution'}</TableHead>
+                <TableHead>{language === 'it' ? 'Pagamento' : 'Payment'}</TableHead>
                 <TableHead>{language === 'it' ? 'Max eventi' : 'Max events'}</TableHead>
                 <TableHead>{language === 'it' ? 'Durata' : 'Duration'}</TableHead>
                 <TableHead>{language === 'it' ? 'Disponibilità' : 'Availability'}</TableHead>
@@ -443,7 +460,7 @@ export function MembershipPanel() {
             <TableBody>
               {memberships.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-gray-400 py-8">
+                  <TableCell colSpan={10} className="text-center text-gray-400 py-8">
                     {language === 'it' ? 'Nessun piano di iscrizione.' : 'No membership plans yet.'}
                   </TableCell>
                 </TableRow>
@@ -455,6 +472,17 @@ export function MembershipPanel() {
                     <Badge variant="outline">{m.type}</Badge>
                   </TableCell>
                   <TableCell>€{m.contribution}</TableCell>
+                  <TableCell>
+                    {m.only_cash ? (
+                      <Badge variant="secondary" className="text-xs">
+                        {language === 'it' ? 'Solo contanti' : 'Cash only'}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-gray-400">
+                        {language === 'it' ? 'Online' : 'Online'}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>{m.max_events}</TableCell>
                   <TableCell>
                     {m.duration > 0

@@ -153,7 +153,7 @@ interface RelatedRowProps {
 function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggle, lang }: RelatedRowProps) {
   const c = entry.contribution;
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
-  const canPay = c.status === 'accepted' && c.stripe_payment_enabled;
+  const canPay = c.status === 'accepted' && c.stripe_payment_enabled && !c.membership?.only_cash;
   const isPartial = c.remaining_amount !== c.discounted_amount;
   // Upgrade history rows are the same user, not a couple — no "Partner" line.
   const info = entry.kind === 'partner' ? payerPartnerMap.get(c.id) : { payerEmail: c.user_email, payerRole: c.role, partnerEmail: null, partnerRole: null };
@@ -172,9 +172,11 @@ function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggl
           </span>
         </div>
         <PayerPartnerLines info={info} lang={lang} className="text-xs text-gray-400 ml-5" />
-        {c.status === 'accepted' && !c.stripe_payment_enabled && (
+        {c.status === 'accepted' && !canPay && (
           <p className="text-xs text-gray-400 ml-5 mt-0.5">
-            {lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school'}
+            {c.membership?.only_cash
+              ? (lang === 'it' ? 'Solo pagamento in contanti — contatta la scuola' : 'Cash payment only — contact the school')
+              : (lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school')}
           </p>
         )}
       </div>
@@ -208,6 +210,7 @@ function ReadyCard({
   const related = getRelatedContribs(c, contribMap);
   const isExpanded = expanded.has(c.id);
   const isPartial = c.remaining_amount !== c.discounted_amount;
+  const canPay = c.stripe_payment_enabled && !c.membership?.only_cash;
 
   return (
     <Card className="border-2 border-[#e67e22] overflow-hidden flex flex-col">
@@ -220,7 +223,7 @@ function ReadyCard({
           <Checkbox
             checked={selected.has(c.id)}
             onCheckedChange={() => onToggleSelect(c.id)}
-            disabled={!c.stripe_payment_enabled}
+            disabled={!canPay}
             className="mt-0.5 shrink-0"
           />
           <div className="flex-1 min-w-0">
@@ -237,9 +240,11 @@ function ReadyCard({
               </span>
             )}
             <PayerPartnerLines info={payerPartnerMap.get(c.id)} lang={lang} className="text-xs text-gray-400 ml-5" />
-            {!c.stripe_payment_enabled && (
+            {!canPay && (
               <p className="text-xs text-gray-400 ml-5 mt-0.5">
-                {lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school'}
+                {c.membership?.only_cash
+                  ? (lang === 'it' ? 'Solo pagamento in contanti — contatta la scuola' : 'Cash payment only — contact the school')
+                  : (lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school')}
               </p>
             )}
           </div>

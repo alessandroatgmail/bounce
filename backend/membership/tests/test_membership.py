@@ -12,7 +12,7 @@ LIST_URL = "/api/membership/memberships/"
 RULE_URL = "/api/membership/rules/"
 
 MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "duration", "rules",
-                     "start_date", "end_date", "fix_events"}
+                     "start_date", "end_date", "fix_events", "only_cash"}
 RULE_FIELDS = {"id", "membership", "event_type", "max_events"}
 
 
@@ -221,6 +221,18 @@ class TestMembershipCreate:
         response = staff_client.post(LIST_URL, make_membership_payload(), format="json")
         assert response.data["rules"] == []
 
+    def test_create_default_only_cash_is_false(self, staff_client, db):
+        payload = make_membership_payload()
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["only_cash"] is False
+
+    def test_create_stores_only_cash_true(self, staff_client, db):
+        payload = make_membership_payload(only_cash=True)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["only_cash"] is True
+        membership = Membership.objects.get(pk=response.data["id"])
+        assert membership.only_cash is True
+
 
 # ── Staff retrieve ────────────────────────────────────────────────────────────
 
@@ -273,6 +285,14 @@ class TestMembershipUpdate:
         membership.refresh_from_db()
         assert membership.color == "#bbbbbb"
 
+    def test_full_update_changes_only_cash(self, staff_client, db):
+        membership = create_membership()
+        assert membership.only_cash is False
+        payload = make_membership_payload(only_cash=True)
+        staff_client.put(detail_url(membership.pk), payload, format="json")
+        membership.refresh_from_db()
+        assert membership.only_cash is True
+
     def test_update_nonexistent_returns_404(self, staff_client, db):
         response = staff_client.put(detail_url(9999), make_membership_payload(), format="json")
         assert response.status_code == http_status.HTTP_404_NOT_FOUND
@@ -299,6 +319,13 @@ class TestMembershipPartialUpdate:
         staff_client.patch(detail_url(membership.pk), {"color": "#ffffff"}, format="json")
         membership.refresh_from_db()
         assert membership.color == "#ffffff"
+
+    def test_patch_only_cash(self, staff_client, db):
+        membership = create_membership()
+        assert membership.only_cash is False
+        staff_client.patch(detail_url(membership.pk), {"only_cash": True}, format="json")
+        membership.refresh_from_db()
+        assert membership.only_cash is True
 
     def test_patch_clear_color(self, staff_client, db):
         membership = create_membership(color="#111111")

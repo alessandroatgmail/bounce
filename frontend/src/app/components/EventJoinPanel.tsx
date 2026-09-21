@@ -280,13 +280,24 @@ export function EventJoinPanel({
                             : `Also pay for ${partner.user_email} (€${partner.discounted_amount})`}
                         </label>
                       )}
+                      {c.status === 'accepted' && c.membership?.only_cash && (
+                        <span className="text-xs text-gray-400">
+                          {it
+                            ? 'Pagamento in contanti — contatta la scuola'
+                            : 'Cash payment only — contact the school'}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {c.status === 'accepted' && (
                         <Button
                           size="sm"
-                          className="h-6 px-2 text-xs bg-[#e67e22] hover:bg-[#d47420] text-white flex items-center gap-1"
+                          disabled={!!c.membership?.only_cash}
+                          className="h-6 px-2 text-xs bg-[#e67e22] hover:bg-[#d47420] text-white flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#e67e22]"
                           onClick={() => goToCheckout(c)}
+                          title={c.membership?.only_cash
+                            ? (it ? 'Pagamento online non disponibile per questo piano' : 'Online payment unavailable for this plan')
+                            : undefined}
                         >
                           <CreditCard className="size-3" />
                           {it ? 'Paga' : 'Pay'}
