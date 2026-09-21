@@ -17,6 +17,10 @@ import type { PaymentMethod } from '../hooks/usePayments';
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
+function formatDate(iso: string, lang: 'it' | 'en'): string {
+  return new Date(iso).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB');
+}
+
 const STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
   received:  { it: 'Ricevuto',   en: 'Received'  },
   accepted:  { it: 'Accettato',  en: 'Accepted'  },
@@ -225,6 +229,13 @@ function ReadyCard({
               <span className="font-bold truncate">{firstEvent?.name ?? '—'}</span>
             </div>
             <span className="text-sm text-gray-500 ml-5 block">{c.membership?.name ?? '—'}</span>
+            {(c.start_date || c.end_date) && (
+              <span className="text-xs text-gray-400 ml-5 block">
+                {c.start_date && formatDate(c.start_date, lang)}
+                {c.start_date && c.end_date ? ' – ' : ''}
+                {c.end_date && formatDate(c.end_date, lang)}
+              </span>
+            )}
             <PayerPartnerLines info={payerPartnerMap.get(c.id)} lang={lang} className="text-xs text-gray-400 ml-5" />
             {!c.stripe_payment_enabled && (
               <p className="text-xs text-gray-400 ml-5 mt-0.5">
@@ -381,6 +392,10 @@ export function PaymentsSection() {
         amount: c.amount,
         discounted_amount: c.discounted_amount,
         remaining_amount: c.remaining_amount,
+        // LinkedContribution (a partner's/twin's embedded contribution)
+        // doesn't carry its own start_date/end_date from the API.
+        start_date: 'start_date' in c ? c.start_date : null,
+        end_date: 'end_date' in c ? c.end_date : null,
         discounts: c.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
         extra_items: c.extra_items,
       };

@@ -1114,9 +1114,13 @@ class TestDoubleBokking:
         assert Booking.objects.filter(user=student_user).count() == 4
 
         # The contribution's end_date is the date of the 4th (last covered)
-        # class, not a generic start + 1 month window.
+        # class, not a generic start + 1 month window. Its start_date is
+        # the first class in its own window — here that's also the very
+        # first class of the series, since this is the first purchase.
         first_contribution = Contribution.objects.get(id=first_booking.data["id"])
+        first_class = parent.events.order_by("start_date")[0]
         fourth_class = parent.events.order_by("start_date")[3]
+        assert first_contribution.start_date == first_class.start_date
         assert first_contribution.end_date == fourth_class.end_date
 
         # Buying the same event again under the 2-month plan also succeeds.
@@ -1127,9 +1131,12 @@ class TestDoubleBokking:
 
         # The second contribution picks up where the first left off: it
         # covers classes 5-12 (8 more on top of the first 4), so its
-        # end_date is the 12th class's date, not the 8th.
+        # start_date is the 5th class's date (not the series' own start)
+        # and its end_date is the 12th class's date, not the 8th.
         second_contribution = Contribution.objects.get(id=second_booking.data["id"])
+        fifth_class = parent.events.order_by("start_date")[4]
         twelfth_class = parent.events.order_by("start_date")[11]
+        assert second_contribution.start_date == fifth_class.start_date
         assert second_contribution.end_date == twelfth_class.end_date
 
         assert Contribution.objects.filter(user=student_user, events=parent).count() == 2
@@ -1192,9 +1199,12 @@ class TestRecurringMembershipFullCoverage:
         assert Booking.objects.filter(user=student_user).count() == total_classes
 
         # The contribution's end_date lands on the very last class, not on
-        # a generic start + 4 month window.
+        # a generic start + 4 month window, and its start_date is the very
+        # first class (this being the only, full-coverage purchase).
         contribution = Contribution.objects.get(id=booking_res.data["id"])
+        first_class = parent.events.order_by("start_date").first()
         last_class = parent.events.order_by("start_date").last()
+        assert contribution.start_date == first_class.start_date
         assert contribution.end_date == last_class.end_date
 
 

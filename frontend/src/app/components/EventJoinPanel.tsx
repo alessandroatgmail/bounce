@@ -77,7 +77,9 @@ export function EventJoinPanel({
   const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
-  const [includePartner, setIncludePartner] = useState(true);
+  // Per-contribution "also pay for partner" toggle, keyed by contribution
+  // id — defaults to included (true) until explicitly unchecked.
+  const [partnerExcluded, setPartnerExcluded] = useState<Set<number>>(new Set());
 
   const hasRoles = event.event_type.partners > 0 && event.event_type.partner_roles.length > 0;
   // Case 3 — festival, fixed choice: level + role + partner chosen once,
@@ -96,22 +98,15 @@ export function EventJoinPanel({
   // recurring class can now be paid for in installments across several
   // membership plans, so there can be more than one.
   const myContributions = userMemberships.filter(um => um.events.includes(event.id));
-  // Accepted but unpaid contribution of the current user for this event —
-  // when present, offer a direct shortcut to checkout instead of making
-  // them find it in the payments section. Only an accepted contribution
-  // may be paid for.
-  const myAcceptedContribution = userMemberships.find(
-    um => um.status === 'accepted' && um.events.includes(event.id)
-  );
-  // The partner's mirrored contribution for the same booking (couple
+  // The partner's mirrored contribution for a given booking (couple
   // registrations create a twin on each side) — whichever of the two is
   // still accepted/unpaid, regardless of who originally booked.
-  const partnerContribution = myAcceptedContribution && (
-    myAcceptedContribution.twin_contributions.find(tc => tc.status === 'accepted')
-    ?? (myAcceptedContribution.original_contribution?.status === 'accepted'
-        ? myAcceptedContribution.original_contribution
-        : undefined)
-  );
+  function getPartnerContribution(contribution: UserMembership) {
+    return contribution.twin_contributions.find(tc => tc.status === 'accepted')
+      ?? (contribution.original_contribution?.status === 'accepted'
+          ? contribution.original_contribution
+          : undefined);
+  }
 
   useEffect(() => {
     const email = partnerEmail.trim();
@@ -183,8 +178,8 @@ export function EventJoinPanel({
     }
   }
 
-  function goToCheckout() {
-    if (!myAcceptedContribution) return;
+  function goToCheckout(contribution: UserMembership) {
+    const partner = getPartnerContribution(contribution);
     type Payable = {
       id: number;
       user_email: string;
@@ -193,6 +188,10 @@ export function EventJoinPanel({
       amount: string;
       discounted_amount: string;
       remaining_amount: string;
+      // Optional: the partner's mirrored contribution (LinkedContribution)
+      // doesn't carry its own start_date/end_date from the API.
+      start_date?: string | null;
+      end_date?: string | null;
       discounts: { id: number; name: string; name_ext: string }[];
       extra_items: ExtraItem[];
     };
@@ -207,11 +206,13 @@ export function EventJoinPanel({
       amount: payer.amount,
       discounted_amount: payer.discounted_amount,
       remaining_amount: payer.remaining_amount,
+      start_date: payer.start_date ?? null,
+      end_date: payer.end_date ?? null,
       discounts: payer.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
       extra_items: payer.extra_items,
     });
-    const items = [toItem(myAcceptedContribution, partnerContribution)];
-    if (includePartner && partnerContribution) items.push(toItem(partnerContribution, myAcceptedContribution));
+    const items = [toItem(contribution, partner)];
+    if (partner && !partnerExcluded.has(contribution.id)) items.push(toItem(partner, contribution));
     navigate('/checkout', { state: { items } });
   }
 
@@ -245,38 +246,70 @@ export function EventJoinPanel({
         <div className="flex flex-col items-end gap-2">
           {myContributions.length > 0 && (
             <div className="flex flex-col gap-1.5 w-full">
-              {myContributions.map(c => (
-                <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-[#2b2b2b] truncate">{c.membership?.name ?? '—'}</span>
-                      <span className={`flex items-center gap-1 text-xs font-medium whitespace-nowrap ${BOOKING_STATUS_CLASS[c.status]}`}>
-                        <BookCheck className="size-3.5" />
-                        {BOOKING_STATUS_LABEL[c.status][it ? 'it' : 'en']}
-                      </span>
+              {myContributions.map(c => {
+                const partner = c.status === 'accepted' ? getPartnerContribution(c) : undefined;
+                const partnerIncluded = !partnerExcluded.has(c.id);
+                return (
+                  <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[#2b2b2b] truncate">{c.membership?.name ?? '—'}</span>
+                        <span className={`flex items-center gap-1 text-xs font-medium whitespace-nowrap ${BOOKING_STATUS_CLASS[c.status]}`}>
+                          <BookCheck className="size-3.5" />
+                          {BOOKING_STATUS_LABEL[c.status][it ? 'it' : 'en']}
+                        </span>
+                      </div>
+                      {c.end_date && (
+                        <span className="text-xs text-gray-500 whitespace-nowrap">
+                          {it ? 'fino al' : 'until'} {new Date(c.end_date).toLocaleDateString(it ? 'it-IT' : 'en-GB')}
+                        </span>
+                      )}
+                      {partner && (
+                        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={partnerIncluded}
+                            onChange={e => setPartnerExcluded(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.delete(c.id); else next.add(c.id);
+                              return next;
+                            })}
+                          />
+                          {it
+                            ? `Includi anche ${partner.user_email} (€${partner.discounted_amount})`
+                            : `Also pay for ${partner.user_email} (€${partner.discounted_amount})`}
+                        </label>
+                      )}
                     </div>
-                    {c.end_date && (
-                      <span className="text-xs text-gray-500 whitespace-nowrap">
-                        {it ? 'fino al' : 'until'} {new Date(c.end_date).toLocaleDateString(it ? 'it-IT' : 'en-GB')}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {c.status === 'accepted' && (
+                        <Button
+                          size="sm"
+                          className="h-6 px-2 text-xs bg-[#e67e22] hover:bg-[#d47420] text-white flex items-center gap-1"
+                          onClick={() => goToCheckout(c)}
+                        >
+                          <CreditCard className="size-3" />
+                          {it ? 'Paga' : 'Pay'}
+                        </Button>
+                      )}
+                      {c.status !== 'payed' && c.status !== 'cancelled' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={cancellingId === c.id}
+                          className="h-6 px-2 text-xs text-red-600 border-red-300 hover:bg-red-50 flex items-center gap-1"
+                          onClick={() => setCancelTarget(c)}
+                        >
+                          {cancellingId === c.id
+                            ? <Loader2 className="size-3 animate-spin" />
+                            : <XCircle className="size-3" />}
+                          {it ? 'Annulla' : 'Cancel'}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  {c.status !== 'payed' && c.status !== 'cancelled' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={cancellingId === c.id}
-                      className="h-6 px-2 text-xs text-red-600 border-red-300 hover:bg-red-50 flex items-center gap-1 flex-shrink-0"
-                      onClick={() => setCancelTarget(c)}
-                    >
-                      {cancellingId === c.id
-                        ? <Loader2 className="size-3 animate-spin" />
-                        : <XCircle className="size-3" />}
-                      {it ? 'Annulla' : 'Cancel'}
-                    </Button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {event.booked_by && (
@@ -284,31 +317,7 @@ export function EventJoinPanel({
               {it ? `Prenotato da ${event.booked_by}` : `Booked by ${event.booked_by}`}
             </p>
           )}
-          {myAcceptedContribution && (
-            <>
-              {partnerContribution && (
-                <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includePartner}
-                    onChange={e => setIncludePartner(e.target.checked)}
-                  />
-                  {it
-                    ? `Includi anche ${partnerContribution.user_email} (€${partnerContribution.discounted_amount})`
-                    : `Also pay for ${partnerContribution.user_email} (€${partnerContribution.discounted_amount})`}
-                </label>
-              )}
-              <Button
-                size="sm"
-                className="bg-[#e67e22] hover:bg-[#d47420] text-white flex items-center gap-1"
-                onClick={goToCheckout}
-              >
-                <CreditCard className="size-3.5" />
-                {it ? 'Paga ora' : 'Pay now'}
-              </Button>
-            </>
-          )}
-          {festivalHasNoLevels ? (
+          {event.multi_events && myContributions.length > 0 ? null : festivalHasNoLevels ? (
             <p className="text-xs text-gray-500">
               {it
                 ? 'Nessun livello configurato per questo festival: contatta la scuola per iscriverti.'

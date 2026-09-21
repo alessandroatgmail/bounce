@@ -129,17 +129,20 @@ def _contribution_date_range(membership: Membership, event: Event, user) -> tupl
     start_date = None
     end_date = None
     if event:
-        start_date = max(event.start_date, timezone.now())
         window = _recurring_children_window(user, membership, event)
         if window:
-            # The membership only pays for these occurrences — end the
-            # contribution on the date of the last one, not a generic
-            # start + duration window.
+            # The membership only pays for these occurrences — start the
+            # contribution on the first one actually being booked (not the
+            # series' own start, which would be wrong for a later purchase
+            # continuing partway through it) and end on the last one.
+            start_date = max(window[0].start_date, timezone.now())
             end_date = window[-1].end_date
         elif membership.duration:
+            start_date = max(event.start_date, timezone.now())
             end_date = min(start_date + relativedelta(months=membership.duration),
                                         event.end_date)
         else:
+            start_date = max(event.start_date, timezone.now())
             end_date = event.end_date
 
     return start_date, end_date
