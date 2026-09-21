@@ -11,14 +11,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useAuth } from '../contexts/AuthContext';
 import type { EventItem } from '../hooks/useEvents';
-import { useUserMemberships } from '../hooks/useUserMemberships';
-import type { ExtraItem, ContributionStatus } from '../hooks/useUserMemberships';
+import { useUserMemberships, extractErrorMessage } from '../hooks/useUserMemberships';
+import type { ExtraItem, ContributionStatus, UserMembership } from '../hooks/useUserMemberships';
 import type { CheckoutItem } from '../pages/CheckoutPage';
 
 const BOOKING_STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
@@ -73,11 +72,14 @@ export function EventJoinPanel({
   const [partnerCheckStatus, setPartnerCheckStatus] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle');
   const [partnerId, setPartnerId] = useState<number | null>(null);
   const [partnerName, setPartnerName] = useState('');
-  const [cancelling, setCancelling] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<UserMembership | null>(null);
   const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
-  const [includePartner, setIncludePartner] = useState(true);
+  // Per-contribution "also pay for partner" toggle, keyed by contribution
+  // id — defaults to included (true) until explicitly unchecked.
+  const [partnerExcluded, setPartnerExcluded] = useState<Set<number>>(new Set());
 
   const hasRoles = event.event_type.partners > 0 && event.event_type.partner_roles.length > 0;
   // Case 3 — festival, fixed choice: level + role + partner chosen once,
@@ -92,26 +94,19 @@ export function EventJoinPanel({
   const needsExtraStep = hasRoles || hasLevelChoice;
   const missingSelection = (hasRoles && !selectedRoleId) || (hasLevelChoice && !selectedLevelId);
   const it = language === 'it';
-  // Whatever status the current user's own contribution to this event is
-  // in — shown next to "Already booked" so waiting/received bookings
-  // aren't shown identically to accepted ones.
-  const myContribution = userMemberships.find(um => um.events.includes(event.id));
-  // Accepted but unpaid contribution of the current user for this event —
-  // when present, offer a direct shortcut to checkout instead of making
-  // them find it in the payments section. Only an accepted contribution
-  // may be paid for.
-  const myAcceptedContribution = userMemberships.find(
-    um => um.status === 'accepted' && um.events.includes(event.id)
-  );
-  // The partner's mirrored contribution for the same booking (couple
+  // Every contribution the current user holds for this event — a
+  // recurring class can now be paid for in installments across several
+  // membership plans, so there can be more than one.
+  const myContributions = userMemberships.filter(um => um.events.includes(event.id));
+  // The partner's mirrored contribution for a given booking (couple
   // registrations create a twin on each side) — whichever of the two is
   // still accepted/unpaid, regardless of who originally booked.
-  const partnerContribution = myAcceptedContribution && (
-    myAcceptedContribution.twin_contributions.find(tc => tc.status === 'accepted')
-    ?? (myAcceptedContribution.original_contribution?.status === 'accepted'
-        ? myAcceptedContribution.original_contribution
-        : undefined)
-  );
+  function getPartnerContribution(contribution: UserMembership) {
+    return contribution.twin_contributions.find(tc => tc.status === 'accepted')
+      ?? (contribution.original_contribution?.status === 'accepted'
+          ? contribution.original_contribution
+          : undefined);
+  }
 
   useEffect(() => {
     const email = partnerEmail.trim();
@@ -147,6 +142,7 @@ export function EventJoinPanel({
   async function handleSelect(membershipId: number) {
     if (!accessToken) return;
     setJoinStatus('loading');
+    setJoinError(null);
     try {
       const body: Record<string, unknown> = { membership_id: membershipId, event_id: event.id };
       if (hasRoles && selectedRoleId) body.role_id = selectedRoleId;
@@ -167,7 +163,11 @@ export function EventJoinPanel({
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        setJoinError(await extractErrorMessage(res));
+        setJoinStatus('error');
+        return;
+      }
       // Full reload rather than local state — the schedule (bookings,
       // available spots) lives in sibling components/hooks that don't
       // share state with this panel, so a reload is the reliable way to
@@ -178,8 +178,8 @@ export function EventJoinPanel({
     }
   }
 
-  function goToCheckout() {
-    if (!myAcceptedContribution) return;
+  function goToCheckout(contribution: UserMembership) {
+    const partner = getPartnerContribution(contribution);
     type Payable = {
       id: number;
       user_email: string;
@@ -187,6 +187,11 @@ export function EventJoinPanel({
       role: string | null;
       amount: string;
       discounted_amount: string;
+      remaining_amount: string;
+      // Optional: the partner's mirrored contribution (LinkedContribution)
+      // doesn't carry its own start_date/end_date from the API.
+      start_date?: string | null;
+      end_date?: string | null;
       discounts: { id: number; name: string; name_ext: string }[];
       extra_items: ExtraItem[];
     };
@@ -200,25 +205,29 @@ export function EventJoinPanel({
       partnerRole: partner?.role ?? null,
       amount: payer.amount,
       discounted_amount: payer.discounted_amount,
+      remaining_amount: payer.remaining_amount,
+      start_date: payer.start_date ?? null,
+      end_date: payer.end_date ?? null,
       discounts: payer.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
       extra_items: payer.extra_items,
     });
-    const items = [toItem(myAcceptedContribution, partnerContribution)];
-    if (includePartner && partnerContribution) items.push(toItem(partnerContribution, myAcceptedContribution));
+    const items = [toItem(contribution, partner)];
+    if (partner && !partnerExcluded.has(contribution.id)) items.push(toItem(partner, contribution));
     navigate('/checkout', { state: { items } });
   }
 
   async function handleCancel() {
-    if (!myContribution) return;
-    setShowCancelConfirm(false);
-    setCancelling(true);
+    if (!cancelTarget) return;
+    const id = cancelTarget.id;
+    setCancelTarget(null);
+    setCancellingId(id);
     try {
-      await cancel(myContribution.id);
+      await cancel(id);
       // Full reload — available_spot and children_levels colors live in
       // sibling hooks that don't share state with this panel.
       window.location.reload();
     } catch {
-      setCancelling(false);
+      setCancellingId(null);
     }
   }
 
@@ -234,66 +243,81 @@ export function EventJoinPanel({
   return (
     <div>
       <div className="pt-4 border-t border-[#d4b896]/20 space-y-2">
-        {joinStatus === 'error' && (
-          <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
-            <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-500" />
-            {it ? 'Si è verificato un errore. Riprova.' : 'Something went wrong. Please try again.'}
-          </div>
-        )}
-        <div className="flex justify-end">
-          {event.already_booked ? (
-            <div className="flex flex-col items-end gap-1">
-              <div className={`flex items-center gap-1.5 text-sm font-medium ${myContribution ? BOOKING_STATUS_CLASS[myContribution.status] : 'text-green-700'}`}>
-                <BookCheck className="size-4" />
-                {myContribution
-                  ? BOOKING_STATUS_LABEL[myContribution.status][it ? 'it' : 'en']
-                  : (it ? 'Già prenotato' : 'Already booked')}
-              </div>
-              {event.booked_by && (
-                <p className="text-xs text-gray-500">
-                  {it ? `Prenotato da ${event.booked_by}` : `Booked by ${event.booked_by}`}
-                </p>
-              )}
-              {myAcceptedContribution && (
-                <>
-                  {partnerContribution && (
-                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={includePartner}
-                        onChange={e => setIncludePartner(e.target.checked)}
-                      />
-                      {it
-                        ? `Includi anche ${partnerContribution.user_email} (€${partnerContribution.discounted_amount})`
-                        : `Also pay for ${partnerContribution.user_email} (€${partnerContribution.discounted_amount})`}
-                    </label>
-                  )}
-                  <Button
-                    size="sm"
-                    className="bg-[#e67e22] hover:bg-[#d47420] text-white flex items-center gap-1"
-                    onClick={goToCheckout}
-                  >
-                    <CreditCard className="size-3.5" />
-                    {it ? 'Paga ora' : 'Pay now'}
-                  </Button>
-                </>
-              )}
-              {myContribution && myContribution.status !== 'payed' && myContribution.status !== 'cancelled' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={cancelling}
-                  className="text-red-600 border-red-300 hover:bg-red-50 flex items-center gap-1"
-                  onClick={() => setShowCancelConfirm(true)}
-                >
-                  {cancelling
-                    ? <Loader2 className="size-3.5 animate-spin" />
-                    : <XCircle className="size-3.5" />}
-                  {it ? 'Annulla prenotazione' : 'Cancel booking'}
-                </Button>
-              )}
+        <div className="flex flex-col items-end gap-2">
+          {myContributions.length > 0 && (
+            <div className="flex flex-col gap-1.5 w-full">
+              {myContributions.map(c => {
+                const partner = c.status === 'accepted' ? getPartnerContribution(c) : undefined;
+                const partnerIncluded = !partnerExcluded.has(c.id);
+                return (
+                  <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[#2b2b2b] truncate">{c.membership?.name ?? '—'}</span>
+                        <span className={`flex items-center gap-1 text-xs font-medium whitespace-nowrap ${BOOKING_STATUS_CLASS[c.status]}`}>
+                          <BookCheck className="size-3.5" />
+                          {BOOKING_STATUS_LABEL[c.status][it ? 'it' : 'en']}
+                        </span>
+                      </div>
+                      {c.end_date && (
+                        <span className="text-xs text-gray-500 whitespace-nowrap">
+                          {it ? 'fino al' : 'until'} {new Date(c.end_date).toLocaleDateString(it ? 'it-IT' : 'en-GB')}
+                        </span>
+                      )}
+                      {partner && (
+                        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={partnerIncluded}
+                            onChange={e => setPartnerExcluded(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.delete(c.id); else next.add(c.id);
+                              return next;
+                            })}
+                          />
+                          {it
+                            ? `Includi anche ${partner.user_email} (€${partner.discounted_amount})`
+                            : `Also pay for ${partner.user_email} (€${partner.discounted_amount})`}
+                        </label>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {c.status === 'accepted' && (
+                        <Button
+                          size="sm"
+                          className="h-6 px-2 text-xs bg-[#e67e22] hover:bg-[#d47420] text-white flex items-center gap-1"
+                          onClick={() => goToCheckout(c)}
+                        >
+                          <CreditCard className="size-3" />
+                          {it ? 'Paga' : 'Pay'}
+                        </Button>
+                      )}
+                      {c.status !== 'payed' && c.status !== 'cancelled' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={cancellingId === c.id}
+                          className="h-6 px-2 text-xs text-red-600 border-red-300 hover:bg-red-50 flex items-center gap-1"
+                          onClick={() => setCancelTarget(c)}
+                        >
+                          {cancellingId === c.id
+                            ? <Loader2 className="size-3 animate-spin" />
+                            : <XCircle className="size-3" />}
+                          {it ? 'Annulla' : 'Cancel'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ) : festivalHasNoLevels ? (
+          )}
+          {event.booked_by && (
+            <p className="text-xs text-gray-500">
+              {it ? `Prenotato da ${event.booked_by}` : `Booked by ${event.booked_by}`}
+            </p>
+          )}
+          {event.multi_events && myContributions.length > 0 ? null : festivalHasNoLevels ? (
             <p className="text-xs text-gray-500">
               {it
                 ? 'Nessun livello configurato per questo festival: contatta la scuola per iscriverti.'
@@ -507,24 +531,17 @@ export function EventJoinPanel({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-[#e67e22]">€{m.contribution}</span>
-                    {event.already_booked ? (
-                      <Badge className="h-7 text-xs bg-green-100 text-green-800 border border-green-200">
-                        <BookCheck className="size-3 mr-1" />
-                        {it ? 'Prenotato' : 'Booked'}
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={joinStatus === 'loading' || missingSelection}
-                        className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white disabled:opacity-50"
-                        onClick={() => handleSelect(m.id)}
-                      >
-                        {joinStatus === 'loading'
-                          ? <Loader2 className="size-3 animate-spin" />
-                          : (it ? 'Seleziona' : 'Select')}
-                      </Button>
-                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={joinStatus === 'loading' || missingSelection}
+                      className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white disabled:opacity-50"
+                      onClick={() => handleSelect(m.id)}
+                    >
+                      {joinStatus === 'loading'
+                        ? <Loader2 className="size-3 animate-spin" />
+                        : (it ? 'Seleziona' : 'Select')}
+                    </Button>
                   </div>
                 </div>
               ))
@@ -533,7 +550,7 @@ export function EventJoinPanel({
         </div>
       )}
 
-      <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+      <AlertDialog open={!!cancelTarget} onOpenChange={open => { if (!open) setCancelTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -541,8 +558,8 @@ export function EventJoinPanel({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {it
-                ? `Stai per annullare la tua prenotazione per "${event.name}". L'operazione non può essere annullata: per tornare a iscriverti dovrai contattare la segreteria via email.`
-                : `You're about to cancel your booking for "${event.name}". This can't be undone — you'll need to email customer service to rebook.`}
+                ? `Stai per annullare la tua prenotazione per "${event.name}" (${cancelTarget?.membership?.name ?? ''}). L'operazione non può essere annullata: per tornare a iscriverti dovrai contattare la segreteria via email.`
+                : `You're about to cancel your booking for "${event.name}" (${cancelTarget?.membership?.name ?? ''}). This can't be undone — you'll need to email customer service to rebook.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -552,6 +569,25 @@ export function EventJoinPanel({
               onClick={handleCancel}
             >
               {it ? 'Sì, annulla prenotazione' : 'Yes, cancel booking'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={joinStatus === 'error'} onOpenChange={open => { if (!open) { setJoinStatus('idle'); setJoinError(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="size-5 text-red-500" />
+              {it ? 'Impossibile completare la prenotazione' : "Couldn't complete the booking"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {joinError || (it ? 'Si è verificato un errore. Riprova.' : 'Something went wrong. Please try again.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => { setJoinStatus('idle'); setJoinError(null); }}>
+              {it ? 'Ho capito' : 'Got it'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

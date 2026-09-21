@@ -2,8 +2,49 @@ from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
-from event.models import Event
+from event.models import Event, Frequency
 from utils.tasks import send_email as send_email_task
+
+
+def _recurring_children_window(user, membership, event):
+    """For a capped membership (`max_events` set) on a recurring,
+    non-festival event, return the next `max_events` child occurrences the
+    user hasn't already been booked into for this series — continuing
+    right after their most recent booking on it, or starting from the very
+    first class if they have none yet.
+
+    Returns None when the cap doesn't apply — a single event, a festival,
+    an unlimited membership, or an event whose type is recurring but that
+    was never actually expanded into a series (no children yet, so there's
+    no window to speak of) — so callers fall back to booking every child
+    alongside the parent event. The returned list may be shorter than
+    `max_events` when the series doesn't have that many classes left —
+    callers must treat that as a validation error, not book a partial
+    window silently.
+    """
+    if event.multi_events:
+        return None
+    if event.event_type.frequency == Frequency.SINGLE:
+        return None
+    if not event.events.exists():
+        return None
+    if not membership or not membership.max_events:
+        return None
+
+    from booking.models import Booking
+
+    children = event.events.all()
+    last_booking = (
+        Booking.objects
+        .filter(user=user, event__in=children)
+        .select_related('event')
+        .order_by('-event__start_date')
+        .first()
+    )
+    ordered = children.order_by('start_date')
+    if last_booking:
+        ordered = ordered.filter(start_date__gt=last_booking.event.start_date)
+    return list(ordered[:membership.max_events])
 
 
 def book_events_for_contribution(contribution):
@@ -13,6 +54,12 @@ def book_events_for_contribution(contribution):
     of its children (filtered by level for festivals) — regardless of the
     contribution's status. Existing bookings are left untouched — an
     admin may already have re-arranged the register.
+
+    A regular repeating class paid for by a capped membership only books
+    the next `max_events` occurrences after the user's last booking on the
+    series (see _recurring_children_window) — the parent event itself is
+    not booked in that case, since it's the series template rather than a
+    session the student attends.
 
     A single registrant (no partner) is automatically partnered, mutually,
     with the first unpartnered booking of another role on each event.
@@ -39,10 +86,15 @@ def book_events_for_contribution(contribution):
         events = event.events.filter(
             Q(level=contribution.level) | Q(pk__in=fix_events.values_list("pk", flat=True))
         )
+        targets = [event, *events]
     else:
-        events = event.events.all()
+        window = _recurring_children_window(contribution.user, contribution.membership, event)
+        if window is not None:
+            targets = window
+        else:
+            targets = [event, *event.events.all()]
 
-    for event in [event, *events]:
+    for event in targets:
 
         booking, _ = Booking.objects.get_or_create(
             user=contribution.user,

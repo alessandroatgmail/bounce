@@ -53,7 +53,7 @@ export interface UserMembership {
   stripe_payment_enabled: boolean;
 }
 
-async function extractErrorMessage(res: Response): Promise<string> {
+export async function extractErrorMessage(res: Response): Promise<string> {
   const body = await res.json().catch(() => ({}));
   if (body.membership_id) return Array.isArray(body.membership_id) ? body.membership_id[0] : body.membership_id;
   if (body.detail) return body.detail;

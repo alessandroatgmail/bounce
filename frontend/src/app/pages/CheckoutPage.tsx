@@ -19,11 +19,17 @@ export interface CheckoutItem {
   amount: string;
   discounted_amount: string;
   remaining_amount: string;
+  start_date: string | null;
+  end_date: string | null;
   discounts: Array<{ id: number; name: string; name_ext: string | null }>;
   extra_items: ExtraItem[];
 }
 
 const SESSION_KEY = 'checkout_items';
+
+function formatDate(iso: string, lang: 'it' | 'en'): string {
+  return new Date(iso).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB');
+}
 
 interface CheckoutState {
   items: CheckoutItem[];
@@ -125,6 +131,13 @@ export function CheckoutPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-[#2b2b2b] truncate">{item.eventName}</p>
                   <p className="text-sm text-gray-500">{item.membershipName}</p>
+                  {(item.start_date || item.end_date) && (
+                    <p className="text-xs text-gray-400">
+                      {item.start_date && formatDate(item.start_date, lang)}
+                      {item.start_date && item.end_date ? ' – ' : ''}
+                      {item.end_date && formatDate(item.end_date, lang)}
+                    </p>
+                  )}
                   <div className="text-xs text-gray-400 mt-0.5 space-y-0.5">
                     <p>
                       <span className="font-medium text-gray-500">{lang === 'it' ? 'Paga per:' : 'Pay for:'}</span>{' '}
