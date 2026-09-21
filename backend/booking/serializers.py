@@ -15,7 +15,7 @@ from event.serializers import EventSerializer
 from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
 from .models import Booking, Contribution, ContributionStatus, ExtraItem
-from .utils import sync_bookings, book_events_for_contribution
+from .utils import sync_bookings, book_events_for_contribution, _recurring_children_window
 
 
 
@@ -84,6 +84,24 @@ class ExtraItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'name_it', 'name_en', 'value', 'description', 'description_en', 'description_en_it']
 
 
+class AcsiExtraItemUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = ['id', 'first_name', 'last_name', 'acsi_expiration_date']
+
+
+class AcsiExtraItemSerializer(serializers.ModelSerializer):
+    """A contribution carrying the ACSI Membership extra item, annotated with
+    event_start_date/event_name (the earliest linked event)."""
+    user = AcsiExtraItemUserSerializer(read_only=True)
+    event_start_date = serializers.DateTimeField(read_only=True)
+    event_name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Contribution
+        fields = ['id', 'user', 'event_start_date', 'event_name']
+
+
 class ContributionSerializer(serializers.ModelSerializer):
     events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
@@ -140,7 +158,9 @@ class ContributionSerializer(serializers.ModelSerializer):
         contribution.extra_items.set(extra_items)
         if contribution.membership:
             first_event = events[0] if events else None
-            start_date, end_date = service._contribution_date_range(contribution.membership, first_event)
+            start_date, end_date = service._contribution_date_range(
+                contribution.membership, first_event, contribution.user,
+            )
             if start_date is None:
                 start_date = timezone.now()
             if end_date is None and contribution.membership.duration:
@@ -323,6 +343,16 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     'event_id': 'This endpoint only books multi-event festivals with a fixed level choice.'
                 })
             _validate_membership_events(membership, [event])
+            if self.instance is None:
+                window = _recurring_children_window(self.context["request"].user, membership, event)
+                if window is not None and len(window) < membership.max_events:
+                    raise serializers.ValidationError({
+                        'event_id': (
+                            f"Membership '{membership.name}' covers {membership.max_events} "
+                            f"classes, but only {len(window)} are left in this event — "
+                            "out of event boundaries."
+                        )
+                    })
             if event.event_type.partners > 1:
                 if not role:
                     raise serializers.ValidationError("For this event, you must specify a role.")
@@ -354,7 +384,7 @@ class UserContributionSerializer(serializers.ModelSerializer):
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
         # update start date and end date
-        start_date, end_date = service._contribution_date_range(membership, event)
+        start_date, end_date = service._contribution_date_range(membership, event, validated_data['user'])
         if start_date:
             validated_data.update({"start_date": start_date})
         if end_date:

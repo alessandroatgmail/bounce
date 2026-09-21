@@ -29,6 +29,7 @@ export interface Membership {
   end_date: string | null;
   rules: MembershipRule[];
   fix_events: number[];
+  only_cash: boolean;
 }
 
 export interface MembershipPayload {
@@ -41,6 +42,7 @@ export interface MembershipPayload {
   start_date: string | null;
   end_date: string | null;
   fix_event_ids: number[];
+  only_cash: boolean;
 }
 
 export const MEMBERSHIP_TYPES = [

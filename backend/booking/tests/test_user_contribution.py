@@ -7,18 +7,21 @@ from django.utils import timezone
 from rest_framework import status as http_status
 
 from booking.models import Booking, Contribution, ExtraItem
+from booking.tasks import cancel_expired_contributions
 from config.models import SiteSettings
 from event.models import Event, EventType, PartnerRole, Status
 from membership.models import Membership, MembershipRule, Discount
 from users.models import User
 from utils.mock_event import make_event_payload
 from utils.mock_event_type import make_event_type_payload
+from utils.mock_membership import make_membership_payload
 
 from booking.models import ContributionStatus
 
 LIST_URL = "/api/booking/my-memberships/"
 BOOK_FESTIVAL_URL = "/api/booking/my-memberships/book-festival/"
 EVENT_LIST_URL = "/api/events/events/"
+MEMBERSHIP_LIST_URL = "/api/membership/memberships/"
 
 
 def detail_url(pk):
@@ -35,8 +38,8 @@ def make_membership(name="Plan", contribution=50, max_events=0, duration=0):
     return Membership.objects.create(name=name, contribution=contribution, max_events=max_events, duration=duration)
 
 
-def make_event_type():
-    return EventType.objects.create(**make_event_type_payload())
+def make_event_type(**overrides):
+    return EventType.objects.create(**make_event_type_payload(**overrides))
 
 
 def make_event_with_type(event_type, start_date=None,):
@@ -981,7 +984,9 @@ class TestDoubleBokking:
         """
         from django.core import mail
 
-        et = make_event_type()
+        # frequency="single": the double-registration block only applies to
+        # one-off/festival events, not recurring weekly/monthly classes.
+        et = make_event_type(frequency="single")
         et.partners = 2
         leader = PartnerRole.objects.get(name='Leader')
         follower = PartnerRole.objects.get(name='Follower')
@@ -1025,7 +1030,9 @@ class TestDoubleBokking:
         """
         from django.core import mail
 
-        et = make_event_type()
+        # frequency="single": the double-registration block only applies to
+        # one-off/festival events, not recurring weekly/monthly classes.
+        et = make_event_type(frequency="single")
         first_event = make_event_with_type(et)
         first_event.capacity = 20
         first_event.save()
@@ -1049,6 +1056,333 @@ class TestDoubleBokking:
 
         response = student_client.post(LIST_URL, payload, format="json")
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    def test_can_book_same_recurring_event_twice_with_different_membership_plans(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        """
+        BO2-130: a user can buy the same event twice by paying for it with
+        two different membership plans.
+
+        A weekly class is created through the admin event API (draft, then
+        confirmed to trigger recurrence) and runs for 4 months. Two
+        membership plans are added, also through the admin API: a 1-month
+        plan (max 4 events) and a 2-month plan (max 8 events). The student
+        books the class with the 1-month plan, then books the very same
+        event again with the 2-month plan — both purchases succeed, leaving
+        the student with two separate contributions for the same event. A
+        third purchase of the 2-month plan then goes past the number of
+        classes actually left in the event and must be rejected.
+        """
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+        # ~4 months of weekly sessions were generated for the class.
+        assert parent.events.count() > 12
+
+        plan_1_month_payload = make_membership_payload(max_events=4, duration=1)
+        plan_1_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_1_month_payload, format="json")
+        assert plan_1_res.status_code == http_status.HTTP_201_CREATED
+        plan_1_month_id = plan_1_res.data["id"]
+
+        plan_2_month_payload = make_membership_payload(max_events=8, duration=2)
+        plan_2_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_2_month_payload, format="json")
+        assert plan_2_res.status_code == http_status.HTTP_201_CREATED
+        plan_2_month_id = plan_2_res.data["id"]
+
+        # First purchase, with the 1-month plan, succeeds.
+        first_booking = student_client.post(
+            LIST_URL, {"membership_id": plan_1_month_id, "event_id": parent.pk}, format="json",
+        )
+        assert first_booking.status_code == http_status.HTTP_201_CREATED
+
+        # The 1-month plan only covers 4 sessions, so only those 4 plus the
+        # parent event's own Booking row should exist for the student at
+        # this point — not all ~17 weekly occurrences of the class.
+        assert Booking.objects.filter(user=student_user).count() == 5
+
+        # The contribution's end_date is the date of the 4th (last covered)
+        # class, not a generic start + 1 month window. Its start_date is
+        # the first class in its own window — here that's also the very
+        # first class of the series, since this is the first purchase.
+        first_contribution = Contribution.objects.get(id=first_booking.data["id"])
+        first_class = parent.events.order_by("start_date")[0]
+        fourth_class = parent.events.order_by("start_date")[3]
+        assert first_contribution.start_date == first_class.start_date
+        assert first_contribution.end_date == fourth_class.end_date
+
+        # Buying the same event again under the 2-month plan also succeeds.
+        second_booking = student_client.post(
+            LIST_URL, {"membership_id": plan_2_month_id, "event_id": parent.pk}, format="json",
+        )
+        assert second_booking.status_code == http_status.HTTP_201_CREATED
+
+        # The second contribution picks up where the first left off: it
+        # covers classes 5-12 (8 more on top of the first 4), so its
+        # start_date is the 5th class's date (not the series' own start)
+        # and its end_date is the 12th class's date, not the 8th.
+        second_contribution = Contribution.objects.get(id=second_booking.data["id"])
+        fifth_class = parent.events.order_by("start_date")[4]
+        twelfth_class = parent.events.order_by("start_date")[11]
+        assert second_contribution.start_date == fifth_class.start_date
+        assert second_contribution.end_date == twelfth_class.end_date
+
+        assert Contribution.objects.filter(user=student_user, events=parent).count() == 2
+
+        # A third purchase would need to cover the next 8 classes on top of
+        # what the first two contributions already booked (4 + 8 = 12) —
+        # the event doesn't have that many sessions left, so it must be
+        # rejected instead of wrapping back around to the start.
+        third_booking = student_client.post(
+            LIST_URL, {"membership_id": plan_2_month_id, "event_id": parent.pk}, format="json",
+        )
+        assert third_booking.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert "out of event boundaries" in str(third_booking.data).lower()
+
+
+# ── Recurring membership covering every session ─────────────────────────────────
+
+class TestRecurringMembershipFullCoverage:
+    """
+    A membership whose max_events equals the total number of sessions in a
+    recurring class must book the student into every single one of them —
+    the boundary case for _capped_recurring_children (cap == full count).
+    """
+
+    def test_membership_covering_all_classes_books_every_session(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+        total_classes = parent.events.count()
+        assert total_classes > 0
+
+        # A 4-month plan whose max_events matches the class's full session
+        # count exactly — should cover the whole thing, not one short/over.
+        plan_payload = make_membership_payload(max_events=total_classes, duration=4)
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        plan_id = plan_res.data["id"]
+
+        booking_res = student_client.post(
+            LIST_URL, {"membership_id": plan_id, "event_id": parent.pk}, format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+
+        # The student ends up signed up for every class in the series,
+        # plus the parent event's own Booking row.
+        assert Booking.objects.filter(user=student_user).count() == total_classes + 1
+
+        # The contribution's end_date lands on the very last class, not on
+        # a generic start + 4 month window, and its start_date is the very
+        # first class (this being the only, full-coverage purchase).
+        contribution = Contribution.objects.get(id=booking_res.data["id"])
+        first_class = parent.events.order_by("start_date").first()
+        last_class = parent.events.order_by("start_date").last()
+        assert contribution.start_date == first_class.start_date
+        assert contribution.end_date == last_class.end_date
+
+
+# ── Cash-only recurring plan: payment reminder / auto-cancel ────────────────────
+
+class TestCashOnlyRecurringEventPaymentReminder:
+    """
+    A monthly, cash-only membership plan booked on a weekly recurring event
+    still goes through the ordinary payment-reminder / auto-cancel flow
+    (booking.tasks.cancel_expired_contributions) — only_cash only removes
+    the online card option, it doesn't exempt the booking from the payment
+    deadline.
+    """
+
+    def test_reminder_then_cancel_for_unpaid_only_cash_booking(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            payment_days=5,
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+
+        plan_payload = make_membership_payload(type="monthly", duration=1, max_events=4, only_cash=True)
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        assert plan_res.data["only_cash"] is True
+        plan_id = plan_res.data["id"]
+
+        booking_res = student_client.post(
+            LIST_URL, {"membership_id": plan_id, "event_id": parent.pk}, format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(id=booking_res.data["id"])
+        assert contribution.status == ContributionStatus.ACCEPTED
+
+        from django.core import mail
+
+        # Booking itself already sent its own emails (registration +
+        # acceptance) — clear those so the assertions below only count
+        # what cancel_expired_contributions sends.
+        mail.outbox.clear()
+
+        # payment_days=5, backdated 3 days → deadline is 2 days away: the
+        # reminder must fire even though this plan can only be paid cash.
+        Contribution.objects.filter(pk=contribution.pk).update(date=timezone.now() - timedelta(days=3))
+        cancel_expired_contributions()
+
+        assert len(mail.outbox) == 1
+        assert student_user.email in mail.outbox[0].to
+        contribution.refresh_from_db()
+        assert contribution.status == ContributionStatus.ACCEPTED
+
+        mail.outbox.clear()
+
+        # Backdate further so the 5-day deadline has now passed with no
+        # payment recorded — the contribution must be auto-cancelled.
+        Contribution.objects.filter(pk=contribution.pk).update(date=timezone.now() - timedelta(days=10))
+        cancel_expired_contributions()
+
+        contribution.refresh_from_db()
+        assert contribution.status == ContributionStatus.CANCELLED
+        assert len(mail.outbox) == 1
+        assert student_user.email in mail.outbox[0].to
+
+    def test_block_payment_event_goes_to_approving_with_only_cash_plan(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        """
+        block_payment still holds a booking for manual approval even when
+        it's paid for with a cash-only monthly plan on a recurring event —
+        only_cash doesn't short-circuit the block_payment gate.
+        """
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            block_payment=True,
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+        assert parent.block_payment is True
+
+        plan_payload = make_membership_payload(type="monthly", duration=1, max_events=4, only_cash=True)
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        plan_id = plan_res.data["id"]
+
+        booking_res = student_client.post(
+            LIST_URL, {"membership_id": plan_id, "event_id": parent.pk}, format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+
+        contribution = Contribution.objects.get(id=booking_res.data["id"])
+        assert contribution.status == ContributionStatus.APPROVING
+
+    def test_role_event_first_solo_booking_goes_to_approving(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        """
+        A couple event's accepted_roles is auto-populated from the event
+        type's partner_roles by event.signals.sync_accepted_roles as soon
+        as the event is created — it's never actually empty for an
+        API-created event. So a first, solo booking (role given, no
+        partner) passes both the role-accepted and role-balance checks in
+        service.waiting_list() (role counts start at 0-0, so the student's
+        role always ties the minimum), and falls through to
+        event.block_payment → APPROVING, same as a non-couple event.
+
+        (The WAITING seen in local/review came from an older event whose
+        accepted_roles was never backfilled by the signal — a stale-data
+        issue on that one event, unrelated to booking or only_cash.)
+        """
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            block_payment=True,
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+        assert parent.block_payment is True
+        # Auto-populated by sync_accepted_roles on creation — both Leader
+        # and Follower are accepted without any admin configuration.
+        assert parent.accepted_roles.count() == 2
+
+        plan_payload = make_membership_payload(type="monthly", duration=1, max_events=4, only_cash=True)
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        plan_id = plan_res.data["id"]
+
+        booking_res = student_client.post(
+            LIST_URL,
+            {"membership_id": plan_id, "event_id": parent.pk, "role_id": leader.id},
+            format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+
+        contribution = Contribution.objects.get(id=booking_res.data["id"])
+        assert contribution.status == ContributionStatus.APPROVING
 
 
 # ── Waiting list for role ──────────────────────────────────────────────────────

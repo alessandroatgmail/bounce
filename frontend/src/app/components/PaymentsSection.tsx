@@ -17,6 +17,10 @@ import type { PaymentMethod } from '../hooks/usePayments';
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
+function formatDate(iso: string, lang: 'it' | 'en'): string {
+  return new Date(iso).toLocaleDateString(lang === 'it' ? 'it-IT' : 'en-GB');
+}
+
 const STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
   received:  { it: 'Ricevuto',   en: 'Received'  },
   accepted:  { it: 'Accettato',  en: 'Accepted'  },
@@ -149,7 +153,7 @@ interface RelatedRowProps {
 function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggle, lang }: RelatedRowProps) {
   const c = entry.contribution;
   const firstEvent = c.events[0] != null ? eventMap.get(c.events[0]) : undefined;
-  const canPay = c.status === 'accepted' && c.stripe_payment_enabled;
+  const canPay = c.status === 'accepted' && c.stripe_payment_enabled && !c.membership?.only_cash;
   const isPartial = c.remaining_amount !== c.discounted_amount;
   // Upgrade history rows are the same user, not a couple — no "Partner" line.
   const info = entry.kind === 'partner' ? payerPartnerMap.get(c.id) : { payerEmail: c.user_email, payerRole: c.role, partnerEmail: null, partnerRole: null };
@@ -168,9 +172,11 @@ function RelatedContribRow({ entry, eventMap, payerPartnerMap, selected, onToggl
           </span>
         </div>
         <PayerPartnerLines info={info} lang={lang} className="text-xs text-gray-400 ml-5" />
-        {c.status === 'accepted' && !c.stripe_payment_enabled && (
+        {c.status === 'accepted' && !canPay && (
           <p className="text-xs text-gray-400 ml-5 mt-0.5">
-            {lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school'}
+            {c.membership?.only_cash
+              ? (lang === 'it' ? 'Solo pagamento in contanti — contatta la scuola' : 'Cash payment only — contact the school')
+              : (lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school')}
           </p>
         )}
       </div>
@@ -204,6 +210,7 @@ function ReadyCard({
   const related = getRelatedContribs(c, contribMap);
   const isExpanded = expanded.has(c.id);
   const isPartial = c.remaining_amount !== c.discounted_amount;
+  const canPay = c.stripe_payment_enabled && !c.membership?.only_cash;
 
   return (
     <Card className="border-2 border-[#e67e22] overflow-hidden flex flex-col">
@@ -216,7 +223,7 @@ function ReadyCard({
           <Checkbox
             checked={selected.has(c.id)}
             onCheckedChange={() => onToggleSelect(c.id)}
-            disabled={!c.stripe_payment_enabled}
+            disabled={!canPay}
             className="mt-0.5 shrink-0"
           />
           <div className="flex-1 min-w-0">
@@ -225,10 +232,19 @@ function ReadyCard({
               <span className="font-bold truncate">{firstEvent?.name ?? '—'}</span>
             </div>
             <span className="text-sm text-gray-500 ml-5 block">{c.membership?.name ?? '—'}</span>
+            {(c.start_date || c.end_date) && (
+              <span className="text-xs text-gray-400 ml-5 block">
+                {c.start_date && formatDate(c.start_date, lang)}
+                {c.start_date && c.end_date ? ' – ' : ''}
+                {c.end_date && formatDate(c.end_date, lang)}
+              </span>
+            )}
             <PayerPartnerLines info={payerPartnerMap.get(c.id)} lang={lang} className="text-xs text-gray-400 ml-5" />
-            {!c.stripe_payment_enabled && (
+            {!canPay && (
               <p className="text-xs text-gray-400 ml-5 mt-0.5">
-                {lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school'}
+                {c.membership?.only_cash
+                  ? (lang === 'it' ? 'Solo pagamento in contanti — contatta la scuola' : 'Cash payment only — contact the school')
+                  : (lang === 'it' ? 'Pagamento con carta non disponibile — contatta la scuola' : 'Card payment unavailable — contact the school')}
               </p>
             )}
           </div>
@@ -381,6 +397,10 @@ export function PaymentsSection() {
         amount: c.amount,
         discounted_amount: c.discounted_amount,
         remaining_amount: c.remaining_amount,
+        // LinkedContribution (a partner's/twin's embedded contribution)
+        // doesn't carry its own start_date/end_date from the API.
+        start_date: 'start_date' in c ? c.start_date : null,
+        end_date: 'end_date' in c ? c.end_date : null,
         discounts: c.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
         extra_items: c.extra_items,
       };

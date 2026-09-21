@@ -18,7 +18,7 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList, PanelTop, Receipt } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList, PanelTop, Receipt, IdCard } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
 import { useState, useRef, useMemo, useEffect } from 'react';
@@ -36,6 +36,7 @@ import { usePartnerRoles } from '../hooks/usePartnerRoles';
 import { ArtistPanel } from '../components/ArtistPanel';
 import { MembershipPanel } from '../components/MembershipPanel';
 import { MembershipManagementPanel } from '../components/MembershipManagementPanel';
+import { AcsiExtraItemPanel } from '../components/AcsiExtraItemPanel';
 import { DiscountPanel } from '../components/DiscountPanel';
 import { EmailTemplatesPanel } from '../components/EmailTemplatesPanel';
 import { EmailsPanel } from '../components/EmailsPanel';
@@ -65,6 +66,7 @@ export function AdminDashboard() {
   const [showStats, setShowStats] = useState(true);
   const [selectedEventModel, setSelectedEventModel] = useState<string | null>(null);
   const [selectedPackModel, setSelectedPackModel] = useState<string>('plans');
+  const [selectedExtraItemModel, setSelectedExtraItemModel] = useState<string>('acsi');
 
   const { styles, loading: stylesLoading, error: stylesError, create: createStyle, update: updateStyle, remove: removeStyle } = useStyles(accessToken);
   const { genres, loading: genresLoading, error: genresError, create: createGenre, update: updateGenre, remove: removeGenre } = useGenres(accessToken);
@@ -89,11 +91,16 @@ export function AdminDashboard() {
     { key: 'discounts',  label: language === 'it' ? 'Sconti'   : 'Discounts'  },
   ];
 
+  const extraItemModels = [
+    { key: 'acsi', label: 'ACSI' },
+  ];
+
   const tabs = [
     { value: 'events',          label: language === 'it' ? 'Eventi' : 'Events',                  icon: <Calendar className="size-4" /> },
     { value: 'regular-classes', label: language === 'it' ? 'Corsi Regolari' : 'Regular Classes', icon: <Repeat className="size-4" /> },
     { value: 'students',        label: language === 'it' ? 'Studenti' : 'Students',               icon: <Users className="size-4" /> },
     { value: 'packs',           label: language === 'it' ? 'Pacchetti' : 'Packs',                icon: <Crown className="size-4" /> },
+    { value: 'extra-items',     label: language === 'it' ? 'Extra' : 'Extra Items',                icon: <IdCard className="size-4" /> },
     { value: 'festivals',       label: language === 'it' ? 'Festival' : 'Festivals',              icon: <PartyPopper className="size-4" /> },
     { value: 'notifications',   label: language === 'it' ? 'Notifiche' : 'Notifications',         icon: <Bell className="size-4" /> },
     { value: 'emails',          label: language === 'it' ? 'Email' : 'Emails',                     icon: <Mail className="size-4" /> },
@@ -104,6 +111,8 @@ export function AdminDashboard() {
     ? (eventModels.find(m => m.key === selectedEventModel)?.label ?? (language === 'it' ? 'Eventi' : 'Events'))
     : activeTab === 'packs'
     ? (packModels.find(m => m.key === selectedPackModel)?.label ?? (language === 'it' ? 'Pacchetti' : 'Packs'))
+    : activeTab === 'extra-items'
+    ? (extraItemModels.find(m => m.key === selectedExtraItemModel)?.label ?? (language === 'it' ? 'Extra' : 'Extra Items'))
     : (tabs.find(t => t.value === activeTab)?.label ?? '');
 
   if (!user || user.role !== 'admin') {
@@ -260,6 +269,35 @@ export function AdminDashboard() {
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
+              ) : tab.value === 'extra-items' ? (
+                <DropdownMenu key="extra-items" modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={[
+                        'inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow]',
+                        activeTab === 'extra-items'
+                          ? 'bg-card border-transparent shadow-sm'
+                          : 'border-transparent text-muted-foreground hover:text-foreground',
+                      ].join(' ')}
+                      onClick={() => setActiveTab('extra-items')}
+                    >
+                      <IdCard className="size-4" />
+                      {language === 'it' ? 'Extra' : 'Extra Items'}
+                      <ChevronDown className="size-3 opacity-60" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent modal={false}>
+                    {extraItemModels.map(model => (
+                      <DropdownMenuItem
+                        key={model.key}
+                        className="cursor-pointer"
+                        onSelect={() => { setActiveTab('extra-items'); setSelectedExtraItemModel(model.key); }}
+                      >
+                        {model.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : (
                 <TabsTrigger key={tab.value} value={tab.value} className="flex items-center gap-2">
                   {tab.icon}
@@ -310,7 +348,21 @@ export function AdminDashboard() {
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
-                {tabs.filter(t => t.value !== 'events' && t.value !== 'packs').map(tab => (
+                <DropdownMenuLabel className="flex items-center gap-2">
+                  <IdCard className="size-4" />
+                  {language === 'it' ? 'Extra' : 'Extra Items'}
+                </DropdownMenuLabel>
+                {extraItemModels.map(model => (
+                  <DropdownMenuItem
+                    key={model.key}
+                    className="pl-6 cursor-pointer"
+                    onSelect={() => { setActiveTab('extra-items'); setSelectedExtraItemModel(model.key); }}
+                  >
+                    {model.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                {tabs.filter(t => t.value !== 'events' && t.value !== 'packs' && t.value !== 'extra-items').map(tab => (
                   <DropdownMenuItem
                     key={tab.value}
                     className="flex items-center gap-2 cursor-pointer"
@@ -668,6 +720,10 @@ export function AdminDashboard() {
             {selectedPackModel === 'plans' && <MembershipPanel />}
             {selectedPackModel === 'management' && <MembershipManagementPanel />}
             {selectedPackModel === 'discounts' && <DiscountPanel />}
+          </TabsContent>
+
+          <TabsContent value="extra-items" className="mt-6">
+            {selectedExtraItemModel === 'acsi' && <AcsiExtraItemPanel />}
           </TabsContent>
 
           <TabsContent value="festivals" className="mt-6">

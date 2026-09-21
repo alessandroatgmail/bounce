@@ -451,6 +451,41 @@ class DeactivateView(APIView):
         return Response({'detail': 'Account deactivated.'}, status=status.HTTP_200_OK)
 
 
+class AdminUserDetailView(APIView):
+    """View/edit another user's full profile — the admin-facing equivalent
+    of /me/, used by "view/edit profile" cards in the admin UI."""
+    permission_classes = [IsAdminUser]
+
+    def _get_user(self, user_id):
+        User = get_user_model()
+        return User.objects.select_related('place_of_birth', 'city', 'country').get(pk=user_id)
+
+    @extend_schema(responses={200: UserProfileSerializer})
+    def get(self, request, user_id):
+        User = get_user_model()
+        try:
+            user = self._get_user(user_id)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UserProfileSerializer(user, context={'request': request})
+        return Response(serializer.data)
+
+    @extend_schema(request=ProfileUpdateSerializer, responses={200: UserProfileSerializer})
+    def put(self, request, user_id):
+        User = get_user_model()
+        try:
+            user = self._get_user(user_id)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ProfileUpdateSerializer(user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        if not user.privacy_consent:
+            user.is_active = False
+            user.save(update_fields=['is_active'])
+        return Response(UserProfileSerializer(user, context={'request': request}).data)
+
+
 class AdminActivateUserView(APIView):
     permission_classes = [IsAdminUser]
 
