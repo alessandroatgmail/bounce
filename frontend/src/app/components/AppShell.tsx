@@ -53,11 +53,12 @@ export function AppShell() {
   }, [location.search]);
 
   function selectSection(section: Section) {
-    if (eventId) {
-      navigate(`/?section=${section}`);
-    } else {
-      setActiveSection(section);
-    }
+    setActiveSection(section);
+    // Keep the address bar in sync even outside event-detail mode —
+    // otherwise a hard reload (e.g. after booking) reloads whatever
+    // section happened to be in the URL, not the one currently shown.
+    // `replace` avoids piling up a history entry per tab click.
+    navigate(`/?section=${section}`, { replace: !eventId });
   }
 
   const isGuest = !user;
