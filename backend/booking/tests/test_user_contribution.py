@@ -1109,10 +1109,10 @@ class TestDoubleBokking:
         )
         assert first_booking.status_code == http_status.HTTP_201_CREATED
 
-        # The 1-month plan only covers 4 sessions, so only 4 Booking rows
-        # should exist for the student at this point — not all ~17 weekly
-        # occurrences of the class.
-        assert Booking.objects.filter(user=student_user).count() == 4
+        # The 1-month plan only covers 4 sessions, so only those 4 plus the
+        # parent event's own Booking row should exist for the student at
+        # this point — not all ~17 weekly occurrences of the class.
+        assert Booking.objects.filter(user=student_user).count() == 5
 
         # The contribution's end_date is the date of the 4th (last covered)
         # class, not a generic start + 1 month window. Its start_date is
@@ -1196,8 +1196,9 @@ class TestRecurringMembershipFullCoverage:
         )
         assert booking_res.status_code == http_status.HTTP_201_CREATED
 
-        # The student ends up signed up for every class in the series.
-        assert Booking.objects.filter(user=student_user).count() == total_classes
+        # The student ends up signed up for every class in the series,
+        # plus the parent event's own Booking row.
+        assert Booking.objects.filter(user=student_user).count() == total_classes + 1
 
         # The contribution's end_date lands on the very last class, not on
         # a generic start + 4 month window, and its start_date is the very
@@ -1282,6 +1283,106 @@ class TestCashOnlyRecurringEventPaymentReminder:
         assert contribution.status == ContributionStatus.CANCELLED
         assert len(mail.outbox) == 1
         assert student_user.email in mail.outbox[0].to
+
+    def test_block_payment_event_goes_to_approving_with_only_cash_plan(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        """
+        block_payment still holds a booking for manual approval even when
+        it's paid for with a cash-only monthly plan on a recurring event —
+        only_cash doesn't short-circuit the block_payment gate.
+        """
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            block_payment=True,
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+        assert parent.block_payment is True
+
+        plan_payload = make_membership_payload(type="monthly", duration=1, max_events=4, only_cash=True)
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        plan_id = plan_res.data["id"]
+
+        booking_res = student_client.post(
+            LIST_URL, {"membership_id": plan_id, "event_id": parent.pk}, format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+
+        contribution = Contribution.objects.get(id=booking_res.data["id"])
+        assert contribution.status == ContributionStatus.APPROVING
+
+    def test_role_event_first_solo_booking_goes_to_approving(
+        self, world_data, student_client, student_user, admin_client, admin_user, db,
+    ):
+        """
+        A couple event's accepted_roles is auto-populated from the event
+        type's partner_roles by event.signals.sync_accepted_roles as soon
+        as the event is created — it's never actually empty for an
+        API-created event. So a first, solo booking (role given, no
+        partner) passes both the role-accepted and role-balance checks in
+        service.waiting_list() (role counts start at 0-0, so the student's
+        role always ties the minimum), and falls through to
+        event.block_payment → APPROVING, same as a non-couple event.
+
+        (The WAITING seen in local/review came from an older event whose
+        accepted_roles was never backfilled by the signal — a stale-data
+        issue on that one event, unrelated to booking or only_cash.)
+        """
+        et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader, follower)
+        et.save()
+
+        start = timezone.now() + timedelta(days=1)
+        end = start + relativedelta(months=4)
+        draft_payload = make_event_payload(
+            event_type_id=et.pk, status="draft",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            block_payment=True,
+        )
+        create_res = admin_client.post(EVENT_LIST_URL, draft_payload, format="json")
+        assert create_res.status_code == http_status.HTTP_201_CREATED
+        event_id = create_res.data["id"]
+
+        confirm_payload = {**draft_payload, "status": "confirmed", "event_ids": []}
+        confirm_res = admin_client.put(f"{EVENT_LIST_URL}{event_id}/", confirm_payload, format="json")
+        assert confirm_res.status_code == http_status.HTTP_200_OK
+
+        parent = Event.objects.get(pk=event_id)
+        assert parent.block_payment is True
+        # Auto-populated by sync_accepted_roles on creation — both Leader
+        # and Follower are accepted without any admin configuration.
+        assert parent.accepted_roles.count() == 2
+
+        plan_payload = make_membership_payload(type="monthly", duration=1, max_events=4, only_cash=True)
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        plan_id = plan_res.data["id"]
+
+        booking_res = student_client.post(
+            LIST_URL,
+            {"membership_id": plan_id, "event_id": parent.pk, "role_id": leader.id},
+            format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+
+        contribution = Contribution.objects.get(id=booking_res.data["id"])
+        assert contribution.status == ContributionStatus.APPROVING
 
 
 # ── Waiting list for role ──────────────────────────────────────────────────────

@@ -55,11 +55,12 @@ def book_events_for_contribution(contribution):
     contribution's status. Existing bookings are left untouched — an
     admin may already have re-arranged the register.
 
-    A regular repeating class paid for by a capped membership only books
-    the next `max_events` occurrences after the user's last booking on the
-    series (see _recurring_children_window) — the parent event itself is
-    not booked in that case, since it's the series template rather than a
-    session the student attends.
+    A regular repeating class paid for by a capped membership books the
+    parent event itself plus only the next `max_events` occurrences after
+    the user's last booking on the series (see _recurring_children_window)
+    — the parent's own Booking row is what the register views key off of
+    to show the class as booked, and get_or_create keeps re-adding it a
+    no-op on every purchase after the first.
 
     A single registrant (no partner) is automatically partnered, mutually,
     with the first unpartnered booking of another role on each event.
@@ -90,7 +91,11 @@ def book_events_for_contribution(contribution):
     else:
         window = _recurring_children_window(contribution.user, contribution.membership, event)
         if window is not None:
-            targets = window
+            # The parent's own Booking row is what booking.register's
+            # build_register/consolidate_register key off of to show the
+            # class as booked/consolidated — get_or_create makes this a
+            # no-op on every purchase after the student's first.
+            targets = [event, *window]
         else:
             targets = [event, *event.events.all()]
 
