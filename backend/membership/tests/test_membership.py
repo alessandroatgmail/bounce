@@ -677,7 +677,7 @@ class TestMembershipFixEvents:
         payload = make_membership_payload(fix_event_ids=[event.pk])
         response = staff_client.post(LIST_URL, payload, format="json")
         assert response.status_code == http_status.HTTP_201_CREATED
-        assert response.data["fix_events"] == [event.pk]
+        assert response.data["fix_events"] == [{"id": event.pk, "name": event.name}]
 
     def test_create_persists_fix_events(self, staff_client, world_data):
         event = create_event()
@@ -726,7 +726,7 @@ class TestMembershipFixEvents:
         event = create_event()
         membership.fix_events.add(event)
         response = staff_client.get(detail_url(membership.pk))
-        assert response.data["fix_events"] == [event.pk]
+        assert response.data["fix_events"] == [{"id": event.pk, "name": event.name}]
 
     def test_student_cannot_patch_fix_events(self, student_client, world_data):
         membership = create_membership()

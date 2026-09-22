@@ -4,7 +4,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useMemberships, Membership, MembershipPayload, MembershipRule, MEMBERSHIP_TYPES } from '../hooks/useMemberships';
 import { useEventTypes } from '../hooks/useEventTypes';
-import { useEvents } from '../hooks/useEvents';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -14,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
-import { MultiSearchSelect } from './MultiSearchSelect';
+import { EventMultiSearchSelect } from './EventMultiSearchSelect';
 
 interface RuleDraft {
   id?: number;
@@ -52,15 +51,14 @@ interface FormProps {
   initialRules?: RuleDraft[];
   initialFixEvents?: { id: number; name: string }[];
   eventTypeOptions: { id: number; name: string }[];
-  eventOptions: { id: number; name: string }[];
-  loadingEvents?: boolean;
+  token: string | null;
   onSubmit: (data: MembershipPayload, rules: RuleDraft[]) => Promise<void>;
   onCancel: () => void;
 }
 
 function MembershipForm({
   initial = EMPTY_PAYLOAD, initialRules = [], initialFixEvents = [],
-  eventTypeOptions, eventOptions, loadingEvents, onSubmit, onCancel,
+  eventTypeOptions, token, onSubmit, onCancel,
 }: FormProps) {
   const { language } = useLanguage();
   const [form, setForm] = useState<MembershipPayload>(initial);
@@ -286,12 +284,12 @@ function MembershipForm({
 
         {/* Fix events section */}
         <div className="col-span-2 space-y-2">
-          <MultiSearchSelect
+          <EventMultiSearchSelect
+            token={token}
             label={language === 'it' ? 'Eventi inclusi (fissi)' : 'Fixed events'}
-            items={eventOptions}
             selected={fixEvents}
-            loading={loadingEvents}
             placeholder={language === 'it' ? 'Cerca evento…' : 'Search event…'}
+            parentOnly={false}
             onChange={setFixEvents}
           />
           <p className="text-xs text-gray-400">
@@ -324,8 +322,6 @@ export function MembershipPanel() {
   const { memberships, loading, error, refetch, create, update, remove, createRule, deleteRule } =
     useMemberships(accessToken);
   const { eventTypes } = useEventTypes(accessToken);
-  const { events, loading: loadingEvents } = useEvents(accessToken);
-  const eventOptions = events.map(ev => ({ id: ev.id, name: ev.name }));
 
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Membership | null>(null);
@@ -370,15 +366,12 @@ export function MembershipPanel() {
     duration: m.duration,
     start_date: m.start_date,
     end_date: m.end_date,
-    fix_event_ids: m.fix_events,
+    fix_event_ids: m.fix_events.map(ev => ev.id),
     only_cash: m.only_cash,
   });
 
   const toFixEventDrafts = (m: Membership): { id: number; name: string }[] =>
-    m.fix_events.map(id => {
-      const found = events.find(ev => ev.id === id);
-      return { id, name: found ? found.name : `#${id}` };
-    });
+    m.fix_events;
 
   const formatDateTime = (iso: string): string =>
     new Date(iso).toLocaleString(language === 'it' ? 'it-IT' : 'en-GB', {
@@ -422,8 +415,7 @@ export function MembershipPanel() {
               </DialogHeader>
               <MembershipForm
                 eventTypeOptions={eventTypes}
-                eventOptions={eventOptions}
-                loadingEvents={loadingEvents}
+                token={accessToken}
                 onSubmit={handleCreate}
                 onCancel={() => setAddOpen(false)}
               />
@@ -555,8 +547,7 @@ export function MembershipPanel() {
                             initialRules={toRuleDrafts(m.rules)}
                             initialFixEvents={toFixEventDrafts(m)}
                             eventTypeOptions={eventTypes}
-                            eventOptions={eventOptions}
-                            loadingEvents={loadingEvents}
+                            token={accessToken}
                             onSubmit={handleUpdate}
                             onCancel={() => setEditing(null)}
                           />

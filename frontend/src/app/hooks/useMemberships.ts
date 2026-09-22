@@ -28,7 +28,7 @@ export interface Membership {
   start_date: string | null;
   end_date: string | null;
   rules: MembershipRule[];
-  fix_events: number[];
+  fix_events: { id: number; name: string }[];
   only_cash: boolean;
 }
 
