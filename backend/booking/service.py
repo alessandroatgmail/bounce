@@ -151,7 +151,10 @@ def _maybe_add_acsi_extra_item(contribution: Contribution, event: Event) -> None
     """Attach the ACSI membership extra item unless the user already holds
     an ACSI card that is still valid on the event's start date — a missing
     or expired card both mean the membership still needs to be purchased.
+    Weekly courses are exempt: no ACSI card is required for those.
     """
+    if event.event_type.frequency == Frequency.WEEKLY:
+        return
     user = contribution.user
     has_valid_card = (
         user.acsi
