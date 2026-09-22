@@ -226,12 +226,19 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
                     ) : (
                       <>€{c.amount}</>
                     )}
-                    {c.events.length > 0 && (
-                      <span className="ml-2 text-xs text-gray-400">
-                        {c.events.length} {language === 'it' ? 'evento/i' : 'event(s)'}
-                      </span>
-                    )}
                   </span>
+                  {c.events.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {c.events.map(eventId => {
+                        const ev = events.find(e => e.id === eventId);
+                        return (
+                          <Badge key={eventId} variant="outline" className="text-xs">
+                            {ev ? ev.name : `#${eventId}`}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  )}
                   {c.discounts.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-0.5">
                       {c.discounts.map(d => (

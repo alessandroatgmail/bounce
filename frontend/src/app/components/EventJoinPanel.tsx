@@ -205,9 +205,6 @@ export function EventJoinPanel({
       partnerRole: partner?.role ?? null,
       amount: payer.amount,
       discounted_amount: payer.discounted_amount,
-      remaining_amount: payer.remaining_amount,
-      start_date: payer.start_date ?? null,
-      end_date: payer.end_date ?? null,
       discounts: payer.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
       extra_items: payer.extra_items,
     });
