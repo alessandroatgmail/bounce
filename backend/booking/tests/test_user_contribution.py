@@ -723,7 +723,9 @@ class TestAutomaticAcceptance:
         """
         from django.core import mail
 
-        et = make_event_type()
+        # frequency="single": this test's math assumes the ACSI extra item
+        # is added, which is skipped for weekly courses.
+        et = make_event_type(frequency="single")
         et.partners = 2
         leader = PartnerRole.objects.get(name='Leader')
         follower = PartnerRole.objects.get(name='Follower')

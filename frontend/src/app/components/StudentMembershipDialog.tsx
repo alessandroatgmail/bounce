@@ -6,7 +6,6 @@ import { useContributions, type Contribution, type ContributionPayload, type Con
 import { useDiscounts } from '../hooks/useDiscounts';
 import { useExtraItems } from '../hooks/useExtraItems';
 import { useMemberships, type Membership } from '../hooks/useMemberships';
-import { useEvents } from '../hooks/useEvents';
 import { type UserListItem } from '../hooks/useUserList';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -17,6 +16,7 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
 import { MultiSearchSelect } from './MultiSearchSelect';
+import { EventMultiSearchSelect } from './EventMultiSearchSelect';
 
 interface Props {
   user: Pick<UserListItem, 'id' | 'first_name' | 'last_name'> | null;
@@ -64,7 +64,6 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const { memberships } = useMemberships(accessToken);
-  const { events } = useEvents(accessToken);
   const { discounts } = useDiscounts(accessToken);
   const { extraItems } = useExtraItems(accessToken);
   const { contributions, loading, error, create, update, remove } = useContributions(
@@ -77,9 +76,6 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
   const [form, setForm] = useState<FormState>(emptyForm());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Parent events only
-  const parentEvents = events.filter(e => e.events.length > 0).map(e => ({ id: e.id, name: e.name }));
 
   const discountItems = discounts.map(d => ({ id: d.id, name: d.name_ext || d.name }));
   const extraItemItems = extraItems.map(ei => ({ id: ei.id, name: `${ei.name} (+€${ei.value})` }));
@@ -113,16 +109,12 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
   };
 
   const openEdit = (c: Contribution) => {
-    const eventItems = c.events
-      .map(eid => events.find(e => e.id === eid))
-      .filter(Boolean)
-      .map(e => ({ id: e!.id, name: e!.name }));
     setEditing(c);
     setForm({
       membershipId: c.membership ?? '',
       amount: c.amount,
       status: c.status,
-      selectedEvents: eventItems,
+      selectedEvents: c.events,
       selectedDiscounts: c.discounts.map(d => ({ id: d.id, name: d.name_ext || d.name })),
       selectedExtraItems: c.extra_items.map(ei => ({ id: ei.id, name: `${ei.name} (+€${ei.value})` })),
     });
@@ -229,14 +221,11 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
                   </span>
                   {c.events.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-0.5">
-                      {c.events.map(eventId => {
-                        const ev = events.find(e => e.id === eventId);
-                        return (
-                          <Badge key={eventId} variant="outline" className="text-xs">
-                            {ev ? ev.name : `#${eventId}`}
-                          </Badge>
-                        );
-                      })}
+                      {c.events.map(ev => (
+                        <Badge key={ev.id} variant="outline" className="text-xs">
+                          {ev.name}
+                        </Badge>
+                      ))}
                     </div>
                   )}
                   {c.discounts.length > 0 && (
@@ -350,9 +339,9 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
               </Select>
             </div>
 
-            <MultiSearchSelect
+            <EventMultiSearchSelect
+              token={accessToken}
               label={language === 'it' ? 'Eventi' : 'Events'}
-              items={parentEvents}
               selected={form.selectedEvents}
               placeholder={language === 'it' ? 'Cerca evento...' : 'Search event...'}
               onChange={items => setForm(f => ({ ...f, selectedEvents: items }))}
