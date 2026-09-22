@@ -1806,7 +1806,8 @@ class TestAcsiMembershipExtraItem:
     expired card and no card at all."""
 
     def test_expired_card_adds_acsi_extra_item(self, student_client, student_user, world_data):
-        et = make_event_type()
+        # frequency="single": weekly courses are exempt from the ACSI item.
+        et = make_event_type(frequency="single")
         event = make_event_with_type(et)
         student_user.acsi = True
         student_user.acsi_starting_date = (timezone.now() - relativedelta(years=2)).date()
@@ -1823,7 +1824,8 @@ class TestAcsiMembershipExtraItem:
         assert acsi_item in contribution.extra_items.all()
 
     def test_expired_card_extra_item_in_response(self, student_client, student_user, world_data):
-        et = make_event_type()
+        # frequency="single": weekly courses are exempt from the ACSI item.
+        et = make_event_type(frequency="single")
         event = make_event_with_type(et)
         student_user.acsi = True
         student_user.acsi_starting_date = (timezone.now() - relativedelta(years=2)).date()
@@ -1857,7 +1859,8 @@ class TestAcsiMembershipExtraItem:
     def test_no_acsi_card_adds_extra_item(self, student_client, student_user, world_data):
         """A user who never had an ACSI card is treated the same as an
         expired one — they still need to purchase the membership."""
-        et = make_event_type()
+        # frequency="single": weekly courses are exempt from the ACSI item.
+        et = make_event_type(frequency="single")
         event = make_event_with_type(et)
         m = make_membership()
 
@@ -1870,13 +1873,29 @@ class TestAcsiMembershipExtraItem:
         acsi_item = ExtraItem.objects.get(name="ACSI Membership")
         assert acsi_item in contribution.extra_items.all()
 
+    def test_weekly_course_does_not_add_acsi_extra_item(self, student_client, student_user, world_data):
+        """Weekly courses are exempt from the ACSI card requirement — no
+        ACSI extra item is attached, even for a user with no card at all."""
+        et = make_event_type(frequency="weekly")
+        event = make_event_with_type(et)
+        m = make_membership()
+
+        response = student_client.post(
+            LIST_URL, {"membership_id": m.pk, "event_id": event.id}, format="json",
+        )
+
+        assert response.status_code == http_status.HTTP_201_CREATED
+        contribution = Contribution.objects.get(pk=response.data["id"])
+        assert contribution.extra_items.count() == 0
+
     def test_partner_extra_items_included_in_response(
         self, world_data, student_client, student_user, partner_user, db
     ):
         """Regression: twin_contributions is serialized with
         LinkedContributionSerializer, which must expose extra_items too —
         otherwise the frontend crashes reading partner.extra_items."""
-        et = make_event_type()
+        # frequency="single": weekly courses are exempt from the ACSI item.
+        et = make_event_type(frequency="single")
         et.partners = 2
         leader = PartnerRole.objects.get(name='Leader')
         follower = PartnerRole.objects.get(name='Follower')
@@ -1916,7 +1935,8 @@ class TestExtraItemsGrandTotal:
     ):
         from membership.models import Discount
 
-        et = make_event_type()
+        # frequency="single": weekly courses are exempt from the ACSI item.
+        et = make_event_type(frequency="single")
         event = make_event_with_type(et)
         event.name = "Bounce Festival"
         event.save()
