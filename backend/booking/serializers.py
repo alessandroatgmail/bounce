@@ -102,8 +102,14 @@ class AcsiExtraItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'event_start_date', 'event_name']
 
 
+class ContributionEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Event
+        fields = ['id', 'name']
+
+
 class ContributionSerializer(serializers.ModelSerializer):
-    events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    events = ContributionEventSerializer(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Event.objects.all(), source='events',
         write_only=True, required=False,

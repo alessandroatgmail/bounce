@@ -12,7 +12,7 @@ export interface Contribution {
   status: ContributionStatus;
   amount: string;
   user: number;
-  events: number[];
+  events: { id: number; name: string }[];
   membership: number | null;
   start_date: string | null;
   end_date: string | null;

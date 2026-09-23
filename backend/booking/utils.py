@@ -55,6 +55,12 @@ def book_events_for_contribution(contribution):
     contribution's status. Existing bookings are left untouched — an
     admin may already have re-arranged the register.
 
+    A non-free festival's membership can also carry fix_events that aren't
+    actually children of that festival (a session from an unrelated
+    series) — those are booked unconditionally too, with no capacity/role
+    checks, per explicit customer request. Cancelling the contribution
+    later does not clean these up, same as every other booking here.
+
     A regular repeating class paid for by a capped membership books the
     parent event itself plus only the next `max_events` occurrences after
     the user's last booking on the series (see _recurring_children_window)
@@ -87,7 +93,12 @@ def book_events_for_contribution(contribution):
         events = event.events.filter(
             Q(level=contribution.level) | Q(pk__in=fix_events.values_list("pk", flat=True))
         )
-        targets = [event, *events]
+        # Fixed events that aren't actually children of this festival (a
+        # session from an unrelated series) are still booked unconditionally
+        # — customer request. In-scope fix_events (already matched above via
+        # event.events) are unaffected, so existing behavior doesn't change.
+        external_fix_events = fix_events.exclude(pk__in=event.events.values_list("pk", flat=True))
+        targets = [event, *events, *external_fix_events]
     else:
         window = _recurring_children_window(contribution.user, contribution.membership, event)
         if window is not None:
