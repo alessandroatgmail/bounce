@@ -9,11 +9,12 @@ from rest_framework import status as http_status
 from booking.models import Booking, Contribution, ExtraItem
 from booking.tasks import cancel_expired_contributions
 from config.models import SiteSettings
-from event.models import Event, EventType, PartnerRole, Status
+from event.models import Event, EventType, Level, PartnerRole, Status
 from membership.models import Membership, MembershipRule, Discount
 from users.models import User
 from utils.mock_event import make_event_payload
 from utils.mock_event_type import make_event_type_payload
+from utils.mock_level import make_level_payload
 from utils.mock_membership import make_membership_payload
 
 from booking.models import ContributionStatus
@@ -1385,6 +1386,128 @@ class TestCashOnlyRecurringEventPaymentReminder:
 
         contribution = Contribution.objects.get(id=booking_res.data["id"])
         assert contribution.status == ContributionStatus.APPROVING
+
+
+# ── Fixed events are scoped to their own festival ────────────────────────────
+
+class TestFixEventsScopedToOwnFestival:
+    """
+    Customer request: a plan's fix_events should book the student (and
+    their partner) into those events even when they belong to a completely
+    different, unrelated series — not just when they happen to also be
+    children of the festival being booked.
+
+    As of now, book_events_for_contribution only matches fix_events
+    against the festival's OWN children (event.events), via
+    Q(level=...) | Q(pk__in=fix_events) — it never reaches outside that
+    festival's own child set. So this test currently FAILS: it documents
+    the desired end state (see the discussion this was born from — booking
+    an unrelated event has real drawbacks: no separate contribution/
+    payment trail for it, no cleanup on cancellation, potential role/
+    partner mismatches, capacity consumed without attribution) and is
+    meant to drive — and then verify — the fix once we decide how to
+    implement it.
+    """
+
+    def test_fix_events_are_booked_even_when_unrelated_to_the_festival(
+        self, world_data, student_client, student_user, partner_client, partner_user,
+        admin_client, admin_user, db,
+    ):
+        # ── A standalone weekly class, unrelated to any festival ──────────
+        weekly_et = EventType.objects.create(**make_event_type_payload(frequency="weekly"))
+        weekly_start = timezone.now() + timedelta(days=1)
+        weekly_end = weekly_start + relativedelta(months=1)
+        weekly_draft = make_event_payload(
+            event_type_id=weekly_et.pk, status="draft",
+            start_date=weekly_start.isoformat(), end_date=weekly_end.isoformat(),
+        )
+        weekly_create = admin_client.post(EVENT_LIST_URL, weekly_draft, format="json")
+        assert weekly_create.status_code == http_status.HTTP_201_CREATED
+        weekly_id = weekly_create.data["id"]
+
+        weekly_confirm_payload = {**weekly_draft, "status": "confirmed", "event_ids": []}
+        weekly_confirm = admin_client.put(f"{EVENT_LIST_URL}{weekly_id}/", weekly_confirm_payload, format="json")
+        assert weekly_confirm.status_code == http_status.HTTP_200_OK
+
+        weekly_parent = Event.objects.get(pk=weekly_id)
+        weekly_children = list(weekly_parent.events.order_by("start_date"))
+        assert len(weekly_children) >= 2
+
+        # ── A fixed-choice festival: couple event type, one level, one child ──
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        festival_et = EventType.objects.create(**make_event_type_payload(frequency="single", partners=2))
+        festival_et.partner_roles.add(leader, follower)
+
+        level = Level.objects.create(**make_level_payload())
+        festival_child = make_event_with_type(festival_et)
+        festival_child.level = level
+        festival_child.capacity = 20
+        festival_child.save()
+
+        # ── A plan whose fix_events point at the unrelated weekly sessions ──
+        plan_payload = make_membership_payload(
+            fix_event_ids=[weekly_children[0].pk, weekly_children[1].pk],
+        )
+        plan_res = admin_client.post(MEMBERSHIP_LIST_URL, plan_payload, format="json")
+        assert plan_res.status_code == http_status.HTTP_201_CREATED
+        plan_id = plan_res.data["id"]
+
+        # ── The festival itself, via admin API, made eligible for that plan ──
+        festival_payload = make_event_payload(
+            event_type_id=festival_et.pk, status="published",
+            event_ids=[festival_child.pk],
+            multi_events=True,
+            membership_ids=[plan_id],
+            accepted_role_ids=[leader.pk, follower.pk],
+        )
+        festival_res = admin_client.post(EVENT_LIST_URL, festival_payload, format="json")
+        assert festival_res.status_code == http_status.HTTP_201_CREATED
+        festival_id = festival_res.data["id"]
+
+        # ── Student books the festival, with the partner, using that plan ──
+        booking_res = student_client.post(
+            BOOK_FESTIVAL_URL,
+            {
+                "membership_id": plan_id,
+                "event_id": festival_id,
+                "role_id": leader.pk,
+                "level_id": level.pk,
+                "partner_id": partner_user.id,
+                "partner_email": partner_user.email,
+            },
+            format="json",
+        )
+        assert booking_res.status_code == http_status.HTTP_201_CREATED
+
+        # The festival itself and its own child (matching the chosen level)
+        # are booked for both the student and their partner.
+        assert Booking.objects.filter(user=student_user, event_id=festival_id).exists()
+        assert Booking.objects.filter(user=student_user, event=festival_child).exists()
+        assert Booking.objects.filter(user=partner_user, event_id=festival_id).exists()
+        assert Booking.objects.filter(user=partner_user, event=festival_child).exists()
+
+        # Desired (customer-requested) behavior: the two weekly sessions
+        # attached as this plan's fix_events must also be booked for both
+        # the student and the partner, with the partner correctly cross-
+        # referenced on each side — even though those sessions belong to a
+        # completely different, unrelated event series, not this festival.
+        fixed_sessions = [weekly_children[0], weekly_children[1]]
+
+        for target in fixed_sessions:
+            student_booking = Booking.objects.filter(user=student_user, event=target).first()
+            assert student_booking is not None, f"expected a booking for {student_user} on {target}"
+            assert student_booking.partner_id == partner_user.id
+
+            partner_booking = Booking.objects.filter(user=partner_user, event=target).first()
+            assert partner_booking is not None, f"expected a booking for {partner_user} on {target}"
+            assert partner_booking.partner_id == student_user.id
+
+        # The other, un-selected weekly sessions and the series' own parent
+        # were never part of this plan's fix_events, so they stay untouched.
+        untouched = [c for c in weekly_children if c not in fixed_sessions] + [weekly_parent]
+        assert not Booking.objects.filter(user=student_user, event__in=untouched).exists()
+        assert not Booking.objects.filter(user=partner_user, event__in=untouched).exists()
 
 
 # ── Waiting list for role ──────────────────────────────────────────────────────
