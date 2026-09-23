@@ -15,9 +15,15 @@ class MembershipRuleSerializer(serializers.ModelSerializer):
         fields = ["id", "membership", "event_type", "event_type_id", "max_events"]
 
 
+class MembershipFixEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Event
+        fields = ["id", "name"]
+
+
 class MembershipSerializer(serializers.ModelSerializer):
     rules = MembershipRuleSerializer(many=True, read_only=True, source="membershiprule_set")
-    fix_events = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    fix_events = MembershipFixEventSerializer(many=True, read_only=True)
     fix_event_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Event.objects.all(), source="fix_events", write_only=True, required=False,
     )
