@@ -49,6 +49,7 @@ class Contribution(models.Model):
     )
     discounts = models.ManyToManyField(Discount, blank=True, related_name='contributions')
     extra_items = models.ManyToManyField(ExtraItem, blank=True, related_name='contributions')
+    notes = models.TextField(null=True, blank=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

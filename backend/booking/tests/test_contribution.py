@@ -844,3 +844,49 @@ class TestContributionEndDate:
         assert res.status_code == http_status.HTTP_201_CREATED
         assert "end_date" in res.data
         assert res.data["end_date"] is not None
+
+
+# ── notes (admin) ──────────────────────────────────────────────────────────────
+
+class TestContributionNotes:
+
+    def test_create_with_notes_persists(self, admin_client, subject_user, db):
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, notes="Paid in two installments"), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.notes == "Paid in two installments"
+
+    def test_create_response_includes_notes(self, admin_client, subject_user, db):
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user, notes="Discount agreed by phone"), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["notes"] == "Discount agreed by phone"
+
+    def test_create_without_notes_is_optional(self, admin_client, subject_user, db):
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["notes"] is None
+
+    def test_admin_can_retrieve_notes(self, admin_client, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user, notes="Set up via ORM")
+        res = admin_client.get(detail_url(c.pk))
+        assert res.status_code == http_status.HTTP_200_OK
+        assert res.data["notes"] == "Set up via ORM"
+
+    def test_admin_can_update_notes(self, admin_client, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user)
+        res = admin_client.put(detail_url(c.pk), make_contribution_payload(subject_user, notes="Updated note"), format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        c.refresh_from_db()
+        assert c.notes == "Updated note"
+
+    def test_admin_can_clear_notes(self, admin_client, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user, notes="To be cleared")
+        res = admin_client.patch(detail_url(c.pk), {"notes": None}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        c.refresh_from_db()
+        assert c.notes is None
+
+    def test_list_includes_notes(self, admin_client, subject_user, db):
+        Contribution.objects.create(amount=10, user=subject_user, notes="Visible in list")
+        res = admin_client.get(LIST_URL)
+        assert res.data[0]["notes"] == "Visible in list"

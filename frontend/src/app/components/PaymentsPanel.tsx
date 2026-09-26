@@ -151,7 +151,14 @@ export function PaymentsPanel() {
                     <TableCell className="text-sm whitespace-nowrap">
                       {t.amount_total} {t.currency.toUpperCase()}
                     </TableCell>
-                    <TableCell className="text-xs">{t.receipt_number || '-'}</TableCell>
+                    <TableCell className="text-xs">
+                      {t.receipt_number || '-'}
+                      {t.notes && (
+                        <div className="text-gray-400 italic max-w-40 truncate" title={t.notes}>
+                          {t.notes}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Button
                         size="sm"

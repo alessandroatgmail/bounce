@@ -15,6 +15,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { Textarea } from './ui/textarea';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { EventMultiSearchSelect } from './EventMultiSearchSelect';
 
@@ -53,11 +54,12 @@ interface FormState {
   selectedEvents: { id: number; name: string }[];
   selectedDiscounts: { id: number; name: string }[];
   selectedExtraItems: { id: number; name: string }[];
+  notes: string;
 }
 
 const emptyForm = (): FormState => ({
   membershipId: '', amount: '', status: 'received',
-  selectedEvents: [], selectedDiscounts: [], selectedExtraItems: [],
+  selectedEvents: [], selectedDiscounts: [], selectedExtraItems: [], notes: '',
 });
 
 export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }: Props) {
@@ -117,6 +119,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
       selectedEvents: c.events,
       selectedDiscounts: c.discounts.map(d => ({ id: d.id, name: d.name_ext || d.name })),
       selectedExtraItems: c.extra_items.map(ei => ({ id: ei.id, name: `${ei.name} (+€${ei.value})` })),
+      notes: c.notes ?? '',
     });
     setSaveError(null);
     setShowForm(true);
@@ -143,6 +146,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
         membership_id: form.membershipId === '' ? null : form.membershipId,
         discount_ids: form.selectedDiscounts.map(d => d.id),
         extra_item_ids: form.selectedExtraItems.map(ei => ei.id),
+        notes: form.notes.trim() === '' ? null : form.notes,
       };
       if (editing) {
         await update(editing.id, payload);
@@ -245,6 +249,9 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
                         </Badge>
                       ))}
                     </div>
+                  )}
+                  {c.notes && (
+                    <p className="text-xs text-gray-500 italic mt-0.5">{c.notes}</p>
                   )}
                 </div>
                 <div className="flex gap-1">
@@ -362,6 +369,16 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
               placeholder={language === 'it' ? 'Cerca articolo extra...' : 'Search extra item...'}
               onChange={items => setForm(f => ({ ...f, selectedExtraItems: items }))}
             />
+
+            <div className="space-y-1">
+              <Label>{language === 'it' ? 'Note (interne)' : 'Notes (internal)'}</Label>
+              <Textarea
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder={language === 'it' ? 'Note visibili solo agli admin...' : 'Notes visible to admins only...'}
+                className="min-h-20"
+              />
+            </div>
 
             {saveError && <p className="text-sm text-red-500">{saveError}</p>}
 

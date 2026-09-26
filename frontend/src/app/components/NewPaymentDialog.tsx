@@ -11,6 +11,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Textarea } from './ui/textarea';
 import { UserPickerInput } from './UserPickerInput';
 
 interface Props {
@@ -49,6 +50,7 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
   const [amountTotal, setAmountTotal] = useState('');
   const [date, setDate] = useState(todayIso());
   const [selectedContributionIds, setSelectedContributionIds] = useState<number[]>([]);
+  const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -65,6 +67,7 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
       setAmountTotal(editTransaction.amount_total);
       setDate(editTransaction.date.slice(0, 10));
       setSelectedContributionIds(editTransaction.contributions.map(c => c.id));
+      setNotes(editTransaction.notes ?? '');
     } else {
       setSelectedUser(null);
       setMethod('cash');
@@ -73,6 +76,7 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
       setAmountTotal('');
       setDate(todayIso());
       setSelectedContributionIds([]);
+      setNotes('');
     }
     setSaveError(null);
   }, [open, editTransaction]);
@@ -102,6 +106,7 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
         amount_total: amountTotal,
         date: new Date(date).toISOString(),
         contribution_ids: selectedContributionIds,
+        notes: notes.trim() === '' ? null : notes,
       };
       if (isEdit) {
         await onUpdate(editTransaction!.id, payload);
@@ -226,6 +231,16 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
           <div className="space-y-1">
             <Label>{language === 'it' ? 'N. ricevuta (opzionale)' : 'Receipt no. (optional)'}</Label>
             <Input value={receiptNumber} onChange={e => setReceiptNumber(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            <Label>{language === 'it' ? 'Note (interne)' : 'Notes (internal)'}</Label>
+            <Textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder={language === 'it' ? 'Note visibili solo agli admin...' : 'Notes visible to admins only...'}
+              className="min-h-20"
+            />
           </div>
 
           {saveError && <p className="text-sm text-red-500">{saveError}</p>}

@@ -19,6 +19,7 @@ export interface Contribution {
   discounts: Discount[];
   extra_items: ExtraItem[];
   discounted_amount: string;
+  notes: string | null;
 }
 
 export interface ContributionPayload {
@@ -29,6 +30,7 @@ export interface ContributionPayload {
   membership_id?: number | null;
   discount_ids?: number[];
   extra_item_ids?: number[];
+  notes?: string | null;
 }
 
 export function useContributions(token: string | null, userId: number | null) {
