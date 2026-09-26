@@ -47,7 +47,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         model = Transaction
         fields = [
             'id', 'user', 'method', 'status', 'receipt_number', 'amount_total', 'currency',
-            'contributions', 'contribution_ids', 'date',
+            'contributions', 'contribution_ids', 'date', 'notes',
         ]
 
     def create(self, validated_data):

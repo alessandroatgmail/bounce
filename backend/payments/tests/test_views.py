@@ -475,3 +475,70 @@ class TestUpdateTransaction:
     def test_stripe_method_is_rejected_on_update(self, staff_client, transaction):
         res = staff_client.patch(detail_url(transaction.pk), {"method": "stripe"}, format="json")
         assert res.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.integration
+class TestTransactionNotes:
+
+    def test_create_with_notes_persists(self, staff_client, student_user):
+        res = staff_client.post(URL, {
+            "user": student_user.id, "method": "cash",
+            "receipt_number": "RCPT-030", "amount_total": "30.00",
+            "notes": "Paid cash at the front desk",
+        }, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        transaction = Transaction.objects.get(id=res.data["id"])
+        assert transaction.notes == "Paid cash at the front desk"
+
+    def test_create_response_includes_notes(self, staff_client, student_user):
+        res = staff_client.post(URL, {
+            "user": student_user.id, "method": "cash",
+            "receipt_number": "RCPT-031", "amount_total": "30.00",
+            "notes": "Refund pending",
+        }, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["notes"] == "Refund pending"
+
+    def test_create_without_notes_is_optional(self, staff_client, student_user):
+        res = staff_client.post(URL, {
+            "user": student_user.id, "method": "cash",
+            "receipt_number": "RCPT-032", "amount_total": "30.00",
+        }, format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["notes"] is None
+
+    def test_admin_can_retrieve_notes(self, staff_client, student_user):
+        transaction = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-033", amount_total=Decimal("30.00"),
+            notes="Set up via ORM",
+        )
+        res = staff_client.get(detail_url(transaction.pk))
+        assert res.status_code == http_status.HTTP_200_OK
+        assert res.data["notes"] == "Set up via ORM"
+
+    def test_admin_can_patch_notes(self, staff_client, transaction):
+        res = staff_client.patch(detail_url(transaction.pk), {"notes": "Updated note"}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.notes == "Updated note"
+
+    def test_admin_can_clear_notes(self, staff_client, student_user):
+        transaction = Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-034", amount_total=Decimal("30.00"),
+            notes="To be cleared",
+        )
+        res = staff_client.patch(detail_url(transaction.pk), {"notes": None}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        transaction.refresh_from_db()
+        assert transaction.notes is None
+
+    def test_list_includes_notes(self, staff_client, student_user):
+        Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-035", amount_total=Decimal("30.00"),
+            notes="Visible in list",
+        )
+        res = staff_client.get(URL)
+        assert res.data["results"][0]["notes"] == "Visible in list"

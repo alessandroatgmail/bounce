@@ -139,6 +139,7 @@ class ContributionSerializer(serializers.ModelSerializer):
             'events', 'event_ids', 'membership', 'membership_id',
             'start_date', 'end_date', 'upgraded_from',
             'discounts', 'discount_ids', 'extra_items', 'extra_item_ids', 'discounted_amount',
+            'notes',
         ]
         read_only_fields = ['start_date', 'end_date', 'upgraded_from']
 

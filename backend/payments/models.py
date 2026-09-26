@@ -25,6 +25,7 @@ class Transaction(models.Model):
     amount_total = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default='eur')
     date = models.DateTimeField(default=timezone.now)
+    notes = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"Transaction {self.get_method_display()} {self.amount_total} {self.currency}"

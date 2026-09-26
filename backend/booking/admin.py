@@ -27,7 +27,7 @@ class ContributionAdmin(admin.ModelAdmin):
     autocomplete_fields = ("membership", )
     readonly_fields = ("start_date", "end_date", "upgraded_from", "original_contribution")
     fieldsets = (
-        (None, {"fields": ("user", "status", "amount", "date")}),
+        (None, {"fields": ("user", "status", "amount", "date", "notes")}),
         ("Events & Membership", {"fields": ("events", "membership", "discounts")}),
         ("Partner", {"fields": ("role", "partner", "partner_email")}),
         ("System", {"fields": ("start_date", "end_date", "upgraded_from", "original_contribution")}),

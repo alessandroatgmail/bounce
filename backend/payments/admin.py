@@ -16,7 +16,7 @@ class TransactionAdmin(admin.ModelAdmin):
     autocomplete_fields = ("user",)
     readonly_fields = ("stripe_session_id", "stripe_payment_intent_id", "date")
     fieldsets = (
-        (None, {"fields": ("user", "method", "status", "amount_total", "currency", "date")}),
+        (None, {"fields": ("user", "method", "status", "amount_total", "currency", "date", "notes")}),
         ("Cash / bank", {"fields": ("receipt_number",)}),
         ("Stripe", {"fields": ("stripe_session_id", "stripe_payment_intent_id")}),
         ("Contributions", {"fields": ("contributions",)}),
