@@ -108,6 +108,12 @@ class ContributionEventSerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
 
 
+class ContributionPartnerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = ['id', 'first_name', 'last_name', 'email']
+
+
 class ContributionSerializer(serializers.ModelSerializer):
     events = ContributionEventSerializer(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
@@ -131,6 +137,11 @@ class ContributionSerializer(serializers.ModelSerializer):
         write_only=True, required=False,
     )
     discounted_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    partner = ContributionPartnerSerializer(read_only=True)
+    partner_id = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.all(), source='partner',
+        write_only=True, required=False, allow_null=True,
+    )
 
     class Meta:
         model = Contribution
@@ -139,7 +150,7 @@ class ContributionSerializer(serializers.ModelSerializer):
             'events', 'event_ids', 'membership', 'membership_id',
             'start_date', 'end_date', 'upgraded_from',
             'discounts', 'discount_ids', 'extra_items', 'extra_item_ids', 'discounted_amount',
-            'notes',
+            'notes', 'partner', 'partner_id', 'partner_email',
         ]
         read_only_fields = ['start_date', 'end_date', 'upgraded_from']
 
