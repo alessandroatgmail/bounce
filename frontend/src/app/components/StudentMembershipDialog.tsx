@@ -15,8 +15,10 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { Textarea } from './ui/textarea';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { EventMultiSearchSelect } from './EventMultiSearchSelect';
+import { UserPickerInput } from './UserPickerInput';
 
 interface Props {
   user: Pick<UserListItem, 'id' | 'first_name' | 'last_name'> | null;
@@ -53,11 +55,15 @@ interface FormState {
   selectedEvents: { id: number; name: string }[];
   selectedDiscounts: { id: number; name: string }[];
   selectedExtraItems: { id: number; name: string }[];
+  notes: string;
+  partner: UserListItem | null;
+  partnerEmail: string;
 }
 
 const emptyForm = (): FormState => ({
   membershipId: '', amount: '', status: 'received',
-  selectedEvents: [], selectedDiscounts: [], selectedExtraItems: [],
+  selectedEvents: [], selectedDiscounts: [], selectedExtraItems: [], notes: '',
+  partner: null, partnerEmail: '',
 });
 
 export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }: Props) {
@@ -117,6 +123,11 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
       selectedEvents: c.events,
       selectedDiscounts: c.discounts.map(d => ({ id: d.id, name: d.name_ext || d.name })),
       selectedExtraItems: c.extra_items.map(ei => ({ id: ei.id, name: `${ei.name} (+€${ei.value})` })),
+      notes: c.notes ?? '',
+      partner: c.partner
+        ? { ...c.partner, phone: '', role: '', memberships: [] }
+        : null,
+      partnerEmail: c.partner_email ?? '',
     });
     setSaveError(null);
     setShowForm(true);
@@ -143,6 +154,9 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
         membership_id: form.membershipId === '' ? null : form.membershipId,
         discount_ids: form.selectedDiscounts.map(d => d.id),
         extra_item_ids: form.selectedExtraItems.map(ei => ei.id),
+        notes: form.notes.trim() === '' ? null : form.notes,
+        partner_id: form.partner?.id ?? null,
+        partner_email: form.partnerEmail.trim() === '' ? null : form.partnerEmail,
       };
       if (editing) {
         await update(editing.id, payload);
@@ -173,7 +187,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {user ? `${user.first_name} ${user.last_name}` : ''}
@@ -245,6 +259,17 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
                         </Badge>
                       ))}
                     </div>
+                  )}
+                  {(c.partner || c.partner_email) && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      <span className="font-medium text-gray-600">Partner: </span>
+                      {c.partner
+                        ? `${c.partner.first_name} ${c.partner.last_name} (${c.partner.email})`
+                        : c.partner_email}
+                    </p>
+                  )}
+                  {c.notes && (
+                    <p className="text-xs text-gray-500 italic mt-0.5">{c.notes}</p>
                   )}
                 </div>
                 <div className="flex gap-1">
@@ -362,6 +387,34 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
               placeholder={language === 'it' ? 'Cerca articolo extra...' : 'Search extra item...'}
               onChange={items => setForm(f => ({ ...f, selectedExtraItems: items }))}
             />
+
+            <UserPickerInput
+              token={accessToken}
+              label="Partner"
+              value={form.partner}
+              onChange={partner => setForm(f => ({ ...f, partner }))}
+              placeholder={language === 'it' ? 'Cerca per nome, cognome o email...' : 'Search by name, last name or email...'}
+            />
+
+            <div className="space-y-1">
+              <Label>{language === 'it' ? 'Email partner' : 'Partner email'}</Label>
+              <Input
+                type="email"
+                value={form.partnerEmail}
+                onChange={e => setForm(f => ({ ...f, partnerEmail: e.target.value }))}
+                placeholder={language === 'it' ? 'Email del partner (opzionale)' : "Partner's email (optional)"}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>{language === 'it' ? 'Note (interne)' : 'Notes (internal)'}</Label>
+              <Textarea
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder={language === 'it' ? 'Note visibili solo agli admin...' : 'Notes visible to admins only...'}
+                className="min-h-20"
+              />
+            </div>
 
             {saveError && <p className="text-sm text-red-500">{saveError}</p>}
 

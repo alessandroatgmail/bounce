@@ -35,6 +35,7 @@ export interface Transaction {
   currency: string;
   contributions: TransactionContribution[];
   date: string;
+  notes: string | null;
 }
 
 export interface TransactionPayload {
@@ -46,6 +47,7 @@ export interface TransactionPayload {
   currency?: string;
   date?: string;
   contribution_ids?: number[];
+  notes?: string | null;
 }
 
 export interface TransactionFilters {

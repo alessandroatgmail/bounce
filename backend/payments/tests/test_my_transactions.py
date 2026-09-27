@@ -117,6 +117,17 @@ class TestMyTransactions:
         res = student_client.get(URL)
         assert res.data[0]["contributions"] == []
 
+    def test_notes_not_exposed_to_student(self, student_client, student_user):
+        """notes is an admin-only field (TransactionSerializer); the student-facing
+        UserTransactionSerializer must not leak it, even on the student's own transaction."""
+        Transaction.objects.create(
+            user=student_user, method=PaymentMethod.CASH,
+            receipt_number="RCPT-006", amount_total=Decimal("10.00"), notes="Internal admin note",
+        )
+        res = student_client.get(URL)
+        assert res.status_code == http_status.HTTP_200_OK
+        assert "notes" not in res.data[0]
+
     def test_event_name_is_none_when_contribution_has_no_event(self, student_client, student_user):
         membership = Membership.objects.create(name="Full Pass", contribution=100)
         contribution = Contribution.objects.create(

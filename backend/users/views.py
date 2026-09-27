@@ -249,7 +249,9 @@ def _filter_users_by_query_params(qs, query_params):
     """Applies the name/membership/event filters shared by UserListView and UserIdsView."""
     name = query_params.get('name', '').strip()
     if name:
-        qs = qs.filter(Q(first_name__icontains=name) | Q(last_name__icontains=name))
+        qs = qs.filter(
+            Q(first_name__icontains=name) | Q(last_name__icontains=name) | Q(email__icontains=name)
+        )
 
     membership_id = query_params.get('membership', '').strip()
     if membership_id:

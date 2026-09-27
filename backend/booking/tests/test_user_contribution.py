@@ -199,6 +199,15 @@ class TestUserContributionRetrieve:
         c = Contribution.objects.create(amount=50, user=subject_user, membership=m)
         assert student_client.get(detail_url(c.pk)).status_code == http_status.HTTP_404_NOT_FOUND
 
+    def test_notes_not_exposed_to_student(self, student_client, student_user, db):
+        """notes is an admin-only field (ContributionSerializer); the student-facing
+        UserContributionSerializer must not leak it, even on the student's own contribution."""
+        m = make_membership()
+        c = Contribution.objects.create(amount=50, user=student_user, membership=m, notes="Internal admin note")
+        res = student_client.get(detail_url(c.pk))
+        assert res.status_code == http_status.HTTP_200_OK
+        assert "notes" not in res.data
+
 
 # ── Create ────────────────────────────────────────────────────────────────────
 
