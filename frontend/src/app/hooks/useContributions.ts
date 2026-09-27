@@ -7,6 +7,13 @@ const BASE = '/api/booking/contributions/';
 
 export type ContributionStatus = 'received' | 'accepted' | 'confirmed' | 'payed' | 'cancelled' | 'waiting' | 'approving';
 
+export interface ContributionPartner {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
 export interface Contribution {
   id: number;
   status: ContributionStatus;
@@ -20,6 +27,8 @@ export interface Contribution {
   extra_items: ExtraItem[];
   discounted_amount: string;
   notes: string | null;
+  partner: ContributionPartner | null;
+  partner_email: string | null;
 }
 
 export interface ContributionPayload {
@@ -31,6 +40,8 @@ export interface ContributionPayload {
   discount_ids?: number[];
   extra_item_ids?: number[];
   notes?: string | null;
+  partner_id?: number | null;
+  partner_email?: string | null;
 }
 
 export function useContributions(token: string | null, userId: number | null) {

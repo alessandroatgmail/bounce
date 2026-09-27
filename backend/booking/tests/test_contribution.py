@@ -890,3 +890,70 @@ class TestContributionNotes:
         Contribution.objects.create(amount=10, user=subject_user, notes="Visible in list")
         res = admin_client.get(LIST_URL)
         assert res.data[0]["notes"] == "Visible in list"
+
+
+# ── partner / partner_email (admin) ─────────────────────────────────────────────
+
+class TestContributionPartner:
+
+    def test_create_with_partner_persists(self, admin_client, subject_user, partner_user, db):
+        res = admin_client.post(
+            LIST_URL,
+            make_contribution_payload(subject_user, partner_id=partner_user.pk, partner_email="partner@bounce.com"),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_201_CREATED
+        c = Contribution.objects.get(pk=res.data["id"])
+        assert c.partner_id == partner_user.pk
+        assert c.partner_email == "partner@bounce.com"
+
+    def test_create_response_includes_partner(self, admin_client, subject_user, partner_user, db):
+        res = admin_client.post(
+            LIST_URL,
+            make_contribution_payload(subject_user, partner_id=partner_user.pk, partner_email="partner@bounce.com"),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["partner"]["id"] == partner_user.pk
+        assert res.data["partner"]["first_name"] == partner_user.first_name
+        assert res.data["partner"]["email"] == partner_user.email
+        assert res.data["partner_email"] == "partner@bounce.com"
+
+    def test_create_without_partner_is_optional(self, admin_client, subject_user, db):
+        res = admin_client.post(LIST_URL, make_contribution_payload(subject_user), format="json")
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert res.data["partner"] is None
+        assert res.data["partner_email"] is None
+
+    def test_admin_can_retrieve_partner(self, admin_client, subject_user, partner_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user, partner=partner_user, partner_email="partner@bounce.com")
+        res = admin_client.get(detail_url(c.pk))
+        assert res.status_code == http_status.HTTP_200_OK
+        assert res.data["partner"]["id"] == partner_user.pk
+        assert res.data["partner_email"] == "partner@bounce.com"
+
+    def test_admin_can_update_partner(self, admin_client, subject_user, partner_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user)
+        res = admin_client.put(
+            detail_url(c.pk),
+            make_contribution_payload(subject_user, partner_id=partner_user.pk, partner_email="partner@bounce.com"),
+            format="json",
+        )
+        assert res.status_code == http_status.HTTP_200_OK
+        c.refresh_from_db()
+        assert c.partner_id == partner_user.pk
+        assert c.partner_email == "partner@bounce.com"
+
+    def test_admin_can_clear_partner(self, admin_client, subject_user, partner_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user, partner=partner_user, partner_email="partner@bounce.com")
+        res = admin_client.patch(detail_url(c.pk), {"partner_id": None, "partner_email": None}, format="json")
+        assert res.status_code == http_status.HTTP_200_OK
+        c.refresh_from_db()
+        assert c.partner_id is None
+        assert c.partner_email is None
+
+    def test_list_includes_partner(self, admin_client, subject_user, partner_user, db):
+        Contribution.objects.create(amount=10, user=subject_user, partner=partner_user, partner_email="partner@bounce.com")
+        res = admin_client.get(LIST_URL)
+        assert res.data[0]["partner"]["id"] == partner_user.pk
+        assert res.data[0]["partner_email"] == "partner@bounce.com"

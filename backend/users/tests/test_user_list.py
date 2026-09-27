@@ -69,3 +69,30 @@ class TestUserListPhone:
         assert res.status_code == 200
         entry = next(u for u in res.data['results'] if u['id'] == admin_user.id)
         assert entry['phone'] == ''
+
+
+class TestUserListNameFilterMatchesEmail:
+    """The `name` query param is also used to search by email, e.g. from the
+    admin's partner picker (name, last name or email)."""
+
+    def test_matches_email(self, admin_client, db):
+        match = User.objects.create_user(
+            email='findme@bounce.com', password='StrongPass123!', is_active=True,
+        )
+        other = User.objects.create_user(
+            email='other@bounce.com', password='StrongPass123!', is_active=True,
+        )
+        res = admin_client.get(USERS_URL, {'name': 'findme'})
+        assert res.status_code == 200
+        ids = [u['id'] for u in res.data['results']]
+        assert ids == [match.id]
+        assert other.id not in ids
+
+    def test_still_matches_first_or_last_name(self, admin_client, db):
+        match = User.objects.create_user(
+            email='zebra-owner@bounce.com', password='StrongPass123!', first_name='Zebra', is_active=True,
+        )
+        res = admin_client.get(USERS_URL, {'name': 'Zebra'})
+        assert res.status_code == 200
+        ids = [u['id'] for u in res.data['results']]
+        assert ids == [match.id]
