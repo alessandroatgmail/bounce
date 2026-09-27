@@ -644,10 +644,9 @@ class TestPartner:
         # (optional, symmetric check) the partner's email body mentions the registrant
         assert student_user.first_name in partner_email.body
 
-    def test_unregistered_partner_email_is_saved(self, world_data, student_client, student_user, db):
-        """A partner without an account cannot be sent as partner_id: the
-        raw email must still be stored on the contribution so the couple
-        is not lost."""
+    def test_partner_email_of_unregistered_user_returns_400(self, world_data, student_client, student_user, db):
+        """Inviting a partner who has no account at all is no longer
+        supported: partner_email must match a registered, active user."""
         et = make_event_type()
         et.partners = 2
         leader = PartnerRole.objects.get(name='Leader')
@@ -666,12 +665,63 @@ class TestPartner:
 
         response = student_client.post(LIST_URL, payload, format="json")
 
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Contribution.objects.count() == 0
+
+    def test_partner_email_of_inactive_user_returns_400(self, world_data, student_client, student_user, db):
+        """A registered account that hasn't been activated yet cannot be
+        used as a partner either."""
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        User.objects.create_user(
+            email="inactive@bounce.com", password="StrongPass123!", is_active=False,
+        )
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": "inactive@bounce.com",
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Contribution.objects.count() == 0
+
+    def test_partner_email_of_active_user_resolves_partner(
+        self, world_data, student_client, student_user, partner_user, db
+    ):
+        """A partner_email matching a registered, active account resolves
+        to that user exactly as partner_id would, mirroring the
+        contribution immediately."""
+        et = make_event_type()
+        et.partners = 2
+        leader = PartnerRole.objects.get(name='Leader')
+        follower = PartnerRole.objects.get(name='Follower')
+        et.partner_roles.add(leader)
+        et.partner_roles.add(follower)
+        et.save()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        payload = {
+            "membership_id": m.pk,
+            "role_id": leader.id,
+            "partner_email": partner_user.email,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+
         assert response.status_code == http_status.HTTP_201_CREATED
-        contribution = Contribution.objects.get(id=response.data["id"])
-        assert contribution.partner is None
-        assert contribution.partner_email == "ghost@nowhere.com"
-        # No twin contribution is created: the partner has no account.
-        assert Contribution.objects.count() == 1
+        partner_contribution = Contribution.objects.get(user=partner_user)
+        assert partner_contribution.partner == student_user
 
     def test_create_contribution_without_role_400(self, world_data, student_client, student_user, partner_user, db):
         et = make_event_type()
@@ -720,6 +770,23 @@ class TestPartner:
         assert response.status_code == http_status.HTTP_400_BAD_REQUEST
         partner_contribution = Contribution.objects.filter(user=partner_user).first()
         assert partner_contribution is None
+
+    def test_couple_membership_without_partner_400(self, world_data, student_client, student_user, db):
+        """A membership with couple=True requires a partner_id or partner_email —
+        even on an event that does not itself require a partner role."""
+        et = make_event_type()
+        first_event = make_event_with_type(et)
+        m = make_membership()
+        m.couple = True
+        m.save()
+        payload = {
+            "membership_id": m.pk,
+            "event_id": first_event.id,
+        }
+
+        response = student_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Contribution.objects.count() == 0
 
 
 class TestAutomaticAcceptance:

@@ -343,6 +343,23 @@ class UserContributionSerializer(serializers.ModelSerializer):
         partner_email = attrs.get('partner_email')
         # partner_id is declared with source="partner", so DRF stores it under 'partner'
         partner = attrs.get('partner')
+        if partner_email and not partner:
+            # A partner named only by email must already be a registered,
+            # activated user — no more deferred "invite by email" linking.
+            partner = get_user_model().objects.filter(
+                email__iexact=partner_email, is_active=True,
+            ).first()
+            if partner is None:
+                raise serializers.ValidationError({
+                    'partner_email': 'No active account is registered with this email.'
+                })
+            if partner == self.context["request"].user:
+                raise serializers.ValidationError("you can't add yourself as partner")
+            attrs['partner'] = partner
+        if membership.couple and not (partner or partner_email):
+            raise serializers.ValidationError(
+                f"To use the '{membership.name}' plan you need to add a valid partner email."
+            )
         if self.instance is None and not membership.is_available:
             raise serializers.ValidationError({
                 'membership_id': f"Membership '{membership.name}' is not available for booking."

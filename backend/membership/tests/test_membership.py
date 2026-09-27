@@ -12,7 +12,7 @@ LIST_URL = "/api/membership/memberships/"
 RULE_URL = "/api/membership/rules/"
 
 MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "duration", "rules",
-                     "start_date", "end_date", "fix_events", "only_cash"}
+                     "start_date", "end_date", "fix_events", "only_cash", "couple"}
 RULE_FIELDS = {"id", "membership", "event_type", "max_events"}
 
 
@@ -233,6 +233,18 @@ class TestMembershipCreate:
         membership = Membership.objects.get(pk=response.data["id"])
         assert membership.only_cash is True
 
+    def test_create_default_couple_is_false(self, staff_client, db):
+        payload = make_membership_payload()
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["couple"] is False
+
+    def test_create_stores_couple_true(self, staff_client, db):
+        payload = make_membership_payload(couple=True)
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.data["couple"] is True
+        membership = Membership.objects.get(pk=response.data["id"])
+        assert membership.couple is True
+
 
 # ── Staff retrieve ────────────────────────────────────────────────────────────
 
@@ -293,6 +305,14 @@ class TestMembershipUpdate:
         membership.refresh_from_db()
         assert membership.only_cash is True
 
+    def test_full_update_changes_couple(self, staff_client, db):
+        membership = create_membership()
+        assert membership.couple is False
+        payload = make_membership_payload(couple=True)
+        staff_client.put(detail_url(membership.pk), payload, format="json")
+        membership.refresh_from_db()
+        assert membership.couple is True
+
     def test_update_nonexistent_returns_404(self, staff_client, db):
         response = staff_client.put(detail_url(9999), make_membership_payload(), format="json")
         assert response.status_code == http_status.HTTP_404_NOT_FOUND
@@ -326,6 +346,13 @@ class TestMembershipPartialUpdate:
         staff_client.patch(detail_url(membership.pk), {"only_cash": True}, format="json")
         membership.refresh_from_db()
         assert membership.only_cash is True
+
+    def test_patch_couple(self, staff_client, db):
+        membership = create_membership()
+        assert membership.couple is False
+        staff_client.patch(detail_url(membership.pk), {"couple": True}, format="json")
+        membership.refresh_from_db()
+        assert membership.couple is True
 
     def test_patch_clear_color(self, staff_client, db):
         membership = create_membership(color="#111111")
