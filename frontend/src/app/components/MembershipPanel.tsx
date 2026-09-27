@@ -32,6 +32,7 @@ const EMPTY_PAYLOAD: MembershipPayload = {
   end_date: null,
   fix_event_ids: [],
   only_cash: false,
+  couple: false,
 };
 
 // ISO (with timezone) ⇄ datetime-local input value ("YYYY-MM-DDTHH:mm")
@@ -226,6 +227,19 @@ function MembershipForm({
           </Label>
         </div>
 
+        <div className="col-span-2 flex items-center gap-2">
+          <Checkbox
+            id="m-couple"
+            checked={form.couple}
+            onCheckedChange={v => set('couple', v === true)}
+          />
+          <Label htmlFor="m-couple" className="cursor-pointer font-normal">
+            {language === 'it'
+              ? 'Coppia (richiede un partner alla prenotazione)'
+              : 'Couple (requires a partner at booking)'}
+          </Label>
+        </div>
+
         {/* Rules section */}
         <div className="col-span-2 space-y-2">
           <div className="flex justify-between items-center">
@@ -368,6 +382,7 @@ export function MembershipPanel() {
     end_date: m.end_date,
     fix_event_ids: m.fix_events.map(ev => ev.id),
     only_cash: m.only_cash,
+    couple: m.couple,
   });
 
   const toFixEventDrafts = (m: Membership): { id: number; name: string }[] =>
@@ -465,15 +480,22 @@ export function MembershipPanel() {
                   </TableCell>
                   <TableCell>€{m.contribution}</TableCell>
                   <TableCell>
-                    {m.only_cash ? (
-                      <Badge variant="secondary" className="text-xs">
-                        {language === 'it' ? 'Solo contanti' : 'Cash only'}
-                      </Badge>
-                    ) : (
-                      <span className="text-xs text-gray-400">
-                        {language === 'it' ? 'Online' : 'Online'}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap gap-1">
+                      {m.only_cash ? (
+                        <Badge variant="secondary" className="text-xs">
+                          {language === 'it' ? 'Solo contanti' : 'Cash only'}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-gray-400">
+                          {language === 'it' ? 'Online' : 'Online'}
+                        </span>
+                      )}
+                      {m.couple && (
+                        <Badge variant="outline" className="text-xs">
+                          {language === 'it' ? 'Coppia' : 'Couple'}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>{m.max_events}</TableCell>
                   <TableCell>

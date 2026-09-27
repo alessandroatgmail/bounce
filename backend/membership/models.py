@@ -34,6 +34,7 @@ class Membership(models.Model):
     end_date = models.DateTimeField(null=True, blank=True)
     fix_events = models.ManyToManyField(Event, blank=True, related_name='included_in_memberships')
     only_cash = models.BooleanField(default=False)
+    couple = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "Pack"

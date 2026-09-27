@@ -164,7 +164,14 @@ export function EventJoinPanel({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setJoinError(await extractErrorMessage(res));
+        const membership = event.memberships.find(m => m.id === membershipId);
+        if (membership?.couple && !body.partner_id && !body.partner_email) {
+          setJoinError(it
+            ? `Per usare il piano "${membership.name}" devi aggiungere un'email del partner valida.`
+            : `To use the "${membership.name}" plan you need to add a valid partner email.`);
+        } else {
+          setJoinError(await extractErrorMessage(res));
+        }
         setJoinStatus('error');
         return;
       }
@@ -358,8 +365,8 @@ export function EventJoinPanel({
               <div className="flex items-start gap-2 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
                 <Info className="size-4 mt-0.5 flex-shrink-0 text-blue-500" />
                 {it
-                  ? "Seleziona il ruolo e il livello con cui vuoi partecipare all'evento. Puoi anche inserire l'email di un partner: se è già registrato sulla piattaforma, per lui/lei verrà creata un'iscrizione identica; se non lo è, verrà creata quando si registrerà."
-                  : "Select the role and level you'd like to participate with. You can also enter a partner's email — if they're already registered on the platform, an identical registration is created for them; if not, it'll be created once they register."}
+                  ? "Seleziona il ruolo e il livello con cui vuoi partecipare all'evento. Puoi anche inserire l'email di un partner, che deve avere già un account registrato e attivo sulla piattaforma: per lui/lei verrà creata un'iscrizione identica."
+                  : "Select the role and level you'd like to participate with. You can also enter a partner's email — they must already have a registered, activated account on the platform, and an identical registration will be created for them."}
               </div>
 
               {hasLevelChoice && (
@@ -476,8 +483,8 @@ export function EventJoinPanel({
                   {partnerCheckStatus === 'not_found' && (
                     <p className="text-xs text-amber-600">
                       {it
-                        ? 'Utente non trovato. Potrai aggiungere il partner in seguito.'
-                        : "User not found. You can add a partner later."}
+                        ? 'Utente non trovato. Il partner deve avere già un account registrato e attivo.'
+                        : "User not found. The partner must already have a registered, activated account."}
                     </p>
                   )}
                 </>
