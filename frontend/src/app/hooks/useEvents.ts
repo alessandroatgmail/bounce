@@ -11,6 +11,7 @@ export interface EventMembership {
   color: string | null;
   max_events: number;
   duration: number;
+  couple: boolean;
 }
 
 export interface EventItem {
