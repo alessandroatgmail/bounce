@@ -7,7 +7,7 @@ export function StudentDashboard() {
   const { user } = useAuth();
 
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== 'student' && user.role !== 'admin') return <Navigate to="/login" replace />;
+  if (user.role !== 'student' && user.role !== 'admin' && user.role !== 'staff') return <Navigate to="/login" replace />;
 
   return (
     <>

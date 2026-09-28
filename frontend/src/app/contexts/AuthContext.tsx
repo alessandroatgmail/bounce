@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { apiUrl } from '../../lib/api';
 
-export type UserRole = 'guest' | 'student' | 'admin';
+export type UserRole = 'guest' | 'student' | 'admin' | 'staff';
 
 export interface User {
   id: string;
@@ -49,6 +49,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
 
 function mapRole(backendRole: string): UserRole {
   if (backendRole === 'admin') return 'admin';
+  if (backendRole === 'staff') return 'staff';
   return 'student';
 }
 

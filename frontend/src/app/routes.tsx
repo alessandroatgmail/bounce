@@ -92,7 +92,8 @@ export const router = createBrowserRouter([
 
 function useDashboardMode(): boolean {
   const { user, adminViewMode } = useAuth();
-  return user?.role === 'student' || (user?.role === 'admin' && adminViewMode === 'student');
+  return user?.role === 'student' || user?.role === 'staff' ||
+    (user?.role === 'admin' && adminViewMode === 'student');
 }
 
 // Logged-in students (and admins in student view) get the dashboard at /;
