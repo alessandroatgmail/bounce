@@ -18,7 +18,8 @@ export function CookieBanner() {
   // viewport bottom — same spot this banner wants. Lift the banner above it
   // on mobile so the two don't stack on top of each other; on md+ the
   // dashboard uses a side rail instead, so flush-bottom is fine there too.
-  const inDashboard = user?.role === 'student' || (user?.role === 'admin' && adminViewMode === 'student');
+  const inDashboard = user?.role === 'student' || user?.role === 'staff' ||
+    (user?.role === 'admin' && adminViewMode === 'student');
 
   useEffect(() => {
     if (!localStorage.getItem(STORAGE_KEY)) setVisible(true);

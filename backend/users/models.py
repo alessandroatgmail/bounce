@@ -10,6 +10,7 @@ class Role(models.TextChoices):
     STUDENT = "student", "Student"
     TEACHER = "teacher", "Teacher"
     ADMIN = "admin", "Admin"
+    STAFF = "staff", "Staff"
 
 class Language(models.TextChoices):
     IT = 'it', 'Italiano'
