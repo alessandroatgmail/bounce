@@ -101,7 +101,7 @@ export interface EventPayload {
   event_ids?: number[];
 }
 
-export function useEvents(token: string | null) {
+export function useEvents(token: string | null, queryString?: string) {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +111,7 @@ export function useEvents(token: string | null) {
     setError(null);
     try {
       const accumulated: EventItem[] = [];
-      let url: string | null = BASE;
+      let url: string | null = queryString ? `${BASE}?${queryString}` : BASE;
       while (url) {
         const res = token
           ? await authFetch(url, token)
@@ -134,7 +134,7 @@ export function useEvents(token: string | null) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, queryString]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 

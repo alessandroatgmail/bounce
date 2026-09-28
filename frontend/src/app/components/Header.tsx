@@ -100,7 +100,7 @@ export function Header() {
                 <DropdownMenuContent align="end" className="bg-[#2b2b2b] text-white border-[#d4b896]">
                   <DropdownMenuLabel>{t('nav.myAccount')}</DropdownMenuLabel>
                   <DropdownMenuSeparator className="bg-[#d4b896]/30" />
-                  {user?.role === 'student' && (
+                  {(user?.role === 'student' || user?.role === 'staff') && (
                     <>
                       <DropdownMenuItem asChild className="hover:bg-[#d4b896] hover:text-[#2b2b2b]">
                         <Link to="/">{t('nav.dashboard')}</Link>
