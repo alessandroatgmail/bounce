@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router';
-import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone, QrCode } from 'lucide-react';
+import { Ticket, CreditCard, User, LogOut, ShieldCheck, LogIn, Phone, QrCode, ScanQrCode } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
@@ -12,8 +12,9 @@ import { PaymentsSection } from './PaymentsSection';
 import { ProfileSection } from './ProfileSection';
 import { ContactsSection } from './ContactsSection';
 import { QRCodeSection } from './QRCodeSection';
+import { ScanSection } from './ScanSection';
 
-type Section = 'events' | 'payments' | 'profile' | 'contacts' | 'qrcode';
+type Section = 'events' | 'payments' | 'profile' | 'contacts' | 'qrcode' | 'scan';
 
 const SECTION_LABELS = {
   events:   { it: 'Eventi',    en: 'Events'   },
@@ -21,9 +22,10 @@ const SECTION_LABELS = {
   profile:  { it: 'Profilo',   en: 'Profile'  },
   contacts: { it: 'Contatti',  en: 'Contacts' },
   qrcode:   { it: 'QR Code',   en: 'QR Code'  },
+  scan:     { it: 'Scansiona', en: 'Scan'     },
 };
 
-const VALID_SECTIONS: Section[] = ['events', 'payments', 'profile', 'contacts', 'qrcode'];
+const VALID_SECTIONS: Section[] = ['events', 'payments', 'profile', 'contacts', 'qrcode', 'scan'];
 
 export function AppShell() {
   const { user, logout, setAdminViewMode, accessToken: _token } = useAuth();
@@ -72,6 +74,9 @@ export function AppShell() {
     { id: 'profile'  as Section, label: SECTION_LABELS.profile[lang],  icon: User       },
     { id: 'contacts' as Section, label: SECTION_LABELS.contacts[lang], icon: Phone      },
     { id: 'qrcode'   as Section, label: SECTION_LABELS.qrcode[lang],   icon: QrCode     },
+    ...(user?.role === 'staff'
+      ? [{ id: 'scan' as Section, label: SECTION_LABELS.scan[lang], icon: ScanQrCode }]
+      : []),
   ];
 
   const guestTabs = [
@@ -200,6 +205,7 @@ export function AppShell() {
               {activeSection === 'profile'  && !isGuest && <ProfileSection />}
               {activeSection === 'contacts' && <ContactsSection />}
               {activeSection === 'qrcode'   && !isGuest && <QRCodeSection />}
+              {activeSection === 'scan'     && user?.role === 'staff' && <ScanSection />}
             </>
           )}
         </main>

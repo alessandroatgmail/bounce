@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/emails/', include('emails.urls')),
     path('api/documents/', include('document.urls')),
     path('api/payments/', include('payments.urls')),
+    path('api/scanner/', include('scanner.urls')),
 
     # generates the raw schema file (yaml/json)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
