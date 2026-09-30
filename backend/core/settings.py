@@ -184,10 +184,15 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'booking.tasks.cancel_expired_contributions',
         'schedule': crontab(hour=0, minute=5),
     },
-    'consolidate-upcoming-parent-events': {
-        'task': 'booking.tasks.consolidate_upcoming_parent_events',
-        'schedule': crontab(minute='*/10'),
-    },
+    # Disabled: consolidate_register (called by this task) rebuilds every
+    # child event's Booking rows from the parent's, dropping attended —
+    # running every 10 minutes for an hour before each class wiped out
+    # scanner check-ins done in that window. Task code left in place;
+    # only the automatic schedule is removed.
+    # 'consolidate-upcoming-parent-events': {
+    #     'task': 'booking.tasks.consolidate_upcoming_parent_events',
+    #     'schedule': crontab(minute='*/10'),
+    # },
     # 'warning-expired-contributions-daily': {
     #     'task': 'booking.tasks.send_contribution_expiry_reminder_email',
     #     'schedule': crontab(hour=13, minute=9),
