@@ -10,10 +10,13 @@ import { useEventsPaginated } from '../hooks/useEventsPaginated';
 export function Home() {
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  // public page: fetch events anonymously, same filters as the Events page
+  // public page: fetch events anonymously, same filters as the Events page.
+  // `active` (end_date hasn't passed) rather than `upcoming` (start_date
+  // hasn't passed) — a weekly recurring class's own start_date is just its
+  // first occurrence, so `upcoming` would drop the whole series after week 1.
   const { events: upcomingEvents, loading } = useEventsPaginated(
     null,
-    { upcoming: true, exclude_children: true },
+    { active: true, exclude_children: true },
     6,
   );
 

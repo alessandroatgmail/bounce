@@ -1,4 +1,6 @@
 import pytest
+from datetime import timedelta
+from django.utils import timezone
 from rest_framework import status as http_status
 
 from event.models import Event, EventType, Status, PartnerRole
@@ -125,6 +127,44 @@ class TestEventStudentVisibility:
         event = create_event(status=Status.CONFIRMED)
         response = student_client.get(detail_url(event.pk))
         assert response.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+# ── active vs upcoming filter (recurring series visibility) ──────────────────
+
+class TestEventActiveVsUpcomingFilter:
+    """A weekly recurring class's own start_date is only its first
+    occurrence — filtering by `upcoming` (start_date >= now) drops the
+    whole series after week 1, even though it keeps running for months via
+    its children. `active` (end_date >= now) is what student-facing lists
+    (Home, Events) use instead, precisely to keep an in-progress series
+    visible."""
+
+    def test_active_includes_an_event_that_already_started_but_not_ended(self, student_client, world_data):
+        event = create_event(
+            status=Status.PUBLISHED,
+            start_date=(timezone.now() - timedelta(days=30)).isoformat(),
+            end_date=(timezone.now() + timedelta(days=60)).isoformat(),
+        )
+        response = student_client.get(LIST_URL, {"active": "true"})
+        assert [e["id"] for e in response.data["results"]] == [event.id]
+
+    def test_upcoming_excludes_the_same_event(self, student_client, world_data):
+        create_event(
+            status=Status.PUBLISHED,
+            start_date=(timezone.now() - timedelta(days=30)).isoformat(),
+            end_date=(timezone.now() + timedelta(days=60)).isoformat(),
+        )
+        response = student_client.get(LIST_URL, {"upcoming": "true"})
+        assert response.data["results"] == []
+
+    def test_active_excludes_an_event_that_already_ended(self, student_client, world_data):
+        create_event(
+            status=Status.PUBLISHED,
+            start_date=(timezone.now() - timedelta(days=60)).isoformat(),
+            end_date=(timezone.now() - timedelta(days=1)).isoformat(),
+        )
+        response = student_client.get(LIST_URL, {"active": "true"})
+        assert response.data["results"] == []
 
 
 # ── Staff list ────────────────────────────────────────────────────────────────

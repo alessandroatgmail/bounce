@@ -56,7 +56,10 @@ export function AdminDashboard() {
   const { user, setAdminViewMode, accessToken } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  const { count: upcomingCount } = useAdminEventsPaginated(accessToken, { upcoming: true }, 1);
+  // `active` (end_date hasn't passed), not `upcoming` (start_date hasn't
+  // passed) — a weekly recurring class's own start_date is just its first
+  // occurrence, so `upcoming` would drop the whole series after week 1.
+  const { count: upcomingCount } = useAdminEventsPaginated(accessToken, { active: true }, 1);
   const [students, setStudents] = useState(mockStudents);
   const [regularClasses, setRegularClasses] = useState(mockRegularClasses);
   const [memberships, setMemberships] = useState(mockMemberships);

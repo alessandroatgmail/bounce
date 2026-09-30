@@ -73,13 +73,16 @@ export function EventsBrowser({
 
   const { events, count, page, pageSize, loading, setPage, setFilters } = useEventsPaginated(
     accessToken,
-    { upcoming: true, exclude_children: true },
+    { active: true, exclude_children: true },
   );
 
-  // Keep hook filters in sync with UI filter controls
+  // Keep hook filters in sync with UI filter controls.
+  // `active` (end_date hasn't passed) rather than `upcoming` (start_date
+  // hasn't passed) — a weekly recurring class's own start_date is just its
+  // first occurrence, so `upcoming` would drop the whole series after week 1.
   useEffect(() => {
     setFilters({
-      upcoming: true,
+      active: true,
       exclude_children: true,
       event_type: filterType !== 'all' ? filterType : undefined,
       level: filterLevel !== 'all' ? filterLevel : undefined,
