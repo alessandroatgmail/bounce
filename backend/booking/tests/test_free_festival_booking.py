@@ -162,47 +162,74 @@ class TestFreeFestivalEventIdsCountMustMatchMaxEvents:
 
         assert response.status_code == http_status.HTTP_201_CREATED
         contribution = Contribution.objects.get(pk=response.data["id"])
+        # The parent festival stays on contribution.events too, same as
+        # every other case — that's what the festival's own event card
+        # matches against to show "already booked".
         assert set(contribution.events.values_list("id", flat=True)) == {
-            children[0].id, children[1].id,
+            festival.id, children[0].id, children[1].id,
         }
         assert Booking.objects.filter(
             user=student_user, event_id__in=[children[0].id, children[1].id],
         ).count() == 2
 
 
-# ── Membership fix_events are booked alongside the chosen events ─────────────
+# ── Membership fix_events are additional, on top of max_events ───────────────
 
 class TestFreeFestivalFixEvents:
     """A membership's fix_events (bonus events bundled with the plan
     regardless of what the student picks — e.g. a festival party) are
-    always booked alongside whatever was explicitly chosen, same as the
-    fixed-choice festival case already does."""
+    booked alongside whatever was explicitly chosen, on top of
+    max_events, not counted against it. max_events=4 with 3 fix_events
+    means the student picks exactly 4 themselves and ends up with 7
+    events total; only the 4 they picked are ever sent as event_ids."""
 
-    def test_books_selected_events_plus_fixed_events(self, student_client, student_user, world_data):
-        m = make_membership(max_events=2)
-        festival, children = make_free_festival(m, n_children=3)
-
+    def make_party_events(self, n=3):
         party_type = EventType.objects.create(**make_event_type_payload())
         now = timezone.now()
-        party1 = make_event(party_type, now + timedelta(hours=5))
-        party2 = make_event(party_type, now + timedelta(hours=6))
-        m.fix_events.set([party1, party2])
+        return [make_event(party_type, now + timedelta(hours=5 + i)) for i in range(n)]
+
+    def test_books_chosen_events_plus_fixed_events(self, student_client, student_user, world_data):
+        m = make_membership(max_events=4)
+        festival, children = make_free_festival(m, n_children=4)
+        party1, party2, party3 = self.make_party_events()
+        m.fix_events.set([party1, party2, party3])
 
         response = student_client.post(
             LIST_URL,
             {
                 "membership_id": m.pk, "event_id": festival.id,
-                "event_ids": [entry(children[0]), entry(children[1])],
+                "event_ids": [entry(c) for c in children],
             },
             format="json",
         )
 
         assert response.status_code == http_status.HTTP_201_CREATED
         contribution = Contribution.objects.get(pk=response.data["id"])
-        assert set(contribution.events.values_list("id", flat=True)) == {
-            children[0].id, children[1].id, party1.id, party2.id,
-        }
-        assert Booking.objects.filter(
-            user=student_user,
-            event_id__in=[children[0].id, children[1].id, party1.id, party2.id],
-        ).count() == 4
+        chosen_and_fixed = {c.id for c in children} | {party1.id, party2.id, party3.id}
+        # The parent festival stays on contribution.events too — that's
+        # what the festival's own event card checks for "already booked".
+        assert set(contribution.events.values_list("id", flat=True)) == chosen_and_fixed | {festival.id}
+        assert Booking.objects.filter(user=student_user, event_id__in=chosen_and_fixed).count() == 7
+
+    def test_chosen_count_still_checked_against_max_events_not_reduced(
+        self, student_client, student_user, world_data,
+    ):
+        """Picking fewer than max_events is still wrong, regardless of
+        how many fix_events the plan carries — fix_events never reduce
+        how many the student must pick."""
+        m = make_membership(max_events=4)
+        festival, children = make_free_festival(m, n_children=4)
+        party1, party2, party3 = self.make_party_events()
+        m.fix_events.set([party1, party2, party3])
+
+        response = student_client.post(
+            LIST_URL,
+            {
+                "membership_id": m.pk, "event_id": festival.id,
+                "event_ids": [entry(children[0])],
+            },
+            format="json",
+        )
+
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        assert Contribution.objects.count() == 0

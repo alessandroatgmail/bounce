@@ -16,7 +16,7 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useAuth } from '../contexts/AuthContext';
 import type { EventItem } from '../hooks/useEvents';
-import { useUserMemberships, extractErrorMessage } from '../hooks/useUserMemberships';
+import { extractErrorMessage } from '../hooks/useUserMemberships';
 import type { ExtraItem, ContributionStatus, UserMembership } from '../hooks/useUserMemberships';
 import type { CheckoutItem } from '../pages/CheckoutPage';
 
@@ -54,6 +54,8 @@ export function EventJoinPanel({
   event,
   isAuthenticated,
   language,
+  userMemberships,
+  cancel,
 }: {
   // Omit "events" — a festival's sessions / a weekly class's occurrences —
   // since this panel never reads it, and its shape differs between the
@@ -62,10 +64,13 @@ export function EventJoinPanel({
   event: Omit<EventItem, 'events'>;
   isAuthenticated: boolean;
   language: string;
+  // Lifted to the caller and shared across every card/panel on the page —
+  // fetching this per-panel meant one identical GET per event rendered.
+  userMemberships: UserMembership[];
+  cancel: (id: number) => Promise<void>;
 }) {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
-  const { userMemberships, cancel } = useUserMemberships(accessToken);
   const [showPanel, setShowPanel] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
   const [partnerEmail, setPartnerEmail] = useState('');

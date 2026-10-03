@@ -394,6 +394,9 @@ class UserContributionSerializer(serializers.ModelSerializer):
                     'event_id': 'This endpoint only books multi-event festivals with a fixed level choice.'
                 })
             if is_free_festival:
+                # The student picks exactly max_events events themselves.
+                # fix_events are separate and additional — booked on top,
+                # not counted against this number.
                 chosen = attrs.get('event_ids') or []
                 if not chosen:
                     raise serializers.ValidationError({
@@ -461,14 +464,17 @@ class UserContributionSerializer(serializers.ModelSerializer):
         contribution = Contribution.objects.create(**validated_data)
 
         # Free-choice festival (event.multi_events and event.free): the
-        # chosen children replace the parent on contribution.events, each
+        # parent festival stays on contribution.events (same as every
+        # other case) — that's what already_booked/get_booked_by and the
+        # frontend's "my bookings" match against on the festival's own
+        # card — alongside the chosen children and fix_events, each
         # getting its own Booking with its own role. First pass — no
         # capacity/waiting-list check per child, no partner pairing, no
         # emails yet; those are deliberate follow-ups, not oversights.
         if event and event.multi_events and event.free:
             fix_events = list(membership.fix_events.all()) if membership else []
             chosen_events = [entry['event_id'] for entry in event_ids]
-            contribution.events.add(*chosen_events, *fix_events)
+            contribution.events.add(event, *chosen_events, *fix_events)
             contribution.status = ContributionStatus.ACCEPTED
             contribution.save()
             for entry in event_ids:
