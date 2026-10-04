@@ -223,6 +223,25 @@ def _level_counts_for(obj):
     return result
 
 
+def _child_event_counts_for(child_ids):
+    """event_id -> {role_name: count} of bookings whose contribution is
+    PAYED/ACCEPTED/APPROVING, one query for every id in child_ids. Role
+    lives on Booking (per event), not Contribution, since a free-choice
+    festival contribution can cover several events, each with its own
+    role — unlike the fixed-choice case's _level_counts_for, which reads
+    the single role off the Contribution itself."""
+    from booking.models import Booking, ContributionStatus as CS
+
+    rows = Booking.objects.filter(
+        event_id__in=child_ids,
+        contribution__status__in=[CS.PAYED, CS.ACCEPTED, CS.APPROVING],
+    ).values('event_id', 'role__name').annotate(n=Count('id'))
+    result = {}
+    for row in rows:
+        result.setdefault(row['event_id'], {})[row['role__name']] = row['n']
+    return result
+
+
 def _role_would_be_accepted(child_event, role, roles):
     """Would a new contribution for this role, at this level, land ACCEPTED
     (mirrors booking.service._check_role_accepted / _check_extras) rather

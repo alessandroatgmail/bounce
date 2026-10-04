@@ -14,6 +14,7 @@ import type { EventItem } from '../hooks/useEvents';
 import { useEventsPaginated } from '../hooks/useEventsPaginated';
 import { useEventTypes } from '../hooks/useEventTypes';
 import { useLevels } from '../hooks/useLevels';
+import { useUserMemberships, type UserMembership } from '../hooks/useUserMemberships';
 
 type SpotStatus = 'available' | 'few' | 'soldout';
 
@@ -37,6 +38,7 @@ const SPOT_STATUS_CLASS: Record<SpotStatus, string> = {
 
 export function Events() {
   const { t } = useLanguage();
+  const { isAuthenticated } = useAuth();
 
   return (
     <div className="min-h-screen bg-white">
@@ -46,7 +48,10 @@ export function Events() {
           <p className="text-lg opacity-90">{t('events.subtitle')}</p>
         </div>
       </div>
-      <EventsBrowser />
+      {/* Any authenticated viewer (student, staff, admin...) sees the
+          available/few-left/sold-out badge, never the raw enrolled count —
+          this page just forgot to pass that through, unlike EventsSection. */}
+      <EventsBrowser showAvailableSpots={isAuthenticated} />
     </div>
   );
 }
@@ -75,6 +80,9 @@ export function EventsBrowser({
     accessToken,
     { active: true, exclude_children: true },
   );
+  // Fetched once here and passed down — each EventCard used to fetch its
+  // own identical copy via EventJoinPanel, one GET per card rendered.
+  const { userMemberships, cancel: cancelMembership } = useUserMemberships(accessToken);
 
   // Keep hook filters in sync with UI filter controls.
   // `active` (end_date hasn't passed) rather than `upcoming` (start_date
@@ -157,7 +165,7 @@ export function EventsBrowser({
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filtered.map(event => (
-                  <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} showAvailableSpots={showAvailableSpots} />
+                  <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} showAvailableSpots={showAvailableSpots} userMemberships={userMemberships} cancel={cancelMembership} />
                 ))}
               </div>
             )}
@@ -244,7 +252,7 @@ export function EventsBrowser({
                 <div className="space-y-4">
                   {eventsOnSelectedDate.length > 0 ? (
                     eventsOnSelectedDate.map(event => (
-                      <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} showAvailableSpots={showAvailableSpots} />
+                      <EventCard key={event.id} event={event} isAuthenticated={isAuthenticated} language={language} showAvailableSpots={showAvailableSpots} userMemberships={userMemberships} cancel={cancelMembership} />
                     ))
                   ) : (
                     <Card>
@@ -270,11 +278,15 @@ function EventCard({
   isAuthenticated,
   language,
   showAvailableSpots = false,
+  userMemberships,
+  cancel,
 }: {
   event: EventItem;
   isAuthenticated: boolean;
   language: string;
   showAvailableSpots?: boolean;
+  userMemberships: UserMembership[];
+  cancel: (id: number) => Promise<void>;
 }) {
   const navigate = useNavigate();
 
@@ -352,7 +364,7 @@ function EventCard({
         {event.info && (
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">{event.info}</p>
         )}
-        <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} />
+        <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} userMemberships={userMemberships} cancel={cancel} />
       </CardContent>
     </Card>
   );

@@ -1,12 +1,17 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, ChevronDown, ChevronUp, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { ArrowLeft, ChevronDown, ChevronUp, Loader2, CheckCircle, AlertCircle, Lock } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useEvents, type EventItem } from '../hooks/useEvents';
 import { useFestivalDays, type FestivalDay, type FestivalRoom } from '../hooks/useFestivalDays';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+
+// Sentinel role value meaning "let me pick a role for each class
+// individually" instead of one role applied to every selection.
+const FLEXIBLE_ROLE = '__flexible__';
 
 // ── Grid constants ────────────────────────────────────────────────────────────
 
@@ -47,6 +52,7 @@ function DayScheduleGrid({
   day,
   dayEvents,
   selectedEventIds,
+  fixedEventIds,
   blockedEventIds,
   canSelectMore,
   onToggleEvent,
@@ -54,6 +60,7 @@ function DayScheduleGrid({
   day: FestivalDay;
   dayEvents: EventItem[];
   selectedEventIds: Set<number>;
+  fixedEventIds: Set<number>;
   blockedEventIds: Set<number>;
   canSelectMore: boolean;
   onToggleEvent: (id: number) => void;
@@ -144,21 +151,24 @@ function DayScheduleGrid({
                 const top = minutesToTop(startM);
                 const height = Math.max((endM - startM) * PIXELS_PER_MINUTE, 24);
 
-                const isSelected = selectedEventIds.has(ev.id);
-                const isDisabled = !isSelected && (!canSelectMore || blockedEventIds.has(ev.id));
+                const isFixed = fixedEventIds.has(ev.id);
+                const isSelected = isFixed || selectedEventIds.has(ev.id);
+                const isDisabled = !isFixed && !isSelected && (!canSelectMore || blockedEventIds.has(ev.id));
 
                 return (
                   <div
                     key={ev.id}
-                    onClick={() => !isDisabled && onToggleEvent(ev.id)}
+                    onClick={() => !isFixed && onToggleEvent(ev.id)}
                     className={[
                       'absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 transition-all',
-                      isDisabled ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer hover:brightness-110 active:scale-[0.98]',
+                      isFixed ? 'cursor-not-allowed' : isDisabled ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer hover:brightness-110 active:scale-[0.98]',
                       isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent brightness-110' : '',
                     ].join(' ')}
                     style={{ top, height, backgroundColor: ev.color ?? '#e67e22' }}
                   >
-                    {isSelected && (
+                    {isFixed ? (
+                      <Lock className="absolute top-1 right-1 size-3 text-white drop-shadow" />
+                    ) : isSelected && (
                       <CheckCircle className="absolute top-1 right-1 size-3 text-white drop-shadow" />
                     )}
                     <div className="font-medium truncate leading-tight pr-4">{ev.name}</div>
@@ -189,7 +199,9 @@ function RegistrationPanel({
   selectedRoleId,
   onRoleChange,
   maxEvents,
-  selectedCount,
+  selectedEvents,
+  perEventRoleIds,
+  onPerEventRoleChange,
   onSuccess,
 }: {
   festival: EventItem;
@@ -199,30 +211,43 @@ function RegistrationPanel({
   selectedRoleId: string;
   onRoleChange: (v: string) => void;
   maxEvents: number | null;
-  selectedCount: number;
+  selectedEvents: EventItem[];
+  perEventRoleIds: Record<number, string>;
+  onPerEventRoleChange: (eventId: number, roleId: string) => void;
   onSuccess: () => void;
 }) {
   const { t, language } = useLanguage();
   const hasRoles = festival.event_type.partners > 0 && festival.event_type.partner_roles.length > 0;
   const hasMemberships = festival.memberships.length > 0;
+  const isFlexible = selectedRoleId === FLEXIBLE_ROLE;
+  const selectedCount = selectedEvents.length;
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   const remaining = maxEvents !== null ? maxEvents - selectedCount : null;
   const hasSelectedAll = maxEvents === null || selectedCount >= maxEvents;
+  const allPerEventRolesSet = selectedEvents.every(ev => !!perEventRoleIds[ev.id]);
+  const roleSatisfied = !hasRoles || (isFlexible ? allPerEventRolesSet : !!selectedRoleId);
 
   const canRegister =
     (!hasMemberships || !!selectedMembershipId) &&
-    (!hasRoles || !!selectedRoleId) &&
+    roleSatisfied &&
     hasSelectedAll;
 
   const handleRegister = async () => {
     if (!accessToken) return;
     setStatus('loading');
     try {
-      const body: Record<string, unknown> = { event_id: festival.id };
+      const body: Record<string, unknown> = {
+        event_id: festival.id,
+        event_ids: selectedEvents.map(ev => ({
+          event_id: ev.id,
+          role_id: isFlexible
+            ? (perEventRoleIds[ev.id] ? Number(perEventRoleIds[ev.id]) : null)
+            : (selectedRoleId ? Number(selectedRoleId) : null),
+        })),
+      };
       if (selectedMembershipId) body.membership_id = Number(selectedMembershipId);
-      if (selectedRoleId) body.role_id = Number(selectedRoleId);
       const res = await fetch('/api/booking/my-memberships/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
@@ -277,6 +302,7 @@ function RegistrationPanel({
                 {festival.event_type.partner_roles.map(r => (
                   <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                 ))}
+                <SelectItem value={FLEXIBLE_ROLE}>{t('festival.registration.flexibleRole')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -303,6 +329,35 @@ function RegistrationPanel({
             : `Select ${remaining} more ${remaining === 1 ? 'event' : 'events'} to register`}
         </p>
       )}
+      {isFlexible && selectedEvents.length > 0 && (
+        <div className="space-y-2 pt-1">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+            {t('festival.registration.rolePerClass')}
+          </p>
+          <div className="space-y-1.5">
+            {selectedEvents.map(ev => (
+              <div key={ev.id} className="flex items-center justify-between gap-3 bg-white border rounded-md px-3 py-1.5">
+                <span className="text-sm text-[#2b2b2b] truncate">
+                  {ev.name} — {ev.start_date.slice(11, 16)}
+                </span>
+                <Select
+                  value={perEventRoleIds[ev.id] ?? ''}
+                  onValueChange={v => onPerEventRoleChange(ev.id, v)}
+                >
+                  <SelectTrigger className="w-36 h-8 text-xs">
+                    <SelectValue placeholder={t('festival.registration.selectRole')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {festival.event_type.partner_roles.map(r => (
+                      <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -327,6 +382,8 @@ export function FestivalSchedulePage() {
   const [selectedMembershipId, setSelectedMembershipId] = useState('');
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
+  // Per-class role, only used when selectedRoleId === FLEXIBLE_ROLE.
+  const [perEventRoleIds, setPerEventRoleIds] = useState<Record<number, string>>({});
 
   // Open first day once loaded
   useEffect(() => {
@@ -339,6 +396,7 @@ export function FestivalSchedulePage() {
   // Reset event selection when membership changes
   useEffect(() => {
     setSelectedEventIds(new Set());
+    setPerEventRoleIds({});
   }, [selectedMembershipId]);
 
   const festival = useMemo(() => events.find(e => e.id === festivalId) ?? null, [events, festivalId]);
@@ -349,22 +407,42 @@ export function FestivalSchedulePage() {
     return events.filter(e => ids.has(e.id));
   }, [events, festival]);
 
-  // Events that conflict in time with any currently selected event
-  const blockedEventIds = useMemo(() => {
-    const selectedEvents = childEvents.filter(e => selectedEventIds.has(e.id));
-    const blocked = new Set<number>();
-    for (const ev of childEvents) {
-      if (selectedEventIds.has(ev.id)) continue;
-      if (selectedEvents.some(sel => eventsOverlap(ev, sel))) blocked.add(ev.id);
-    }
-    return blocked;
-  }, [childEvents, selectedEventIds]);
-
-  // Derive max_events from the selected membership (null = unlimited)
+  // Derive max_events from the selected membership (null = unlimited).
   const selectedMembership = useMemo(
     () => festival?.memberships.find(m => String(m.id) === selectedMembershipId) ?? null,
     [festival, selectedMembershipId],
   );
+
+  // fix_events (bundled with the plan, e.g. a festival party) are shown
+  // pre-selected and locked — the student can't remove them, and they
+  // don't need to be (re)submitted: the backend adds them automatically.
+  const fixedEventIds = useMemo(
+    () => new Set(selectedMembership?.fix_events.map(e => e.id) ?? []),
+    [selectedMembership],
+  );
+  const fixedChildEvents = useMemo(
+    () => childEvents.filter(e => fixedEventIds.has(e.id)),
+    [childEvents, fixedEventIds],
+  );
+
+  const selectedEvents = useMemo(
+    () => childEvents.filter(e => selectedEventIds.has(e.id)),
+    [childEvents, selectedEventIds],
+  );
+
+  // Events that conflict in time with any currently selected OR fixed event
+  const blockedEventIds = useMemo(() => {
+    const occupying = [...selectedEvents, ...fixedChildEvents];
+    const blocked = new Set<number>();
+    for (const ev of childEvents) {
+      if (selectedEventIds.has(ev.id) || fixedEventIds.has(ev.id)) continue;
+      if (occupying.some(sel => eventsOverlap(ev, sel))) blocked.add(ev.id);
+    }
+    return blocked;
+  }, [childEvents, selectedEventIds, selectedEvents, fixedChildEvents, fixedEventIds]);
+
+  // max_events is how many the student picks themselves — fix_events are
+  // additional, booked on top, never counted against this number.
   const maxEvents: number | null = selectedMembership?.max_events ?? null;
   const remaining: number | null = maxEvents === null ? null : maxEvents - selectedEventIds.size;
   // Can select more if: unlimited (null), or remaining > 0
@@ -379,16 +457,29 @@ export function FestivalSchedulePage() {
       return next;
     });
 
-  const toggleEvent = (eventId: number) =>
-    setSelectedEventIds(prev => {
-      const next = new Set(prev);
-      if (next.has(eventId)) {
+  const toggleEvent = (eventId: number) => {
+    if (selectedEventIds.has(eventId)) {
+      setSelectedEventIds(prev => {
+        const next = new Set(prev);
         next.delete(eventId);
-      } else if (canSelectMore && !blockedEventIds.has(eventId)) {
-        next.add(eventId);
-      }
-      return next;
-    });
+        return next;
+      });
+      setPerEventRoleIds(prev => {
+        const { [eventId]: _removed, ...rest } = prev;
+        return rest;
+      });
+      return;
+    }
+    if (blockedEventIds.has(eventId)) return;
+    if (!canSelectMore) {
+      toast.error(t('festival.schedule.maxEventsError'));
+      return;
+    }
+    setSelectedEventIds(prev => new Set(prev).add(eventId));
+  };
+
+  const handlePerEventRoleChange = (eventId: number, roleId: string) =>
+    setPerEventRoleIds(prev => ({ ...prev, [eventId]: roleId }));
 
   if (loadingEvents || loadingDays) {
     return (
@@ -432,7 +523,9 @@ export function FestivalSchedulePage() {
         selectedRoleId={selectedRoleId}
         onRoleChange={setSelectedRoleId}
         maxEvents={maxEvents}
-        selectedCount={selectedEventIds.size}
+        selectedEvents={selectedEvents}
+        perEventRoleIds={perEventRoleIds}
+        onPerEventRoleChange={handlePerEventRoleChange}
         onSuccess={() => navigate('/events')}
       />
 
@@ -493,6 +586,7 @@ export function FestivalSchedulePage() {
                       day={day}
                       dayEvents={dayEvents}
                       selectedEventIds={selectedEventIds}
+                      fixedEventIds={fixedEventIds}
                       blockedEventIds={blockedEventIds}
                       canSelectMore={canSelectMore}
                       onToggleEvent={toggleEvent}
