@@ -6,10 +6,10 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status as http_status
 
-from booking.models import Contribution, ContributionStatus
+from booking.models import Booking, Contribution, ContributionStatus
 from event.models import (
     Artist, ArtistType, Event, EventType, Frequency, Genre, Level, Location,
-    Room, Status, Style, Type,
+    PartnerRole, Room, Status, Style, Type,
 )
 from membership.models import Membership, MembershipRule, MembershipType
 from users.models import City, User
@@ -214,3 +214,97 @@ class TestEventListPayloadRegression:
 
 def deps_city_name(deps):
     return deps["room"].location.city.name
+
+
+# ── children-availability (per-child colors for a free-choice festival) ──────
+
+CHILDREN_AVAILABILITY_QUERY_BUDGET = 10
+
+
+def availability_url(festival_id):
+    return f"{LIST_URL}{festival_id}/children-availability/"
+
+
+def get_availability_with_query_count(client, festival_id):
+    with CaptureQueriesContext(connection) as ctx:
+        response = client.get(availability_url(festival_id))
+    assert response.status_code == http_status.HTTP_200_OK
+    return len(ctx.captured_queries), response
+
+
+def seed_free_festival(n_children, bookings_per_child=2):
+    """A free-choice festival with n_children, each with its own
+    accepted Leader/Follower bookings (role lives on Booking, not
+    Contribution) — enough to exercise the per-child role-count query."""
+    event_type = EventType.objects.create(name="Free Fest Type", frequency=Frequency.SINGLE, partners=2)
+    leader = PartnerRole.objects.create(name="Leader")
+    follower = PartnerRole.objects.create(name="Follower")
+    event_type.partner_roles.set([leader, follower])
+
+    room = Room.objects.create(
+        name="QC Room",
+        location=Location.objects.create(name="QC Loc", address="Via Test 1", city=City.objects.first()),
+        capacity=100,
+    )
+    now = timezone.now()
+    festival = Event.objects.create(
+        name="Query Count Festival", status=Status.PUBLISHED, event_type=event_type,
+        type=Type.MEMBERS, room=room,
+        start_date=now - timedelta(days=1), end_date=now + timedelta(days=10),
+        duration=60, capacity=100, multi_events=True, free=True,
+    )
+
+    children = []
+    for i in range(n_children):
+        child = Event.objects.create(
+            name=f"Child {i}", status=Status.PUBLISHED, event_type=event_type,
+            type=Type.MEMBERS, room=festival.room,
+            start_date=now + timedelta(hours=i + 1), end_date=now + timedelta(hours=i + 2),
+            duration=60, capacity=20, extras=2, warning_threshold=3,
+        )
+        child.accepted_roles.set([leader, follower])
+        for j in range(bookings_per_child):
+            student = User.objects.create_user(
+                email=f"fest{festival.pk}-child{i}-booker{j}@test.com",
+                password="StrongPass123!", is_active=True,
+            )
+            contribution = Contribution.objects.create(
+                status=ContributionStatus.ACCEPTED, amount=10, user=student,
+            )
+            Booking.objects.create(
+                user=student, event=child, contribution=contribution,
+                role=leader if j % 2 == 0 else follower,
+            )
+        children.append(child)
+
+    festival.events.set(children)
+    return festival, children
+
+
+class TestChildrenAvailabilityQueryCount:
+
+    def test_query_count_does_not_grow_with_children(self, staff_client, world_data):
+        small_festival, _ = seed_free_festival(2)
+        staff_client.get(availability_url(small_festival.id))  # warm up
+        small_count, small_response = get_availability_with_query_count(staff_client, small_festival.id)
+
+        large_festival, large_children = seed_free_festival(8)
+        large_count, large_response = get_availability_with_query_count(staff_client, large_festival.id)
+
+        assert len(large_response.data) == 8
+        assert len(small_response.data) == 2
+        assert large_count == small_count, (
+            f"Query count grew from {small_count} to {large_count} when the festival "
+            f"went from 2 to {len(large_children)} children: the endpoint has N+1 queries."
+        )
+
+    def test_stays_within_query_budget(self, staff_client, world_data):
+        festival, children = seed_free_festival(8)
+        staff_client.get(availability_url(festival.id))
+        count, response = get_availability_with_query_count(staff_client, festival.id)
+
+        assert len(response.data) == 8
+        assert count <= CHILDREN_AVAILABILITY_QUERY_BUDGET, (
+            f"children-availability used {count} queries "
+            f"(budget {CHILDREN_AVAILABILITY_QUERY_BUDGET})."
+        )
