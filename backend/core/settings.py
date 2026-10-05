@@ -163,6 +163,9 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@bounce.com")
 POST_OFFICE = {
     'DEFAULT_PRIORITY': 'now',
     'CELERY_ENABLED': True,
+    'BACKENDS': {
+        'default': env("POST_OFFICE_EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend"),
+    },
 }
 
 # Django's default cache is per-process (LocMemCache); web and celery_worker
