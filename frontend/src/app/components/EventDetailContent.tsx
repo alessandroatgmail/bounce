@@ -11,6 +11,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './
 import { EventJoinPanel } from './EventJoinPanel';
 import { EventScheduleTable } from './EventScheduleTable';
 import { EventWeeklySchedule } from './EventWeeklySchedule';
+import { useUserMemberships } from '../hooks/useUserMemberships';
 
 // The event's full description (image, title, rendered HTML), with a back
 // arrow. Used both as a standalone page (public visitors) and nested inside
@@ -20,6 +21,9 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
   const { language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
   const it = language === 'it';
+  // Fetched once and shared by both EventJoinPanel instances below (the
+  // page shows the join panel twice, above and below the description).
+  const { userMemberships, cancel } = useUserMemberships(accessToken);
 
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,7 +81,7 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
           <h1 className="text-3xl font-bold text-[#2b2b2b] mb-6">{event.name}</h1>
 
           <div className="mb-8">
-            <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} />
+            <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} userMemberships={userMemberships} cancel={cancel} />
           </div>
 
           {event.effective_image && (
@@ -158,7 +162,7 @@ export function EventDetailContent({ eventId, onBack }: { eventId: number; onBac
           )}
 
           <div className="mt-8">
-            <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} />
+            <EventJoinPanel event={event} isAuthenticated={isAuthenticated} language={language} userMemberships={userMemberships} cancel={cancel} />
           </div>
         </>
       )}

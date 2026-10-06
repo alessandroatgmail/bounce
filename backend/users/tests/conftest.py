@@ -83,6 +83,10 @@ def override_test_settings(settings):
     settings.TESTING = True
     settings.REDIS_TEST_URL = "redis://redis:6379/2"
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    settings.POST_OFFICE = {
+        **settings.POST_OFFICE,
+        'BACKENDS': {'default': 'django.core.mail.backends.locmem.EmailBackend'},
+    }
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
     settings.CHANNEL_LAYERS = {

@@ -12,6 +12,9 @@ export interface EventMembership {
   max_events: number;
   duration: number;
   couple: boolean;
+  // Bonus events bundled with the plan regardless of what's picked (e.g. a
+  // festival party) — shown pre-selected and locked in the schedule.
+  fix_events: { id: number; name: string }[];
 }
 
 export interface EventItem {

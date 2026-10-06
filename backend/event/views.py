@@ -4,6 +4,7 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework import status as drf_status
+from rest_framework.decorators import action
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -13,7 +14,7 @@ from .paginations import EventPagination
 from .filters import EventFilter
 
 from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole, EventDescription
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventDetailSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventDetailSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer, _child_event_counts_for, _level_colors
 import logging
 logger = logging.getLogger('event view')
 logger.setLevel(logging.INFO)
@@ -145,9 +146,45 @@ class EventViewSet(viewsets.ModelViewSet):
     filterset_class = EventFilter
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"):
+        if self.action in ("list", "retrieve", "children_availability"):
             return [AllowAny()]
         return [IsAdminUser()]
+
+    @action(detail=True, methods=['get'], url_path='children-availability')
+    def children_availability(self, request, pk=None):
+        """Per-child-event availability colors for a free-choice festival
+        (multi_events=True, free=True) — [] for anything else, same as
+        children_levels does for the fixed-choice case. Each child gets
+        its own color(s) per partner role, independent of every other
+        child, since booking one doesn't book the others.
+
+        Looks the festival up directly rather than through get_object()/
+        get_queryset() — that queryset carries a dozen prefetches meant
+        for serializing a full list page, all dead weight for fetching
+        one row here.
+        """
+        user = request.user
+        base_qs = Event.objects.all() if (user.is_authenticated and user.is_staff) else Event.objects.filter(status=Status.PUBLISHED)
+        festival = get_object_or_404(base_qs, pk=pk)
+        if not (festival.multi_events and festival.free):
+            return Response([])
+
+        children = list(
+            festival.events.all()
+            .select_related('event_type')
+            .prefetch_related('accepted_roles', 'event_type__partner_roles')
+        )
+        child_ids = [child.id for child in children]
+        counts = _child_event_counts_for(child_ids)
+        result = []
+        for child in children:
+            roles_seen = counts.get(child.id, {})
+            available_spot = child.capacity - sum(roles_seen.values())
+            result.append({
+                'event_id': child.id,
+                'colors': _level_colors(child, available_spot, roles_seen),
+            })
+        return Response(result)
 
     def get_queryset(self):
         from booking.models import Contribution, ContributionStatus
