@@ -22,7 +22,7 @@ const SECTION_LABELS = {
   profile:  { it: 'Profilo',   en: 'Profile'  },
   contacts: { it: 'Contatti',  en: 'Contacts' },
   qrcode:   { it: 'QR Code',   en: 'QR Code'  },
-  scan:     { it: 'Scansiona', en: 'Scan'     },
+  scan:     { it: 'Registri',  en: 'Registers' },
 };
 
 const VALID_SECTIONS: Section[] = ['events', 'payments', 'profile', 'contacts', 'qrcode', 'scan'];

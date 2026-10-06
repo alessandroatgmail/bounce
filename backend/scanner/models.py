@@ -26,6 +26,12 @@ class Log(models.Model):
         return f"{self.user.email} - {self.event.name}"
 
     def append_error(self, message: str, scanned_user=None) -> None:
+        self._append(message, scanned_user)
+
+    def append_note(self, message: str, scanned_user=None) -> None:
+        self._append(message, scanned_user)
+
+    def _append(self, message: str, scanned_user=None) -> None:
         who = f"{scanned_user.email}: " if scanned_user is not None else ""
         line = f"[{timezone.now().isoformat()}] {who}{message}"
         self.logs = f"{self.logs}\n{line}" if self.logs else line
