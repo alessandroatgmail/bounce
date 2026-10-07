@@ -30,7 +30,7 @@ class RegisterListView(APIView):
         bookings = (
             Booking.objects.filter(event=event)
             .select_related("user", "contribution")
-            .order_by("id")
+            .order_by("user__first_name", "user__last_name")
         )
         rows = [
             {
