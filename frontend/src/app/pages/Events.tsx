@@ -12,8 +12,9 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import type { EventItem } from '../hooks/useEvents';
 import { useEventsPaginated } from '../hooks/useEventsPaginated';
-import { useEventTypes } from '../hooks/useEventTypes';
-import { useLevels } from '../hooks/useLevels';
+import { useCities } from '../hooks/useCities';
+import { useStyles } from '../hooks/useStyles';
+import { FREQUENCIES } from '../hooks/useEventTypes';
 import { useUserMemberships, type UserMembership } from '../hooks/useUserMemberships';
 
 type SpotStatus = 'available' | 'few' | 'soldout';
@@ -67,14 +68,13 @@ export function EventsBrowser({
   const { t, language } = useLanguage();
   const { accessToken, isAuthenticated } = useAuth();
 
-  const [filterType, setFilterType] = useState<string>('all');
-  const [filterLevel, setFilterLevel] = useState<string>('all');
+  const [filterCity, setFilterCity] = useState<string>('all');
+  const [filterStyle, setFilterStyle] = useState<string>('all');
+  const [filterFrequency, setFilterFrequency] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
 
-  const { eventTypes } = useEventTypes(accessToken);
-  const { levels } = useLevels(accessToken);
-  const allTypes = useMemo(() => eventTypes.map(et => et.name).sort(), [eventTypes]);
-  const allLevels = useMemo(() => levels.map(l => l.name).sort(), [levels]);
+  const { cities } = useCities(accessToken);
+  const { styles } = useStyles(accessToken);
 
   const { events, count, page, pageSize, loading, setPage, setFilters } = useEventsPaginated(
     accessToken,
@@ -92,10 +92,11 @@ export function EventsBrowser({
     setFilters({
       active: true,
       exclude_children: true,
-      event_type: filterType !== 'all' ? filterType : undefined,
-      level: filterLevel !== 'all' ? filterLevel : undefined,
+      city_id: filterCity !== 'all' ? Number(filterCity) : undefined,
+      style_id: filterStyle !== 'all' ? Number(filterStyle) : undefined,
+      frequency: filterFrequency !== 'all' ? filterFrequency : undefined,
     });
-  }, [filterType, filterLevel, setFilters]);
+  }, [filterCity, filterStyle, filterFrequency, setFilters]);
 
   const filtered = filterMyBookings ? events.filter(e => e.already_booked) : events;
 
@@ -116,27 +117,39 @@ export function EventsBrowser({
       <div className="mb-6 flex gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <Filter className="size-5 text-[#2b2b2b]" />
-          <Select value={filterType} onValueChange={setFilterType}>
+          <Select value={filterCity} onValueChange={setFilterCity}>
             <SelectTrigger className="w-[180px] border-[#d4b896]">
-              <SelectValue placeholder={it ? 'Tipo di Evento' : 'Event Type'} />
+              <SelectValue placeholder={t('events.filter.city')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t('events.filter.all')}</SelectItem>
-              {allTypes.map(type => (
-                <SelectItem key={type} value={type}>{type}</SelectItem>
+              <SelectItem value="all">{t('events.filter.allCities')}</SelectItem>
+              {cities.map(city => (
+                <SelectItem key={city.id} value={String(city.id)}>{city.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        <Select value={filterLevel} onValueChange={setFilterLevel}>
+        <Select value={filterStyle} onValueChange={setFilterStyle}>
           <SelectTrigger className="w-[180px] border-[#d4b896]">
-            <SelectValue placeholder={it ? 'Livello' : 'Level'} />
+            <SelectValue placeholder={t('events.filter.style')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{it ? 'Tutti i Livelli' : 'All Levels'}</SelectItem>
-            {allLevels.map(level => (
-              <SelectItem key={level} value={level}>{level}</SelectItem>
+            <SelectItem value="all">{t('events.filter.allStyles')}</SelectItem>
+            {styles.map(style => (
+              <SelectItem key={style.id} value={String(style.id)}>{style.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filterFrequency} onValueChange={setFilterFrequency}>
+          <SelectTrigger className="w-[180px] border-[#d4b896]">
+            <SelectValue placeholder={t('events.filter.frequency')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('events.filter.allFrequencies')}</SelectItem>
+            {FREQUENCIES.map(f => (
+              <SelectItem key={f.value} value={f.value}>{t(`events.filter.frequency.${f.value}`)}</SelectItem>
             ))}
           </SelectContent>
         </Select>

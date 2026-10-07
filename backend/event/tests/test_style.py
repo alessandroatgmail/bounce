@@ -15,13 +15,18 @@ def detail_url(pk):
 
 class TestStylePermissions:
 
-    def test_unauthenticated_request_returns_401(self, client, db):
-        response = client.get(LIST_URL)
+    def test_unauthenticated_request_to_detail_returns_401(self, client, db):
+        style = Style.objects.create(**make_style_payload())
+        response = client.get(detail_url(style.pk))
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_student_cannot_list_styles(self, student_client, db):
+    def test_unauthenticated_can_list_styles(self, client, db):
+        response = client.get(LIST_URL)
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_student_can_list_styles(self, student_client, db):
         response = student_client.get(LIST_URL)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
 
     def test_student_cannot_create_style(self, student_client, db):
         response = student_client.post(LIST_URL, make_style_payload(), format="json")

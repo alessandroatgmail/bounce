@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 from .views import EventTypeViewSet, LocationViewSet, RoomViewSet, StyleViewSet, GenreViewSet, ArtistTypeViewSet, \
     ArtistViewSet, LevelViewSet, EventViewSet, EventDetailView, EventAdminListView, PartnerRoleViewSet, \
-    EventRegisterView, EventDescriptionViewSet
+    EventRegisterView, EventDescriptionViewSet, EventCitiesView
 
 router = SimpleRouter()
 router.register("partner-roles", PartnerRoleViewSet, basename="partner-role")
@@ -20,5 +20,6 @@ router.register("event-descriptions", EventDescriptionViewSet, basename="event-d
 urlpatterns = [
     path("register/<int:event_id>/", EventRegisterView.as_view(), name="event-register"),
     path("admin/", EventAdminListView.as_view(), name="event-admin-list"),
+    path("cities/", EventCitiesView.as_view(), name="event-cities"),
     path("events/<int:pk>/detail/", EventDetailView.as_view(), name="event-detail"),
 ] + router.urls
