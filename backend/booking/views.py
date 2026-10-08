@@ -38,7 +38,8 @@ class ExtraItemViewSet(viewsets.ModelViewSet):
         earliest_event = Event.objects.filter(contributions=OuterRef('pk')).order_by('start_date')
         qs = (
             Contribution.objects
-            .filter(extra_items__name='ACSI Membership')
+            # .filter(extra_items__name='ACSI Membership')
+            .filter(extra_items__name__icontains='ACSI')
             .exclude(status=ContributionStatus.CANCELLED)
             .select_related('user')
             .annotate(

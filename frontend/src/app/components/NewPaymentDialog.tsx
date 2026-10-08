@@ -3,7 +3,7 @@ import { Loader2, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { type Transaction, type TransactionPayload, type PaymentStatus } from '../hooks/usePayments';
-import { useContributions } from '../hooks/useContributions';
+import { useContributions, type ContributionStatus } from '../hooks/useContributions';
 import { useMemberships } from '../hooks/useMemberships';
 import { type UserListItem } from '../hooks/useUserList';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -14,6 +14,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea';
 import { UserPickerInput } from './UserPickerInput';
 
+// Same labels/colors as the contribution status chip in StudentMembershipDialog.
+const CONTRIBUTION_STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
+  received:  { it: 'Ricevuto',       en: 'Received'  },
+  accepted:  { it: 'Accettato',      en: 'Accepted'  },
+  confirmed: { it: 'Confermato',     en: 'Confirmed' },
+  payed:     { it: 'Pagato',         en: 'Paid'      },
+  cancelled: { it: 'Annullato',      en: 'Cancelled' },
+  waiting:   { it: 'In attesa',      en: 'Waiting'   },
+  approving: { it: 'In approvazione', en: 'Approving' },
+};
+
+const CONTRIBUTION_STATUS_BADGE: Record<ContributionStatus, string> = {
+  received:  'bg-yellow-100 text-yellow-800 border-yellow-200',
+  accepted:  'bg-blue-100 text-blue-800 border-blue-200',
+  confirmed: 'bg-green-100 text-green-800 border-green-200',
+  payed:     'bg-purple-100 text-purple-800 border-purple-200',
+  cancelled: 'bg-red-100 text-red-800 border-red-200',
+  waiting:   'bg-gray-100 text-gray-600 border-gray-200',
+  approving: 'bg-orange-100 text-orange-800 border-orange-200',
+};
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -21,13 +42,19 @@ interface Props {
   onUpdate: (id: number, payload: TransactionPayload) => Promise<void>;
   // Present → edit that transaction instead of creating a new one.
   editTransaction?: Transaction | null;
+  // Present (and not editing) → preselect this user and contribution, e.g.
+  // when opened from a specific contribution row elsewhere in the admin.
+  prefillUser?: Pick<UserListItem, 'id' | 'first_name' | 'last_name'> & { email?: string } | null;
+  prefillContributionId?: number | null;
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const PAYABLE_STATUSES = ['received', 'accepted', 'confirmed', 'waiting'];
 
-export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editTransaction }: Props) {
+export function NewPaymentDialog({
+  open, onOpenChange, onCreate, onUpdate, editTransaction, prefillUser, prefillContributionId,
+}: Props) {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const { memberships } = useMemberships(accessToken);
@@ -38,8 +65,10 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
   const { contributions } = useContributions(accessToken ?? '', userId);
   // Editing must not silently drop a contribution the transaction already
   // links just because it's no longer in a "payable" status (e.g. an admin
-  // separately marked it PAYED after this transaction was created).
+  // separately marked it PAYED after this transaction was created). Same
+  // for a contribution we were asked to preselect on open.
   const linkedIds = new Set(editTransaction?.contributions.map(c => c.id) ?? []);
+  if (prefillContributionId != null) linkedIds.add(prefillContributionId);
   const payableContributions = contributions.filter(
     c => PAYABLE_STATUSES.includes(c.status) || linkedIds.has(c.id),
   );
@@ -55,8 +84,10 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // (Re)seed every field whenever the dialog opens — from editTransaction
-  // when editing, or blank defaults for a new payment. Covers reusing the
-  // same dialog instance for a different row without closing it first.
+  // when editing, from prefillUser/prefillContributionId when opened for a
+  // specific contribution, or blank defaults for a new payment otherwise.
+  // Covers reusing the same dialog instance for a different row without
+  // closing it first.
   useEffect(() => {
     if (!open) return;
     if (editTransaction) {
@@ -69,22 +100,32 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
       setSelectedContributionIds(editTransaction.contributions.map(c => c.id));
       setNotes(editTransaction.notes ?? '');
     } else {
-      setSelectedUser(null);
+      setSelectedUser(prefillUser ? {
+        id: prefillUser.id,
+        first_name: prefillUser.first_name,
+        last_name: prefillUser.last_name,
+        email: prefillUser.email ?? '',
+        phone: '',
+        role: '',
+        memberships: [],
+      } : null);
       setMethod('cash');
       setStatus('pending');
       setReceiptNumber('');
       setAmountTotal('');
       setDate(todayIso());
-      setSelectedContributionIds([]);
+      setSelectedContributionIds(prefillContributionId != null ? [prefillContributionId] : []);
       setNotes('');
     }
     setSaveError(null);
-  }, [open, editTransaction]);
+  }, [open, editTransaction, prefillUser, prefillContributionId]);
 
-  // Reset selected contributions whenever the user changes (create mode only)
-  useEffect(() => {
-    if (!isEdit) setSelectedContributionIds([]);
-  }, [selectedUser?.id, isEdit]);
+  // User picked manually (not the prefill above) → their previous
+  // contribution selection no longer applies.
+  const handleUserChange = (newUser: UserListItem | null) => {
+    setSelectedUser(newUser);
+    setSelectedContributionIds([]);
+  };
 
   const toggleContribution = (id: number) => {
     setSelectedContributionIds(ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]));
@@ -151,7 +192,7 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
               token={accessToken ?? ''}
               label={language === 'it' ? 'Utente' : 'User'}
               value={selectedUser}
-              onChange={setSelectedUser}
+              onChange={handleUserChange}
               placeholder={language === 'it' ? 'Cerca utente...' : 'Search user...'}
             />
           )}
@@ -173,6 +214,9 @@ export function NewPaymentDialog({ open, onOpenChange, onCreate, onUpdate, editT
                         onChange={() => toggleContribution(c.id)}
                       />
                       {membershipName(c.membership)} — €{c.discounted_amount}
+                      <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${CONTRIBUTION_STATUS_BADGE[c.status]}`}>
+                        {CONTRIBUTION_STATUS_LABEL[c.status][language === 'it' ? 'it' : 'en']}
+                      </span>
                     </label>
                   ))}
                 </div>

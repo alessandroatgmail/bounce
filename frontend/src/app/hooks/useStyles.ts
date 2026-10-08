@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authFetch } from '../../lib/api';
+import { apiUrl, authFetch } from '../../lib/api';
 
 const BASE = '/api/events/styles/';
 
@@ -16,11 +16,10 @@ export function useStyles(token: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
-    if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(BASE, token);
+      const res = token ? await authFetch(BASE, token) : await fetch(apiUrl(BASE));
       if (!res.ok) throw new Error(`${res.status}`);
       setStyles(await res.json());
     } catch {
