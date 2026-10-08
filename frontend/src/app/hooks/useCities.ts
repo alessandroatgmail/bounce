@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authFetch } from '../../lib/api';
+import { apiUrl, authFetch } from '../../lib/api';
 
 const BASE = '/api/events/cities/';
 
@@ -14,10 +14,9 @@ export function useCities(token: string | null) {
   const [loading, setLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
-    if (!token) return;
     setLoading(true);
     try {
-      const res = await authFetch(BASE, token);
+      const res = token ? await authFetch(BASE, token) : await fetch(apiUrl(BASE));
       if (!res.ok) throw new Error(`${res.status}`);
       setCities(await res.json());
     } finally {
