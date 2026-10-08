@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Pencil, Trash2, Plus, X } from 'lucide-react';
+import { Loader2, Pencil, Trash2, Plus, X, Euro } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useContributions, type Contribution, type ContributionPayload, type ContributionStatus } from '../hooks/useContributions';
 import { useDiscounts } from '../hooks/useDiscounts';
 import { useExtraItems } from '../hooks/useExtraItems';
 import { useMemberships, type Membership } from '../hooks/useMemberships';
+import { usePayments } from '../hooks/usePayments';
 import { type UserListItem } from '../hooks/useUserList';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -19,6 +20,7 @@ import { Textarea } from './ui/textarea';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { EventMultiSearchSelect } from './EventMultiSearchSelect';
 import { UserPickerInput } from './UserPickerInput';
+import { NewPaymentDialog } from './NewPaymentDialog';
 
 interface Props {
   user: Pick<UserListItem, 'id' | 'first_name' | 'last_name'> | null;
@@ -76,12 +78,14 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
     accessToken,
     user?.id ?? null,
   );
+  const { create: createPayment, update: updatePayment } = usePayments(accessToken, user?.id ?? null);
 
   const [editing, setEditing] = useState<Contribution | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [payingContribution, setPayingContribution] = useState<Contribution | null>(null);
 
   const discountItems = discounts.map(d => ({ id: d.id, name: d.name_ext || d.name }));
   const extraItemItems = extraItems.map(ei => ({ id: ei.id, name: `${ei.name} (+€${ei.value})` }));
@@ -93,6 +97,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
       setShowForm(false);
       setForm(emptyForm());
       setSaveError(null);
+      setPayingContribution(null);
     }
   }, [open]);
 
@@ -186,6 +191,7 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
     memberships.find(m => m.id === id)?.name ?? '—';
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -273,6 +279,16 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
                   )}
                 </div>
                 <div className="flex gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={() => setPayingContribution(c)}
+                    disabled={showForm}
+                    title={language === 'it' ? 'Registra pagamento' : 'Record payment'}
+                  >
+                    <Euro className="size-3.5" />
+                  </Button>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -439,5 +455,15 @@ export function StudentMembershipDialog({ user, open, onOpenChange, onChanged }:
         )}
       </DialogContent>
     </Dialog>
+
+    <NewPaymentDialog
+      open={!!payingContribution}
+      onOpenChange={open => { if (!open) setPayingContribution(null); }}
+      onCreate={async payload => { await createPayment(payload); onChanged?.(); }}
+      onUpdate={updatePayment}
+      prefillUser={user}
+      prefillContributionId={payingContribution?.id ?? null}
+    />
+    </>
   );
 }

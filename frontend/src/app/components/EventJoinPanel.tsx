@@ -83,8 +83,8 @@ export function EventJoinPanel({
   const [joinError, setJoinError] = useState<string | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<number | null>(null);
   // Per-contribution "also pay for partner" toggle, keyed by contribution
-  // id — defaults to included (true) until explicitly unchecked.
-  const [partnerExcluded, setPartnerExcluded] = useState<Set<number>>(new Set());
+  // id — defaults to excluded (false) until explicitly checked.
+  const [partnerIncluded, setPartnerIncluded] = useState<Set<number>>(new Set());
 
   const hasRoles = event.event_type.partners > 0 && event.event_type.partner_roles.length > 0;
   // Case 3 — festival, fixed choice: level + role + partner chosen once,
@@ -217,11 +217,14 @@ export function EventJoinPanel({
       partnerRole: partner?.role ?? null,
       amount: payer.amount,
       discounted_amount: payer.discounted_amount,
+      remaining_amount: payer.remaining_amount,
+      start_date: payer.start_date ?? null,
+      end_date: payer.end_date ?? null,
       discounts: payer.discounts.map(d => ({ id: d.id, name: d.name, name_ext: d.name_ext || null })),
       extra_items: payer.extra_items,
     });
     const items = [toItem(contribution, partner)];
-    if (partner && !partnerExcluded.has(contribution.id)) items.push(toItem(partner, contribution));
+    if (partner && partnerIncluded.has(contribution.id)) items.push(toItem(partner, contribution));
     navigate('/checkout', { state: { items } });
   }
 
@@ -257,7 +260,7 @@ export function EventJoinPanel({
             <div className="flex flex-col gap-1.5 w-full">
               {myContributions.map(c => {
                 const partner = c.status === 'accepted' ? getPartnerContribution(c) : undefined;
-                const partnerIncluded = !partnerExcluded.has(c.id);
+                const isPartnerIncluded = partnerIncluded.has(c.id);
                 return (
                   <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
                     <div className="flex flex-col gap-0.5 min-w-0">
@@ -277,10 +280,10 @@ export function EventJoinPanel({
                         <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={partnerIncluded}
-                            onChange={e => setPartnerExcluded(prev => {
+                            checked={isPartnerIncluded}
+                            onChange={e => setPartnerIncluded(prev => {
                               const next = new Set(prev);
-                              if (e.target.checked) next.delete(c.id); else next.add(c.id);
+                              if (e.target.checked) next.add(c.id); else next.delete(c.id);
                               return next;
                             })}
                           />
