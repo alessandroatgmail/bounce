@@ -1,7 +1,13 @@
 from django.contrib import admin
 
-from .models import Booking, Contribution
+from .models import Booking, Contribution, ExtraItem
 
+
+@admin.register(ExtraItem)
+class StyleAdmin(admin.ModelAdmin):
+    list_display = ("name",)
+    search_fields = ("name",)
+    ordering = ("name",)
 
 @admin.register(Booking)
 class BookingAdmin(admin.ModelAdmin):
