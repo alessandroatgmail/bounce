@@ -3,7 +3,7 @@ import { Loader2, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { type Transaction, type TransactionPayload, type PaymentStatus } from '../hooks/usePayments';
-import { useContributions } from '../hooks/useContributions';
+import { useContributions, type ContributionStatus } from '../hooks/useContributions';
 import { useMemberships } from '../hooks/useMemberships';
 import { type UserListItem } from '../hooks/useUserList';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -13,6 +13,27 @@ import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { UserPickerInput } from './UserPickerInput';
+
+// Same labels/colors as the contribution status chip in StudentMembershipDialog.
+const CONTRIBUTION_STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
+  received:  { it: 'Ricevuto',       en: 'Received'  },
+  accepted:  { it: 'Accettato',      en: 'Accepted'  },
+  confirmed: { it: 'Confermato',     en: 'Confirmed' },
+  payed:     { it: 'Pagato',         en: 'Paid'      },
+  cancelled: { it: 'Annullato',      en: 'Cancelled' },
+  waiting:   { it: 'In attesa',      en: 'Waiting'   },
+  approving: { it: 'In approvazione', en: 'Approving' },
+};
+
+const CONTRIBUTION_STATUS_BADGE: Record<ContributionStatus, string> = {
+  received:  'bg-yellow-100 text-yellow-800 border-yellow-200',
+  accepted:  'bg-blue-100 text-blue-800 border-blue-200',
+  confirmed: 'bg-green-100 text-green-800 border-green-200',
+  payed:     'bg-purple-100 text-purple-800 border-purple-200',
+  cancelled: 'bg-red-100 text-red-800 border-red-200',
+  waiting:   'bg-gray-100 text-gray-600 border-gray-200',
+  approving: 'bg-orange-100 text-orange-800 border-orange-200',
+};
 
 interface Props {
   open: boolean;
@@ -193,6 +214,9 @@ export function NewPaymentDialog({
                         onChange={() => toggleContribution(c.id)}
                       />
                       {membershipName(c.membership)} — €{c.discounted_amount}
+                      <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${CONTRIBUTION_STATUS_BADGE[c.status]}`}>
+                        {CONTRIBUTION_STATUS_LABEL[c.status][language === 'it' ? 'it' : 'en']}
+                      </span>
                     </label>
                   ))}
                 </div>
