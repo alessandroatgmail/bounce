@@ -14,7 +14,7 @@ from .paginations import EventPagination
 from .filters import EventFilter
 
 from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole, EventDescription
-from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventDetailSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer, _child_event_counts_for, _level_colors
+from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventDetailSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer, CitySerializer, _child_event_counts_for, _level_colors
 import logging
 logger = logging.getLogger('event view')
 logger.setLevel(logging.INFO)
@@ -96,6 +96,11 @@ class StyleViewSet(viewsets.ModelViewSet):
     queryset = Style.objects.all()
     serializer_class = StyleSerializer
     permission_classes = [IsAdminUser]
+
+    def get_permissions(self):
+        if self.action == "list":
+            return [AllowAny()]
+        return [IsAdminUser()]
 
 
 class GenreViewSet(viewsets.ModelViewSet):
@@ -427,6 +432,30 @@ class EventAdminListView(ListAPIView):
                 ),
             )
             .order_by("start_date")
+        )
+
+
+class EventCitiesView(ListAPIView):
+    """
+    GET /api/events/cities/ — cities that have at least one event, for
+    populating the student-facing city filter's select. Only cities with
+    a PUBLISHED event are shown to anonymous/student users, same
+    visibility rule as EventViewSet; staff also see draft-only cities.
+    """
+    serializer_class = CitySerializer
+    permission_classes = [AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        from users.models import City
+
+        user = self.request.user
+        event_filter = {} if (user.is_authenticated and user.is_staff) else {"location__room__event__status": Status.PUBLISHED}
+        return (
+            City.objects.filter(location__room__event__isnull=False, **event_filter)
+            .select_related("country")
+            .distinct()
+            .order_by("name")
         )
 
 
