@@ -32,6 +32,7 @@ class Contribution(models.Model):
     amount = models.DecimalField(decimal_places=2, max_digits=10)
     user = models.ForeignKey(get_user_model(), on_delete=models.PROTECT)
     date = models.DateTimeField(default=timezone.now)
+    accepted_date = models.DateTimeField(null=True, blank=True)
     events = models.ManyToManyField(Event, blank=True, related_name='contributions')
     membership = models.ForeignKey(Membership, on_delete=models.PROTECT, null=True, blank=True,
                                    related_name='contributions')
@@ -75,6 +76,17 @@ class Contribution(models.Model):
             self._previous_status in (ContributionStatus.ACCEPTED, ContributionStatus.APPROVING)
             and self.status == ContributionStatus.CANCELLED
         )
+        is_now_accepted = (
+            self.status == ContributionStatus.ACCEPTED
+            and self._previous_status != ContributionStatus.ACCEPTED
+        )
+
+        if is_now_accepted:
+            self.accepted_date = timezone.now()
+            update_fields = kwargs.get('update_fields')
+            if update_fields is not None:
+                kwargs['update_fields'] = set(update_fields) | {'accepted_date'}
+
         super().save(*args, **kwargs)
 
         if is_confirmation:

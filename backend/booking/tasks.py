@@ -30,7 +30,7 @@ def cancel_expired_contributions() -> None:
         event = contribution.events.first()
         if event is None:
             continue
-        deadline = contribution.date.date() + timedelta(days=event.payment_days)
+        deadline = (contribution.accepted_date or contribution.date).date() + timedelta(days=event.payment_days)
         logger.info(f"Contribution {contribution.id}: deadline={deadline}, today={today}, reminder_date={reminder_date}")
         if deadline < today:
             contribution.status = ContributionStatus.CANCELLED
@@ -111,7 +111,7 @@ def send_contribution_expiry_reminder_email(user_id: int, contribution_id: int) 
     user = User.objects.get(pk=user_id)
     contribution = Contribution.objects.get(pk=contribution_id)
     event = contribution.events.first()
-    deadline = contribution.date.date() + timedelta(days=event.payment_days)
+    deadline = (contribution.accepted_date or contribution.date).date() + timedelta(days=event.payment_days)
     context = {
         "user": user,
         "contribution": contribution,
