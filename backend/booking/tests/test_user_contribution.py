@@ -1343,7 +1343,9 @@ class TestCashOnlyRecurringEventPaymentReminder:
 
         # payment_days=5, backdated 3 days → deadline is 2 days away: the
         # reminder must fire even though this plan can only be paid cash.
-        Contribution.objects.filter(pk=contribution.pk).update(date=timezone.now() - timedelta(days=3))
+        # Backdate accepted_date, not date — the deadline counts from
+        # acceptance (this contribution went straight to ACCEPTED).
+        Contribution.objects.filter(pk=contribution.pk).update(accepted_date=timezone.now() - timedelta(days=3))
         cancel_expired_contributions()
 
         assert len(mail.outbox) == 1
@@ -1355,7 +1357,7 @@ class TestCashOnlyRecurringEventPaymentReminder:
 
         # Backdate further so the 5-day deadline has now passed with no
         # payment recorded — the contribution must be auto-cancelled.
-        Contribution.objects.filter(pk=contribution.pk).update(date=timezone.now() - timedelta(days=10))
+        Contribution.objects.filter(pk=contribution.pk).update(accepted_date=timezone.now() - timedelta(days=10))
         cancel_expired_contributions()
 
         contribution.refresh_from_db()
