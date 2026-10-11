@@ -15,7 +15,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useAuth } from '../contexts/AuthContext';
-import type { EventItem } from '../hooks/useEvents';
+import type { EventItem, EventMembership } from '../hooks/useEvents';
 import { extractErrorMessage } from '../hooks/useUserMemberships';
 import type { ExtraItem, ContributionStatus, UserMembership } from '../hooks/useUserMemberships';
 import type { CheckoutItem } from '../pages/CheckoutPage';
@@ -97,7 +97,10 @@ export function EventJoinPanel({
   // possible until an admin assigns levels.
   const festivalHasNoLevels = isFixedFestival && event.children_levels.length === 0;
   const needsExtraStep = hasRoles || hasLevelChoice;
+  // An events_only plan (e.g. a festival "Party Pass") never needs the
+  // role/level chosen above — it only ever books its own fix_events.
   const missingSelection = (hasRoles && !selectedRoleId) || (hasLevelChoice && !selectedLevelId);
+  const isMembershipBlocked = (m: EventMembership) => !m.events_only && missingSelection;
   const it = language === 'it';
   // Every contribution the current user holds for this event — a
   // recurring class can now be paid for in installments across several
@@ -149,12 +152,14 @@ export function EventJoinPanel({
     setJoinStatus('loading');
     setJoinError(null);
     try {
+      const membership = event.memberships.find(m => m.id === membershipId);
+      const eventsOnly = membership?.events_only ?? false;
       const body: Record<string, unknown> = { membership_id: membershipId, event_id: event.id };
-      if (hasRoles && selectedRoleId) body.role_id = selectedRoleId;
+      if (!eventsOnly && hasRoles && selectedRoleId) body.role_id = selectedRoleId;
       const trimmedPartnerEmail = partnerEmail.trim();
       if (partnerId) {
         body.partner_id = partnerId;
-      } else if (hasRoles && trimmedPartnerEmail.includes('@')) {
+      } else if (!eventsOnly && hasRoles && trimmedPartnerEmail.includes('@')) {
         // Partner has no account (or the lookup failed): keep the email
         // anyway so the couple is stored on the contribution.
         body.partner_email = trimmedPartnerEmail;
@@ -162,14 +167,15 @@ export function EventJoinPanel({
       const url = isFixedFestival
         ? '/api/booking/my-memberships/book-festival/'
         : '/api/booking/my-memberships/';
-      if (isFixedFestival || selectedLevelId) body.level_id = selectedLevelId;
+      // An events_only plan (e.g. a "Party Pass") never needs a level — the
+      // book-festival endpoint only requires one for plans that aren't.
+      if (!eventsOnly && (isFixedFestival || selectedLevelId)) body.level_id = selectedLevelId;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const membership = event.memberships.find(m => m.id === membershipId);
         if (membership?.couple && !body.partner_id && !body.partner_email) {
           setJoinError(it
             ? `Per usare il piano "${membership.name}" devi aggiungere un'email del partner valida.`
@@ -526,7 +532,7 @@ export function EventJoinPanel({
             <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
               {it ? 'Scegli un abbonamento' : 'Choose a membership'}
             </p>
-            {missingSelection && (
+            {missingSelection && event.memberships.some(isMembershipBlocked) && (
               <p className="text-xs text-amber-600 mt-1">
                 {it ? 'Seleziona prima il ruolo e il livello sopra.' : 'Select a role and level above first.'}
               </p>
@@ -557,7 +563,7 @@ export function EventJoinPanel({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={joinStatus === 'loading' || missingSelection}
+                      disabled={joinStatus === 'loading' || isMembershipBlocked(m)}
                       className="h-7 text-xs border-[#2b2b2b] hover:bg-[#2b2b2b] hover:text-white disabled:opacity-50"
                       onClick={() => handleSelect(m.id)}
                     >

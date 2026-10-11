@@ -223,3 +223,63 @@ class TestFestivalEagerBooking:
         assert Booking.objects.get(user=bruno, event=festival).partner == anna
         for child in children_a:
             assert Booking.objects.get(user=bruno, event=child).partner == anna
+
+
+# ── Events-only plan (e.g. "Party Pass" — no class level, fix_events only) ────
+
+class TestFestivalEventsOnlyPlan:
+    def test_books_only_fix_events_no_level_id_required(self, world_data):
+        """An events_only membership (e.g. "Party Pass") skips the
+        level-based class expansion entirely: level_id isn't required, and
+        only the membership's own fix_events get booked — none of the
+        festival's level children."""
+        festival, _level_a, _level_b, children_a, children_b = make_festival_with_levels()
+        party = make_event(festival.event_type, timezone.now() + timedelta(hours=5))
+        festival.events.add(party)
+        student = make_student("partypass@test.com")
+        membership = make_membership(events_only=True)
+        membership.fix_events.add(party)
+        festival.memberships.add(membership)
+
+        client = APIClient()
+        client.force_authenticate(user=student)
+        res = client.post(
+            BOOK_FESTIVAL_URL,
+            {"membership_id": membership.pk, "event_id": festival.pk},
+            format="json",
+        )
+
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert Booking.objects.filter(user=student, event=festival).exists()
+        assert Booking.objects.filter(user=student, event=party).exists()
+        for child in children_a + children_b:
+            assert not Booking.objects.filter(user=student, event=child).exists()
+
+    def test_role_not_required_even_when_festival_classes_need_couples(self, world_data):
+        """The festival's classes need couples (event_type.partners=2), but
+        an events_only membership never books them — only its own
+        fix_events — so it must not be forced to submit a role either."""
+        event_type = EventType.objects.create(**make_event_type_payload(partners=2))
+        leader = PartnerRole.objects.get_or_create(name="Leader")[0]
+        follower = PartnerRole.objects.get_or_create(name="Follower")[0]
+        event_type.partner_roles.set([leader, follower])
+        festival, _level_a, _level_b, _children_a, _children_b = make_festival_with_levels(
+            event_type=event_type, accepted_roles=[leader, follower],
+        )
+        party = make_event(event_type, timezone.now() + timedelta(hours=5))
+        festival.events.add(party)
+        student = make_student("partypass2@test.com")
+        membership = make_membership(events_only=True)
+        membership.fix_events.add(party)
+        festival.memberships.add(membership)
+
+        client = APIClient()
+        client.force_authenticate(user=student)
+        res = client.post(
+            BOOK_FESTIVAL_URL,
+            {"membership_id": membership.pk, "event_id": festival.pk},
+            format="json",
+        )
+
+        assert res.status_code == http_status.HTTP_201_CREATED
+        assert Booking.objects.filter(user=student, event=party).exists()
