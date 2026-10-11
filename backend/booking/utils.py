@@ -90,9 +90,14 @@ def book_events_for_contribution(contribution):
             contribution.membership.fix_events.all()
             if contribution.membership else Event.objects.none()
         )
-        events = event.events.filter(
-            Q(level=contribution.level) | Q(pk__in=fix_events.values_list("pk", flat=True))
-        )
+        if contribution.membership and contribution.membership.events_only:
+            # e.g. a "Party Pass" — no class level was chosen at all, so
+            # only the membership's own fix_events get booked.
+            events = event.events.filter(pk__in=fix_events.values_list("pk", flat=True))
+        else:
+            events = event.events.filter(
+                Q(level=contribution.level) | Q(pk__in=fix_events.values_list("pk", flat=True))
+            )
         # Fixed events that aren't actually children of this festival (a
         # session from an unrelated series) are still booked unconditionally
         # — customer request. In-scope fix_events (already matched above via
