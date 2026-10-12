@@ -420,10 +420,11 @@ class UserContributionSerializer(serializers.ModelSerializer):
                             "out of event boundaries."
                         )
                     })
-            if not is_free_festival:
+            if not is_free_festival and not membership.events_only:
                 # Role/partner are per-child for a free festival (each
-                # event_ids entry carries its own role_id), not something
-                # the parent/festival event itself needs.
+                # event_ids entry carries its own role_id) — and an
+                # events_only plan (e.g. a "Party Pass") never books any
+                # child that needs one — so neither is required here.
                 if event.event_type.partners > 1:
                     if not role:
                         raise serializers.ValidationError("For this event, you must specify a role.")
@@ -580,4 +581,12 @@ class FestivalContributionSerializer(UserContributionSerializer):
     )
     level_id = serializers.PrimaryKeyRelatedField(
         queryset=Level.objects.all(), source='level', write_only=True,
+        required=False, allow_null=True,
     )
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        membership = attrs['membership']
+        if not membership.events_only and attrs.get('level') is None:
+            raise serializers.ValidationError({'level_id': 'This field is required.'})
+        return attrs

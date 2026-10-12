@@ -12,7 +12,7 @@ LIST_URL = "/api/membership/memberships/"
 RULE_URL = "/api/membership/rules/"
 
 MEMBERSHIP_FIELDS = {"id", "name", "type", "contribution", "color", "max_events", "duration", "rules",
-                     "start_date", "end_date", "fix_events", "only_cash", "couple"}
+                     "start_date", "end_date", "fix_events", "only_cash", "couple", "events_only"}
 RULE_FIELDS = {"id", "membership", "event_type", "max_events"}
 
 

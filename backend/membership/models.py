@@ -35,6 +35,14 @@ class Membership(models.Model):
     fix_events = models.ManyToManyField(Event, blank=True, related_name='included_in_memberships')
     only_cash = models.BooleanField(default=False)
     couple = models.BooleanField(default=False)
+    events_only = models.BooleanField(
+        default=False,
+        help_text=(
+            "For a fixed-choice festival (e.g. a 'Party Pass'): book only this "
+            "membership's fix_events, skipping the usual level-based class "
+            "expansion. level_id isn't required when booking it."
+        ),
+    )
 
     class Meta:
         verbose_name = "Pack"

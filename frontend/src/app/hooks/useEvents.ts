@@ -15,6 +15,9 @@ export interface EventMembership {
   // Bonus events bundled with the plan regardless of what's picked (e.g. a
   // festival party) — shown pre-selected and locked in the schedule.
   fix_events: { id: number; name: string }[];
+  // True for a plan that only books its own fix_events (e.g. a "Party
+  // Pass") — no class level/role selection applies to it at all.
+  events_only: boolean;
 }
 
 export interface EventItem {

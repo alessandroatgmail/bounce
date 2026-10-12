@@ -238,10 +238,19 @@ def waiting_list(contribution: Contribution) -> bool:
                 pass
     return False
 
+def _festival_child_event(contribution: Contribution, event: Event):
+    """The child event role/capacity checks are based on, for a
+    fixed-choice festival contribution: level-matched normally, or the
+    membership's own fix_events when this plan skips class selection
+    entirely (events_only, e.g. a "Party Pass")."""
+    if contribution.membership and contribution.membership.events_only:
+        return contribution.membership.fix_events.first()
+    return event.events.filter(level=contribution.level).first()
+
 def _check_need_role(contribution: Contribution) -> bool:
     event = contribution.events.first()
     if event.multi_events and not event.free:
-        event = event.events.filter(level=contribution.level).first()
+        event = _festival_child_event(contribution, event)
     if event:
         if event.event_type.partner_roles.count() > 0:
             return True
@@ -250,13 +259,10 @@ def _check_need_role(contribution: Contribution) -> bool:
 def _check_role_accepted(contribution: Contribution) -> bool:
     event = contribution.events.first()
     if event.multi_events and not event.free:
-        event = event.events.filter(level=contribution.level).first()
+        event = _festival_child_event(contribution, event)
     if event:
         if event.event_type.partner_roles.all().exists():
             if contribution.role:
-                if event.multi_events and not event.free:
-                    if contribution.role not in event.events.filter(level=contribution.level).first().accepted_roles:
-                        return False
                 if contribution.role not in event.accepted_roles.all():
                     return False
     return True
@@ -266,7 +272,7 @@ def _check_max_capacity(contribution: Contribution) -> bool:
     if contribution.events.exists():
         event = contribution.events.first()
         if event.multi_events and not event.free:
-            level_event = event.events.filter(level=contribution.level).first()
+            level_event = _festival_child_event(contribution, event)
             return bool(level_event and level_event.available_spot)
         return bool(event.available_spot)
     return False
@@ -282,7 +288,7 @@ def _check_extras(contribution: Contribution) -> bool:
         if not event.multi_events:
             event = contribution.events.first()
         elif event.multi_events and not event.free:
-            event = event.events.filter(level=contribution.level).first()
+            event = _festival_child_event(contribution, event)
         elif event.multi_events and event.free:
             event = event.events.first()
         else:

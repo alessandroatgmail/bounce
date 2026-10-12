@@ -56,10 +56,11 @@ class Contribution(models.Model):
         self._previous_status = self.status
 
     def __str__(self):
+        membership_name = self.membership.name if self.membership else "No membership"
         if self.events.exists():
-            return f"{self.user.email} - {self.membership.name} - {self.events.first().name}"
+            return f"{self.user.email} - {membership_name} - {self.events.first().name}"
         else:
-            return f"{self.user.email} - {self.membership.name}"
+            return f"{self.user.email} - {membership_name}"
 
     def save(self, *args, **kwargs):
 
