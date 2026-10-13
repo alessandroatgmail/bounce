@@ -201,3 +201,36 @@ class TestExpiryReminderEmail:
         # Django templates render dates through localized formatting
         # (e.g. "Aug. 22, 2026"), not date.__str__'s ISO form.
         assert date_format(expected_deadline) in mail.outbox[0].body
+
+
+class TestDeadlineUsesAcceptedDate:
+
+    def test_deadline_based_on_accepted_date_not_creation_date(self, db, subject_user, world_data):
+        # Created 30 days ago while waiting, but only just accepted now —
+        # the 3-day grace period must start from acceptance, not creation.
+        event = make_event(payment_days=3)
+        c = Contribution.objects.create(
+            user=subject_user, amount="50.00", status=ContributionStatus.WAITING,
+            date=timezone.now() - timedelta(days=30),
+        )
+        c.events.set([event])
+        c.status = ContributionStatus.ACCEPTED
+        c.save()
+
+        cancel_expired_contributions()
+
+        c.refresh_from_db()
+        assert c.status == ContributionStatus.ACCEPTED
+
+    def test_deadline_falls_back_to_date_when_accepted_date_missing(self, db, subject_user, world_data):
+        # Legacy rows created directly as ACCEPTED never populate
+        # accepted_date (the transition happens before the row exists);
+        # the deadline must still fall back to `date` for those.
+        event = make_event(payment_days=3)
+        c = make_contribution(subject_user, event, days_ago=10)
+        assert c.accepted_date is None
+
+        cancel_expired_contributions()
+
+        c.refresh_from_db()
+        assert c.status == ContributionStatus.CANCELLED
