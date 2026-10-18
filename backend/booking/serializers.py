@@ -275,12 +275,35 @@ class LinkedContributionSerializer(serializers.ModelSerializer):
 class FreeFestivalEventEntrySerializer(serializers.Serializer):
     """One entry of `event_ids` when booking a free-choice festival
     (event.multi_events=True, event.free=True) — unlike the fixed-choice
-    case (one level + role for everything), the student picks these
-    children individually, each with its own role."""
+    case (one level + role + partner for everything), the student picks
+    these children individually, each with its own role and partner."""
     event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all())
     role_id = serializers.PrimaryKeyRelatedField(
         queryset=PartnerRole.objects.all(), required=False, allow_null=True,
     )
+    partner_id = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.filter(is_active=True), required=False, allow_null=True,
+    )
+    # The frontend resolves partner_id client-side as the student types an
+    # email, but still sends the raw email alongside it — if resolution
+    # never succeeded (typo, unregistered account), partner_id arrives
+    # null while this still carries what was typed, so it isn't silently
+    # dropped (same rule as UserContributionSerializer.partner_email).
+    partner_email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+
+    def validate(self, attrs):
+        partner_email = attrs.get('partner_email')
+        partner = attrs.get('partner_id')
+        if partner_email and not partner:
+            partner = get_user_model().objects.filter(
+                email__iexact=partner_email, is_active=True,
+            ).first()
+            if partner is None:
+                raise serializers.ValidationError({
+                    'partner_email': 'No active account is registered with this email.'
+                })
+            attrs['partner_id'] = partner
+        return attrs
 
 
 class UserContributionSerializer(serializers.ModelSerializer):
@@ -290,6 +313,11 @@ class UserContributionSerializer(serializers.ModelSerializer):
     # (POST .../book-festival/) instead, which flips both flags.
     allows_multi_event_festival = False
     requires_multi_event_festival = False
+    # Same idea for a free-choice festival (multi_events=True, free=True) —
+    # book it through FreeFestivalContributionSerializer
+    # (POST .../book-free-festival/) instead.
+    allows_free_festival = False
+    requires_free_festival = False
 
     membership = MembershipSerializer(read_only=True)
     membership_id = serializers.PrimaryKeyRelatedField(
@@ -299,9 +327,6 @@ class UserContributionSerializer(serializers.ModelSerializer):
     event_id = serializers.PrimaryKeyRelatedField(
         queryset=Event.objects.all(), write_only=True, required=False, allow_null=True,
     )
-    # Only used when event_id is a free-choice festival (multi_events=True,
-    # free=True) — the children the student picked, each with its own role.
-    event_ids = FreeFestivalEventEntrySerializer(many=True, write_only=True, required=False)
     upgraded_from = serializers.PrimaryKeyRelatedField(read_only=True, allow_null=True)
     original_contribution = LinkedContributionSerializer(read_only=True, allow_null=True)
     twin_contributions = LinkedContributionSerializer(many=True, read_only=True)
@@ -328,7 +353,6 @@ class UserContributionSerializer(serializers.ModelSerializer):
         model = Contribution
         fields = [
             'id', 'status', 'user_email', 'membership', 'membership_id', 'events', 'event_id',
-            'event_ids',
             'amount', 'start_date', 'end_date', 'upgraded_from', 'original_contribution',
             'twin_contributions', 'partner_email',
             'partner_id', 'role_id', 'role', 'partner',
@@ -393,22 +417,17 @@ class UserContributionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'event_id': 'This endpoint only books multi-event festivals with a fixed level choice.'
                 })
-            if is_free_festival:
-                # The student picks exactly max_events events themselves.
-                # fix_events are separate and additional — booked on top,
-                # not counted against this number.
-                chosen = attrs.get('event_ids') or []
-                if not chosen:
-                    raise serializers.ValidationError({
-                        'event_ids': 'You must choose which events to attend for this festival.'
-                    })
-                if len(chosen) != membership.max_events:
-                    raise serializers.ValidationError({
-                        'event_ids': (
-                            f"Membership '{membership.name}' requires exactly "
-                            f"{membership.max_events} event(s), got {len(chosen)}."
-                        )
-                    })
+            if is_free_festival and not self.allows_free_festival:
+                raise serializers.ValidationError({
+                    'event_id': (
+                        'This is a multi-event free-choice festival — '
+                        'book it through the free festival booking endpoint.'
+                    )
+                })
+            if self.requires_free_festival and not is_free_festival:
+                raise serializers.ValidationError({
+                    'event_id': 'This endpoint only books multi-event free-choice festivals.'
+                })
             _validate_membership_events(membership, [event])
             if self.instance is None:
                 window = _recurring_children_window(self.context["request"].user, membership, event)
@@ -450,50 +469,22 @@ class UserContributionSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def create(self, validated_data):
-        event = validated_data.pop('event_id', None)
-        event_ids = validated_data.pop('event_ids', [])
-
+    def _create_contribution_shell(self, validated_data, event):
+        """Shared preamble for every booking path: compute amount + the
+        membership's date range, create the bare Contribution row."""
         membership = validated_data['membership']
         validated_data['amount'] = Decimal(membership.contribution)
-        # update start date and end date
         start_date, end_date = service._contribution_date_range(membership, event, validated_data['user'])
         if start_date:
             validated_data.update({"start_date": start_date})
         if end_date:
             validated_data.update({"end_date": end_date})
-        contribution = Contribution.objects.create(**validated_data)
+        return Contribution.objects.create(**validated_data)
 
-        # Free-choice festival (event.multi_events and event.free): the
-        # parent festival stays on contribution.events (same as every
-        # other case) — that's what already_booked/get_booked_by and the
-        # frontend's "my bookings" match against on the festival's own
-        # card — alongside the chosen children and fix_events, each
-        # getting its own Booking with its own role. First pass — no
-        # capacity/waiting-list check per child, no partner pairing, no
-        # emails yet; those are deliberate follow-ups, not oversights.
-        if event and event.multi_events and event.free:
-            fix_events = list(membership.fix_events.all()) if membership else []
-            chosen_events = [entry['event_id'] for entry in event_ids]
-            contribution.events.add(event, *chosen_events, *fix_events)
-            contribution.status = ContributionStatus.ACCEPTED
-            contribution.save()
-            for entry in event_ids:
-                Booking.objects.get_or_create(
-                    user=contribution.user,
-                    event=entry['event_id'],
-                    defaults={
-                        "role": entry.get('role_id'),
-                        "contribution": contribution,
-                    },
-                )
-            for fix_event in fix_events:
-                Booking.objects.get_or_create(
-                    user=contribution.user,
-                    event=fix_event,
-                    defaults={"contribution": contribution},
-                )
-            return contribution
+    def create(self, validated_data):
+        event = validated_data.pop('event_id', None)
+        contribution = self._create_contribution_shell(validated_data, event)
+
         # create partner contribution
         if event:
             contribution.events.add(event)
@@ -590,3 +581,117 @@ class FestivalContributionSerializer(UserContributionSerializer):
         if not membership.events_only and attrs.get('level') is None:
             raise serializers.ValidationError({'level_id': 'This field is required.'})
         return attrs
+
+
+class FreeFestivalContributionSerializer(UserContributionSerializer):
+    """Case 4 — festival, free choice: the student picks which child
+    events to attend themselves (event_ids), each with its own role.
+    event_id and event_ids are both mandatory here (optional/absent on
+    the base serializer), and the target event must be a multi_events,
+    free festival."""
+    allows_free_festival = True
+    requires_free_festival = True
+
+    event_id = serializers.PrimaryKeyRelatedField(
+        queryset=Event.objects.all(), write_only=True,
+    )
+    event_ids = FreeFestivalEventEntrySerializer(many=True, write_only=True)
+
+    class Meta(UserContributionSerializer.Meta):
+        fields = UserContributionSerializer.Meta.fields + ['event_ids']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        membership = attrs['membership']
+        # The student picks exactly max_events events themselves. fix_events
+        # are separate and additional — booked on top, not counted against
+        # this number.
+        chosen = attrs.get('event_ids') or []
+        if not chosen:
+            raise serializers.ValidationError({
+                'event_ids': 'You must choose which events to attend for this festival.'
+            })
+        if len(chosen) != membership.max_events:
+            raise serializers.ValidationError({
+                'event_ids': (
+                    f"Membership '{membership.name}' requires exactly "
+                    f"{membership.max_events} event(s), got {len(chosen)}."
+                )
+            })
+        user = self.context["request"].user
+        for item in chosen:
+            child_event = item['event_id']
+            if service._validate_double_registrations(user=user, event=child_event):
+                raise serializers.ValidationError({
+                    'event_ids': 'User already registered for this event.'
+                })
+            partner = item.get('partner_id')
+            if partner and service._validate_double_registrations(user=partner, event=child_event):
+                raise serializers.ValidationError({
+                    'event_ids': 'Partner already registered for this event.'
+                })
+        return attrs
+
+    def create(self, validated_data):
+        event = validated_data.pop('event_id', None)
+        event_ids = validated_data.pop('event_ids', [])
+        membership = validated_data['membership']
+        contribution = self._create_contribution_shell(validated_data, event)
+
+        # The parent festival stays on contribution.events (same as every
+        # other case) — that's what already_booked/get_booked_by and the
+        # frontend's "my bookings" match against on the festival's own
+        # card — alongside the chosen children and fix_events, each
+        # getting its own Booking with its own role. First pass — no
+        # capacity/waiting-list check per child, no partner pairing, no
+        # emails yet; those are deliberate follow-ups, not oversights.
+        fix_events = list(membership.fix_events.all()) if membership else []
+        chosen_events = [entry['event_id'] for entry in event_ids]
+        contribution.events.add(event, *chosen_events, *fix_events)
+        contribution.status = ContributionStatus.ACCEPTED
+        contribution.save()
+        partner_events: dict = {}
+        for entry in event_ids:
+            child_event = entry['event_id']
+            role = entry.get('role_id')
+            partner = entry.get('partner_id')
+            # The partner isn't being charged — just paired on this one
+            # child event, mutually, the same way book_events_for_contribution
+            # pairs two regular bookings: each side's role/partner_role
+            # points at the other's. Only computable when both a role and a
+            # partner were actually given (a binary role set is assumed,
+            # same as everywhere else in this codebase).
+            partner_role = (
+                child_event.event_type.partner_roles.exclude(pk=role.pk).first()
+                if role and partner else None
+            )
+            Booking.objects.get_or_create(
+                user=contribution.user,
+                event=child_event,
+                defaults={
+                    "role": role,
+                    "partner": partner,
+                    "partner_role": partner_role,
+                    "contribution": contribution,
+                },
+            )
+            if partner:
+                Booking.objects.get_or_create(
+                    user=partner,
+                    event=child_event,
+                    defaults={
+                        "role": partner_role,
+                        "partner": contribution.user,
+                        "partner_role": role,
+                    },
+                )
+                partner_events.setdefault(partner, []).append((child_event, partner_role))
+        for fix_event in fix_events:
+            Booking.objects.get_or_create(
+                user=contribution.user,
+                event=fix_event,
+                defaults={"contribution": contribution},
+            )
+        if partner_events:
+            service._notify_free_festival_partners(contribution.user, partner_events)
+        return contribution
