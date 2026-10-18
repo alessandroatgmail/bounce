@@ -125,6 +125,31 @@ def _send_contribution_email(contribution: Contribution)->None:
             context=context,
         )
 
+def _notify_free_festival_partners(booker, partner_events: dict) -> None:
+    """One email per partner named across a free festival's event_ids,
+    not one per event — same "one email however many events" rule as
+    create_partner_contributions_for_user's activation hook. Keyed by
+    partner user, value is a list of (event, partner_role) — partner_role
+    being the role THIS partner was booked as for that event (may be
+    None), so the email can say what they'll be dancing, not just where."""
+    from django.conf import settings
+
+    booker_name = f"{booker.first_name} {booker.last_name}".strip()
+    for partner, events in partner_events.items():
+        send_email.delay(
+            partner.id,
+            template='free_festival_partner_added_email',
+            context={
+                'first_name': partner.first_name,
+                'booker_name': booker_name,
+                'events': [
+                    {'name': event.name, 'role': role.name if role else None}
+                    for event, role in events
+                ],
+                'url': settings.FRONTEND_URL + '/student',
+            },
+        )
+
 def _contribution_date_range(membership: Membership, event: Event, user) -> tuple[date | None, date | None]:
     start_date = None
     end_date = None

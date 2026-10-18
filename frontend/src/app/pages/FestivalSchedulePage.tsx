@@ -1,12 +1,25 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { ArrowLeft, ChevronDown, ChevronUp, Loader2, CheckCircle, AlertCircle, Lock } from 'lucide-react';
+import { apiUrl, authFetch } from '../../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useEvents, type EventItem } from '../hooks/useEvents';
+import { type EventDetail, type EventSimple } from '../hooks/useEvents';
 import { useFestivalDays, type FestivalDay, type FestivalRoom } from '../hooks/useFestivalDays';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
+import { Label } from '../components/ui/label';
+import { PartnerEmailInput, partnerEmailUnresolved } from '../components/PartnerEmailInput';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 // Sentinel role value meaning "let me pick a role for each class
@@ -29,12 +42,12 @@ function eventMinutes(iso: string) {
   return parseInt(iso.slice(11, 13), 10) * 60 + parseInt(iso.slice(14, 16), 10);
 }
 
-function eventsOverlap(a: EventItem, b: EventItem): boolean {
+function eventsOverlap(a: EventSimple, b: EventSimple): boolean {
   return new Date(a.start_date).getTime() < new Date(b.end_date).getTime()
     && new Date(a.end_date).getTime() > new Date(b.start_date).getTime();
 }
 
-function computeDayBounds(dayEvents: EventItem[]) {
+function computeDayBounds(dayEvents: EventSimple[]) {
   if (dayEvents.length === 0) return { startHour: 9, endHour: 22 };
   const startMins = dayEvents.map(e => eventMinutes(e.start_date));
   const endMins = dayEvents.map(e => {
@@ -58,7 +71,7 @@ function DayScheduleGrid({
   onToggleEvent,
 }: {
   day: FestivalDay;
-  dayEvents: EventItem[];
+  dayEvents: EventSimple[];
   selectedEventIds: Set<number>;
   fixedEventIds: Set<number>;
   blockedEventIds: Set<number>;
@@ -202,18 +215,38 @@ function RegistrationPanel({
   selectedEvents,
   perEventRoleIds,
   onPerEventRoleChange,
+  sharedPartner,
+  onSharedPartnerChange,
+  partnerEmail,
+  onPartnerEmailChange,
+  partnerId,
+  onPartnerIdResolved,
+  perEventPartnerEmails,
+  onPerEventPartnerEmailChange,
+  perEventPartnerIds,
+  onPerEventPartnerIdResolved,
   onSuccess,
 }: {
-  festival: EventItem;
+  festival: EventDetail;
   accessToken: string | null;
   selectedMembershipId: string;
   onMembershipChange: (v: string) => void;
   selectedRoleId: string;
   onRoleChange: (v: string) => void;
   maxEvents: number | null;
-  selectedEvents: EventItem[];
+  selectedEvents: EventSimple[];
   perEventRoleIds: Record<number, string>;
   onPerEventRoleChange: (eventId: number, roleId: string) => void;
+  sharedPartner: boolean;
+  onSharedPartnerChange: (v: boolean) => void;
+  partnerEmail: string;
+  onPartnerEmailChange: (v: string) => void;
+  partnerId: number | null;
+  onPartnerIdResolved: (id: number | null) => void;
+  perEventPartnerEmails: Record<number, string>;
+  onPerEventPartnerEmailChange: (eventId: number, email: string) => void;
+  perEventPartnerIds: Record<number, number | null>;
+  onPerEventPartnerIdResolved: (eventId: number, id: number | null) => void;
   onSuccess: () => void;
 }) {
   const { t, language } = useLanguage();
@@ -223,6 +256,7 @@ function RegistrationPanel({
   const selectedCount = selectedEvents.length;
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [showPartnerEmailError, setShowPartnerEmailError] = useState(false);
 
   const remaining = maxEvents !== null ? maxEvents - selectedCount : null;
   const hasSelectedAll = maxEvents === null || selectedCount >= maxEvents;
@@ -236,6 +270,15 @@ function RegistrationPanel({
 
   const handleRegister = async () => {
     if (!accessToken) return;
+    const unresolvedPartner = sharedPartner
+      ? partnerEmailUnresolved(partnerEmail, partnerId)
+      : selectedEvents.some(ev =>
+          partnerEmailUnresolved(perEventPartnerEmails[ev.id] ?? '', perEventPartnerIds[ev.id] ?? null),
+        );
+    if (unresolvedPartner) {
+      setShowPartnerEmailError(true);
+      return;
+    }
     setStatus('loading');
     try {
       const body: Record<string, unknown> = {
@@ -245,10 +288,14 @@ function RegistrationPanel({
           role_id: isFlexible
             ? (perEventRoleIds[ev.id] ? Number(perEventRoleIds[ev.id]) : null)
             : (selectedRoleId ? Number(selectedRoleId) : null),
+          partner_id: sharedPartner ? partnerId : (perEventPartnerIds[ev.id] ?? null),
+          // Sent alongside partner_id so the backend can still flag a
+          // typo'd/unregistered email even if it never resolved to an id.
+          partner_email: sharedPartner ? partnerEmail : (perEventPartnerEmails[ev.id] ?? ''),
         })),
       };
       if (selectedMembershipId) body.membership_id = Number(selectedMembershipId);
-      const res = await fetch('/api/booking/my-memberships/', {
+      const res = await fetch('/api/booking/my-memberships/book-free-festival/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
@@ -271,6 +318,7 @@ function RegistrationPanel({
   }
 
   return (
+    <>
     <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
       <h2 className="text-sm font-semibold text-[#2b2b2b] uppercase tracking-wide">{t('festival.registration.title')}</h2>
       <div className="flex flex-wrap gap-3 items-end">
@@ -329,36 +377,98 @@ function RegistrationPanel({
             : `Select ${remaining} more ${remaining === 1 ? 'event' : 'events'} to register`}
         </p>
       )}
-      {isFlexible && selectedEvents.length > 0 && (
+      {hasRoles && (
+        <div className="space-y-2 pt-1 border-t mt-2">
+          <div className="flex items-center gap-2 pt-2">
+            <Checkbox
+              id="free-festival-shared-partner"
+              checked={sharedPartner}
+              onCheckedChange={v => onSharedPartnerChange(v === true)}
+            />
+            <Label htmlFor="free-festival-shared-partner" className="cursor-pointer font-normal text-sm">
+              {t('festival.registration.samePartnerForAll')}
+            </Label>
+          </div>
+          {sharedPartner && (
+            <div className="max-w-sm">
+              <PartnerEmailInput
+                value={partnerEmail}
+                onChange={onPartnerEmailChange}
+                onResolved={onPartnerIdResolved}
+                accessToken={accessToken}
+                language={language}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {/* Fixed role/partner (set once, above) don't need a row here —
+          this list only covers what's chosen per event: a flexible role
+          and/or a partner that differs per class. */}
+      {(isFlexible || (hasRoles && !sharedPartner)) && selectedEvents.length > 0 && (
         <div className="space-y-2 pt-1">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-            {t('festival.registration.rolePerClass')}
+            {t('festival.registration.detailsPerClass')}
           </p>
           <div className="space-y-1.5">
             {selectedEvents.map(ev => (
               <div key={ev.id} className="flex items-center justify-between gap-3 bg-white border rounded-md px-3 py-1.5">
-                <span className="text-sm text-[#2b2b2b] truncate">
+                <span className="text-sm text-[#2b2b2b] truncate mr-2">
                   {ev.name} — {ev.start_date.slice(11, 16)}
                 </span>
-                <Select
-                  value={perEventRoleIds[ev.id] ?? ''}
-                  onValueChange={v => onPerEventRoleChange(ev.id, v)}
-                >
-                  <SelectTrigger className="w-36 h-8 text-xs">
-                    <SelectValue placeholder={t('festival.registration.selectRole')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {festival.event_type.partner_roles.map(r => (
-                      <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {isFlexible && (
+                    <Select
+                      value={perEventRoleIds[ev.id] ?? ''}
+                      onValueChange={v => onPerEventRoleChange(ev.id, v)}
+                    >
+                      <SelectTrigger className="w-32 h-8 text-xs">
+                        <SelectValue placeholder={t('festival.registration.selectRole')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {festival.event_type.partner_roles.map(r => (
+                          <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {hasRoles && !sharedPartner && (
+                    <div className="w-44">
+                      <PartnerEmailInput
+                        value={perEventPartnerEmails[ev.id] ?? ''}
+                        onChange={email => onPerEventPartnerEmailChange(ev.id, email)}
+                        onResolved={id => onPerEventPartnerIdResolved(ev.id, id)}
+                        accessToken={accessToken}
+                        language={language}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
     </div>
+    <AlertDialog open={showPartnerEmailError} onOpenChange={setShowPartnerEmailError}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertCircle className="size-5 text-red-500" />
+            {language === 'it' ? 'Email del partner non trovata' : 'Partner email not found'}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('festival.registration.partnerEmailNotFound')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction onClick={() => setShowPartnerEmailError(false)}>
+            OK
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 
@@ -370,10 +480,37 @@ export function FestivalSchedulePage() {
   const { accessToken } = useAuth();
   const { t, language } = useLanguage();
   const locale = language === 'it' ? 'it-IT' : 'en-GB';
-  const { events, loading: loadingEvents } = useEvents(accessToken);
 
   const festivalId = id ? Number(id) : null;
   const { days, loading: loadingDays } = useFestivalDays(accessToken, festivalId);
+
+  // A single multi-events festival (plus its already-resolved children) via
+  // the dedicated detail endpoint — not the whole events table paged in and
+  // filtered client-side, which doesn't scale as the table grows.
+  const [festival, setFestival] = useState<EventDetail | null>(null);
+  const [loadingFestival, setLoadingFestival] = useState(true);
+
+  const fetchFestival = useCallback(async () => {
+    if (!festivalId) {
+      setFestival(null);
+      setLoadingFestival(false);
+      return;
+    }
+    setLoadingFestival(true);
+    try {
+      const res = accessToken
+        ? await authFetch(`/api/events/events/${festivalId}/detail/`, accessToken)
+        : await fetch(apiUrl(`/api/events/events/${festivalId}/detail/`));
+      if (!res.ok) throw new Error(`${res.status}`);
+      setFestival(await res.json());
+    } catch {
+      setFestival(null);
+    } finally {
+      setLoadingFestival(false);
+    }
+  }, [festivalId, accessToken]);
+
+  useEffect(() => { fetchFestival(); }, [fetchFestival]);
 
   const [openDays, setOpenDays] = useState<Set<number>>(new Set());
   const initializedRef = useRef(false);
@@ -384,6 +521,13 @@ export function FestivalSchedulePage() {
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
   // Per-class role, only used when selectedRoleId === FLEXIBLE_ROLE.
   const [perEventRoleIds, setPerEventRoleIds] = useState<Record<number, string>>({});
+  // Partner: either one partner shared across every chosen event, or one
+  // per event — mirrors the role/flexible-role split above.
+  const [sharedPartner, setSharedPartner] = useState(true);
+  const [partnerEmail, setPartnerEmail] = useState('');
+  const [partnerId, setPartnerId] = useState<number | null>(null);
+  const [perEventPartnerEmails, setPerEventPartnerEmails] = useState<Record<number, string>>({});
+  const [perEventPartnerIds, setPerEventPartnerIds] = useState<Record<number, number | null>>({});
 
   // Open first day once loaded
   useEffect(() => {
@@ -397,15 +541,13 @@ export function FestivalSchedulePage() {
   useEffect(() => {
     setSelectedEventIds(new Set());
     setPerEventRoleIds({});
+    setPerEventPartnerEmails({});
+    setPerEventPartnerIds({});
   }, [selectedMembershipId]);
 
-  const festival = useMemo(() => events.find(e => e.id === festivalId) ?? null, [events, festivalId]);
-
-  const childEvents = useMemo(() => {
-    if (!festival) return [];
-    const ids = new Set(festival.events);
-    return events.filter(e => ids.has(e.id));
-  }, [events, festival]);
+  // Already resolved by the detail endpoint — no separate full-table
+  // fetch/filter needed to find this festival's children.
+  const childEvents = festival?.events ?? [];
 
   // Derive max_events from the selected membership (null = unlimited).
   const selectedMembership = useMemo(
@@ -468,6 +610,14 @@ export function FestivalSchedulePage() {
         const { [eventId]: _removed, ...rest } = prev;
         return rest;
       });
+      setPerEventPartnerEmails(prev => {
+        const { [eventId]: _removed, ...rest } = prev;
+        return rest;
+      });
+      setPerEventPartnerIds(prev => {
+        const { [eventId]: _removed, ...rest } = prev;
+        return rest;
+      });
       return;
     }
     if (blockedEventIds.has(eventId)) return;
@@ -478,10 +628,16 @@ export function FestivalSchedulePage() {
     setSelectedEventIds(prev => new Set(prev).add(eventId));
   };
 
+  const handlePerEventPartnerEmailChange = (eventId: number, email: string) =>
+    setPerEventPartnerEmails(prev => ({ ...prev, [eventId]: email }));
+
+  const handlePerEventPartnerIdResolved = (eventId: number, id: number | null) =>
+    setPerEventPartnerIds(prev => ({ ...prev, [eventId]: id }));
+
   const handlePerEventRoleChange = (eventId: number, roleId: string) =>
     setPerEventRoleIds(prev => ({ ...prev, [eventId]: roleId }));
 
-  if (loadingEvents || loadingDays) {
+  if (loadingFestival || loadingDays) {
     return (
       <div className="flex justify-center py-24">
         <Loader2 className="size-6 animate-spin text-[#e67e22]" />
@@ -526,6 +682,16 @@ export function FestivalSchedulePage() {
         selectedEvents={selectedEvents}
         perEventRoleIds={perEventRoleIds}
         onPerEventRoleChange={handlePerEventRoleChange}
+        sharedPartner={sharedPartner}
+        onSharedPartnerChange={setSharedPartner}
+        partnerEmail={partnerEmail}
+        onPartnerEmailChange={setPartnerEmail}
+        partnerId={partnerId}
+        onPartnerIdResolved={setPartnerId}
+        perEventPartnerEmails={perEventPartnerEmails}
+        onPerEventPartnerEmailChange={handlePerEventPartnerEmailChange}
+        perEventPartnerIds={perEventPartnerIds}
+        onPerEventPartnerIdResolved={handlePerEventPartnerIdResolved}
         onSuccess={() => navigate('/events')}
       />
 

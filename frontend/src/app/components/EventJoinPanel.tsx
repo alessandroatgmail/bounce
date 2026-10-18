@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, UserCheck, UserX, CreditCard, Info, XCircle } from 'lucide-react';
+import { Loader2, ChevronDown, ChevronUp, AlertCircle, BookCheck, CreditCard, Info, XCircle } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,7 +12,7 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
+import { PartnerEmailInput } from './PartnerEmailInput';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useAuth } from '../contexts/AuthContext';
 import type { EventItem, EventMembership } from '../hooks/useEvents';
@@ -74,9 +74,7 @@ export function EventJoinPanel({
   const [showPanel, setShowPanel] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
   const [partnerEmail, setPartnerEmail] = useState('');
-  const [partnerCheckStatus, setPartnerCheckStatus] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle');
   const [partnerId, setPartnerId] = useState<number | null>(null);
-  const [partnerName, setPartnerName] = useState('');
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [cancelTarget, setCancelTarget] = useState<UserMembership | null>(null);
   const [joinStatus, setJoinStatus] = useState<'idle' | 'loading' | 'error'>('idle');
@@ -115,37 +113,6 @@ export function EventJoinPanel({
           ? contribution.original_contribution
           : undefined);
   }
-
-  useEffect(() => {
-    const email = partnerEmail.trim();
-    if (!email || !email.includes('@')) {
-      setPartnerCheckStatus('idle');
-      setPartnerId(null);
-      setPartnerName('');
-      return;
-    }
-    setPartnerCheckStatus('checking');
-    setPartnerId(null);
-    setPartnerName('');
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/auth/check-email/?email=${encodeURIComponent(email)}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setPartnerId(data.id);
-          setPartnerName(`${data.first_name} ${data.last_name}`.trim());
-          setPartnerCheckStatus('found');
-        } else {
-          setPartnerCheckStatus('not_found');
-        }
-      } catch {
-        setPartnerCheckStatus('not_found');
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [partnerEmail, accessToken]);
 
   async function handleSelect(membershipId: number) {
     if (!accessToken) return;
@@ -470,37 +437,14 @@ export function EventJoinPanel({
                   <p className="text-xs font-semibold text-[#2b2b2b] uppercase tracking-wide">
                     {it ? 'Email del partner (opzionale)' : 'Partner email (optional)'}
                   </p>
-                  <div className="relative">
-                    <Input
-                      type="email"
-                      placeholder={it ? 'email@esempio.com' : 'email@example.com'}
-                      value={partnerEmail}
-                      onChange={e => setPartnerEmail(e.target.value)}
-                      className="border-[#d4b896] pr-8"
-                    />
-                    {partnerCheckStatus === 'checking' && (
-                      <Loader2 className="absolute right-2 top-2.5 size-4 animate-spin text-gray-400" />
-                    )}
-                    {partnerCheckStatus === 'found' && (
-                      <UserCheck className="absolute right-2 top-2.5 size-4 text-green-600" />
-                    )}
-                    {partnerCheckStatus === 'not_found' && (
-                      <UserX className="absolute right-2 top-2.5 size-4 text-red-400" />
-                    )}
-                  </div>
-                  {partnerCheckStatus === 'found' && partnerName && (
-                    <p className="text-xs text-green-700 flex items-center gap-1">
-                      <UserCheck className="size-3" />
-                      {partnerName}
-                    </p>
-                  )}
-                  {partnerCheckStatus === 'not_found' && (
-                    <p className="text-xs text-amber-600">
-                      {it
-                        ? 'Utente non trovato. Il partner deve avere già un account registrato e attivo.'
-                        : "User not found. The partner must already have a registered, activated account."}
-                    </p>
-                  )}
+                  <PartnerEmailInput
+                    value={partnerEmail}
+                    onChange={setPartnerEmail}
+                    onResolved={setPartnerId}
+                    accessToken={accessToken}
+                    language={language}
+                    inputClassName="border-[#d4b896]"
+                  />
                 </>
               )}
 

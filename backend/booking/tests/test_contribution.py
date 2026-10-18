@@ -957,3 +957,64 @@ class TestContributionPartner:
         res = admin_client.get(LIST_URL)
         assert res.data[0]["partner"]["id"] == partner_user.pk
         assert res.data[0]["partner_email"] == "partner@bounce.com"
+
+
+# ── accepted_date (set on transition into ACCEPTED) ───────────────────────────
+#
+# A contribution can sit on a waiting list or in manual approval for a long
+# time before being accepted; the payment deadline must start counting from
+# acceptance, not from creation. accepted_date records that moment, set
+# generically in Contribution.save() for any transition into ACCEPTED —
+# regardless of the status it came from (see cancel_expired_contributions in
+# tasks.py, which keys off this field).
+
+class TestAcceptedDate:
+
+    def test_received_to_accepted_sets_accepted_date(self, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user)
+        assert c.accepted_date is None
+        c.status = ContributionStatus.ACCEPTED
+        c.save()
+        c.refresh_from_db()
+        assert c.accepted_date is not None
+
+    def test_waiting_to_accepted_sets_accepted_date(self, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.WAITING)
+        c.status = ContributionStatus.ACCEPTED
+        c.save()
+        c.refresh_from_db()
+        assert c.accepted_date is not None
+
+    def test_approving_to_accepted_sets_accepted_date(self, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.APPROVING)
+        c.status = ContributionStatus.ACCEPTED
+        c.save()
+        c.refresh_from_db()
+        assert c.accepted_date is not None
+
+    def test_saving_again_does_not_change_accepted_date(self, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user)
+        c.status = ContributionStatus.ACCEPTED
+        c.save()
+        c.refresh_from_db()
+        first = c.accepted_date
+        c.save()
+        c.refresh_from_db()
+        assert c.accepted_date == first
+
+    def test_non_accepted_transition_leaves_accepted_date_none(self, subject_user, db):
+        c = Contribution.objects.create(amount=10, user=subject_user)
+        c.status = ContributionStatus.CANCELLED
+        c.save()
+        c.refresh_from_db()
+        assert c.accepted_date is None
+
+    def test_accepted_date_persists_through_update_fields_restricted_save(self, subject_user, db):
+        """Waiting-list promotion and the cancel task save with
+        update_fields=['status']; accepted_date must still be written even
+        though it isn't named in that list."""
+        c = Contribution.objects.create(amount=10, user=subject_user, status=ContributionStatus.WAITING)
+        c.status = ContributionStatus.ACCEPTED
+        c.save(update_fields=['status'])
+        c.refresh_from_db()
+        assert c.accepted_date is not None

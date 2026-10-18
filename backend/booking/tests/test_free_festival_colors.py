@@ -32,7 +32,7 @@ from utils.mock_event_type import make_event_type_payload
 pytestmark = pytest.mark.django_db
 
 EVENTS_URL = "/api/events/events/"
-MY_MEMBERSHIPS_URL = "/api/booking/my-memberships/"
+MY_MEMBERSHIPS_URL = "/api/booking/my-memberships/book-free-festival/"
 
 
 def availability_url(festival_id):
