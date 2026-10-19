@@ -150,6 +150,31 @@ def _notify_free_festival_partners(booker, partner_events: dict) -> None:
             },
         )
 
+def _free_festival_waiting_events(events: list[Event]) -> list[Event]:
+    """Which of these chosen child events are already at capacity —
+    available_spot <= 0 means no room left. fix_events are deliberately
+    excluded: they're booked unconditionally regardless of capacity (see
+    book_events_for_contribution), same as everywhere else in this
+    codebase. The single-event/fixed-festival path's waiting_list() isn't
+    reused here — it assumes one event per contribution, which doesn't
+    hold for a free festival spanning several independent child events."""
+    return [event for event in events if event.available_spot <= 0]
+
+def _notify_free_festival_waiting_list(contribution: Contribution, waiting_events: list[Event]) -> None:
+    """Names specifically which chosen class(es) are full, not just that
+    *something* pushed the registration to the waiting list."""
+    from django.conf import settings
+
+    send_email.delay(
+        contribution.user.id,
+        template='free_festival_waiting_list_email',
+        context={
+            'first_name': contribution.user.first_name,
+            'events': [event.name for event in waiting_events],
+            'url': settings.FRONTEND_URL + '/student',
+        },
+    )
+
 def _contribution_date_range(membership: Membership, event: Event, user) -> tuple[date | None, date | None]:
     start_date = None
     end_date = None

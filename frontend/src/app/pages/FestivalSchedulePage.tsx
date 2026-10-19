@@ -202,6 +202,19 @@ function DayScheduleGrid({
   );
 }
 
+// A free-choice festival's children can each have their own event type —
+// whether a class needs a role (and which roles) must be read off that
+// specific child, never off the parent festival's own event_type, which
+// may differ or have none at all.
+function eventHasRoles(ev: EventSimple): boolean {
+  // Mirrors the backend's own rule exactly (see
+  // FreeFestivalEventEntrySerializer.validate()): only partner_roles
+  // being defined matters — the separate `partners` count field isn't
+  // checked there, and may be 0 on a child event's type even when its
+  // partner_roles are set.
+  return ev.event_type.partner_roles.length > 0;
+}
+
 // ── Registration panel (controlled) ──────────────────────────────────────────
 
 function RegistrationPanel({
@@ -250,18 +263,52 @@ function RegistrationPanel({
   onSuccess: () => void;
 }) {
   const { t, language } = useLanguage();
-  const hasRoles = festival.event_type.partners > 0 && festival.event_type.partner_roles.length > 0;
+  // Shown preemptively off the whole festival's children, not just the
+  // currently selected ones — otherwise this scaffolding (role picker,
+  // "same partner" toggle) would pop in and out as the selection changes.
+  const hasRoles = festival.events.some(eventHasRoles);
+  // The single role picked once (non-flexible mode) needs a role list too
+  // — the union of every selectable child's own roles, since the parent
+  // festival's own event_type may not carry any of its own.
+  const roleOptions = useMemo(() => {
+    const byId = new Map<number, { id: number; name: string }>();
+    for (const ev of festival.events) {
+      if (!eventHasRoles(ev)) continue;
+      for (const r of ev.event_type.partner_roles) byId.set(r.id, r);
+    }
+    return Array.from(byId.values());
+  }, [festival.events]);
   const hasMemberships = festival.memberships.length > 0;
   const isFlexible = selectedRoleId === FLEXIBLE_ROLE;
   const selectedCount = selectedEvents.length;
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [showPartnerEmailError, setShowPartnerEmailError] = useState(false);
+  // One consolidated list for the popup, plus a per-event map so the
+  // specific offending row can also be flagged in red — both client-side
+  // checks (unresolved partner email) and backend-reported errors
+  // (already-booked partner, missing role, plan limit, …) feed into the
+  // same two pieces of state instead of separate ad-hoc error UIs.
+  const [dialogErrors, setDialogErrors] = useState<string[]>([]);
+  const [perEventErrors, setPerEventErrors] = useState<Record<number, string>>({});
 
   const remaining = maxEvents !== null ? maxEvents - selectedCount : null;
   const hasSelectedAll = maxEvents === null || selectedCount >= maxEvents;
-  const allPerEventRolesSet = selectedEvents.every(ev => !!perEventRoleIds[ev.id]);
-  const roleSatisfied = !hasRoles || (isFlexible ? allPerEventRolesSet : !!selectedRoleId);
+  // Only the selected classes that actually have roles need one picked —
+  // a roleless class in the mix must never block registration.
+  // Already-booked events don't need a role decision here at all — their
+  // role was set by the earlier pairing and no picker is shown for them.
+  const anySelectedHasRoles = selectedEvents.some(ev => !ev.already_booked && eventHasRoles(ev));
+  const allPerEventRolesSet = selectedEvents.every(
+    ev => ev.already_booked || !eventHasRoles(ev) || !!perEventRoleIds[ev.id],
+  );
+  const roleSatisfied = !anySelectedHasRoles || (isFlexible ? allPerEventRolesSet : !!selectedRoleId);
+  // Only the rows that actually have something to show — a role picker,
+  // a per-class partner input, or an error — so a roleless class doesn't
+  // render an empty row next to the ones that do.
+  const detailRows = selectedEvents.filter(ev =>
+    !!perEventErrors[ev.id]
+    || (!ev.already_booked && ((isFlexible && eventHasRoles(ev)) || (hasRoles && !sharedPartner))),
+  );
 
   const canRegister =
     (!hasMemberships || !!selectedMembershipId) &&
@@ -270,29 +317,53 @@ function RegistrationPanel({
 
   const handleRegister = async () => {
     if (!accessToken) return;
-    const unresolvedPartner = sharedPartner
-      ? partnerEmailUnresolved(partnerEmail, partnerId)
-      : selectedEvents.some(ev =>
-          partnerEmailUnresolved(perEventPartnerEmails[ev.id] ?? '', perEventPartnerIds[ev.id] ?? null),
-        );
-    if (unresolvedPartner) {
-      setShowPartnerEmailError(true);
+    setDialogErrors([]);
+    setPerEventErrors({});
+
+    // Unresolved partner emails are already known client-side — no point
+    // sending a request that the backend would just reject for the same
+    // reason, entry by entry.
+    const unresolvedEvents = selectedEvents.filter(ev => {
+      // Already booked here as someone else's partner — no partner input
+      // is ever collected or sent for it (see handleRegister's payload),
+      // so it can't be the one with an unresolved email either.
+      if (ev.already_booked) return false;
+      const email = sharedPartner ? partnerEmail : (perEventPartnerEmails[ev.id] ?? '');
+      const id = sharedPartner ? partnerId : (perEventPartnerIds[ev.id] ?? null);
+      return partnerEmailUnresolved(email, id);
+    });
+    if (unresolvedEvents.length > 0) {
+      const message = t('festival.registration.partnerEmailNotFound');
+      setPerEventErrors(Object.fromEntries(unresolvedEvents.map(ev => [ev.id, message])));
+      setDialogErrors(unresolvedEvents.map(ev => `${ev.name}: ${message}`));
       return;
     }
+
     setStatus('loading');
     try {
       const body: Record<string, unknown> = {
         event_id: festival.id,
-        event_ids: selectedEvents.map(ev => ({
-          event_id: ev.id,
-          role_id: isFlexible
-            ? (perEventRoleIds[ev.id] ? Number(perEventRoleIds[ev.id]) : null)
-            : (selectedRoleId ? Number(selectedRoleId) : null),
-          partner_id: sharedPartner ? partnerId : (perEventPartnerIds[ev.id] ?? null),
-          // Sent alongside partner_id so the backend can still flag a
-          // typo'd/unregistered email even if it never resolved to an id.
-          partner_email: sharedPartner ? partnerEmail : (perEventPartnerEmails[ev.id] ?? ''),
-        })),
+        event_ids: selectedEvents.map(ev => {
+          // Already booked here as someone else's partner — this slot's
+          // role/partner were set by that earlier pairing, not by this
+          // registration, so nothing is resubmitted for it. The backend
+          // preserves whatever it already has when these come in null.
+          if (ev.already_booked) {
+            return { event_id: ev.id, role_id: null, partner_id: null, partner_email: '' };
+          }
+          return {
+            event_id: ev.id,
+            // A role never applies to a class whose type doesn't define
+            // one, regardless of flexible/shared mode.
+            role_id: !eventHasRoles(ev) ? null : isFlexible
+              ? (perEventRoleIds[ev.id] ? Number(perEventRoleIds[ev.id]) : null)
+              : (selectedRoleId ? Number(selectedRoleId) : null),
+            partner_id: sharedPartner ? partnerId : (perEventPartnerIds[ev.id] ?? null),
+            // Sent alongside partner_id so the backend can still flag a
+            // typo'd/unregistered email even if it never resolved to an id.
+            partner_email: sharedPartner ? partnerEmail : (perEventPartnerEmails[ev.id] ?? ''),
+          };
+        }),
       };
       if (selectedMembershipId) body.membership_id = Number(selectedMembershipId);
       const res = await fetch('/api/booking/my-memberships/book-free-festival/', {
@@ -300,10 +371,40 @@ function RegistrationPanel({
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        // event_ids comes back as a list positioned the same as the
+        // entries we submitted (DRF's list serializer validates each one
+        // independently), so index i maps straight onto selectedEvents[i].
+        const entryErrors: unknown[] = Array.isArray(data?.event_ids) ? data.event_ids : [];
+        const perEvent: Record<number, string> = {};
+        const messages: string[] = [];
+        entryErrors.forEach((entry, idx) => {
+          const event = selectedEvents[idx];
+          if (!event || !entry || typeof entry !== 'object') return;
+          const texts = Object.values(entry as Record<string, unknown>)
+            .flat()
+            .map(String);
+          if (texts.length === 0) return;
+          perEvent[event.id] = texts.join(' ');
+          messages.push(`${event.name}: ${texts.join(' ')}`);
+        });
+        // Anything else (membership_id, a top-level event_id, non_field_errors…)
+        // still belongs in the same popup, just without a row to flag.
+        Object.entries(data ?? {}).forEach(([key, value]) => {
+          if (key === 'event_ids') return;
+          const texts = Array.isArray(value) ? value.map(String) : [String(value)];
+          messages.push(...texts);
+        });
+        setPerEventErrors(perEvent);
+        setDialogErrors(messages.length > 0 ? messages : [t('festival.registration.error')]);
+        setStatus('error');
+        return;
+      }
       setStatus('success');
       onSuccess();
     } catch {
+      setDialogErrors([t('festival.registration.error')]);
       setStatus('error');
     }
   };
@@ -347,7 +448,7 @@ function RegistrationPanel({
                 <SelectValue placeholder={t('festival.registration.selectRole')} />
               </SelectTrigger>
               <SelectContent>
-                {festival.event_type.partner_roles.map(r => (
+                {roleOptions.map(r => (
                   <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                 ))}
                 <SelectItem value={FLEXIBLE_ROLE}>{t('festival.registration.flexibleRole')}</SelectItem>
@@ -364,12 +465,6 @@ function RegistrationPanel({
           {t('festival.registration.register')}
         </Button>
       </div>
-      {status === 'error' && (
-        <p className="text-sm text-red-600 flex items-center gap-1.5">
-          <AlertCircle className="size-4 flex-shrink-0" />
-          {t('festival.registration.error')}
-        </p>
-      )}
       {!!selectedMembershipId && remaining !== null && remaining > 0 && (
         <p className="text-xs text-amber-600">
           {language === 'it'
@@ -404,65 +499,74 @@ function RegistrationPanel({
       )}
       {/* Fixed role/partner (set once, above) don't need a row here —
           this list only covers what's chosen per event: a flexible role
-          and/or a partner that differs per class. */}
-      {(isFlexible || (hasRoles && !sharedPartner)) && selectedEvents.length > 0 && (
+          and/or a partner that differs per class. It also surfaces,
+          regardless of that, which specific class an error (from the
+          popup below) belongs to. */}
+      {detailRows.length > 0 && (
         <div className="space-y-2 pt-1">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
             {t('festival.registration.detailsPerClass')}
           </p>
           <div className="space-y-1.5">
-            {selectedEvents.map(ev => (
-              <div key={ev.id} className="flex items-center justify-between gap-3 bg-white border rounded-md px-3 py-1.5">
-                <span className="text-sm text-[#2b2b2b] truncate mr-2">
-                  {ev.name} — {ev.start_date.slice(11, 16)}
-                </span>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {isFlexible && (
-                    <Select
-                      value={perEventRoleIds[ev.id] ?? ''}
-                      onValueChange={v => onPerEventRoleChange(ev.id, v)}
-                    >
-                      <SelectTrigger className="w-32 h-8 text-xs">
-                        <SelectValue placeholder={t('festival.registration.selectRole')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {festival.event_type.partner_roles.map(r => (
-                          <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {hasRoles && !sharedPartner && (
-                    <div className="w-44">
-                      <PartnerEmailInput
-                        value={perEventPartnerEmails[ev.id] ?? ''}
-                        onChange={email => onPerEventPartnerEmailChange(ev.id, email)}
-                        onResolved={id => onPerEventPartnerIdResolved(ev.id, id)}
-                        accessToken={accessToken}
-                        language={language}
-                      />
-                    </div>
-                  )}
+            {detailRows.map(ev => (
+              <div key={ev.id} className="space-y-1">
+                <div className="flex items-center justify-between gap-3 bg-white border rounded-md px-3 py-1.5">
+                  <span className="text-sm text-[#2b2b2b] truncate mr-2">
+                    {ev.name} — {ev.start_date.slice(11, 16)}
+                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {isFlexible && eventHasRoles(ev) && (
+                      <Select
+                        value={perEventRoleIds[ev.id] ?? ''}
+                        onValueChange={v => onPerEventRoleChange(ev.id, v)}
+                      >
+                        <SelectTrigger className="w-32 h-8 text-xs">
+                          <SelectValue placeholder={t('festival.registration.selectRole')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ev.event_type.partner_roles.map(r => (
+                            <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {hasRoles && !sharedPartner && (
+                      <div className="w-44">
+                        <PartnerEmailInput
+                          value={perEventPartnerEmails[ev.id] ?? ''}
+                          onChange={email => onPerEventPartnerEmailChange(ev.id, email)}
+                          onResolved={id => onPerEventPartnerIdResolved(ev.id, id)}
+                          accessToken={accessToken}
+                          language={language}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
+                {perEventErrors[ev.id] && (
+                  <p className="text-xs text-red-600 pl-1">{perEventErrors[ev.id]}</p>
+                )}
               </div>
             ))}
           </div>
         </div>
       )}
     </div>
-    <AlertDialog open={showPartnerEmailError} onOpenChange={setShowPartnerEmailError}>
+    <AlertDialog open={dialogErrors.length > 0} onOpenChange={open => !open && setDialogErrors([])}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <AlertCircle className="size-5 text-red-500" />
-            {language === 'it' ? 'Email del partner non trovata' : 'Partner email not found'}
+            {t('festival.registration.errorDialogTitle')}
           </AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('festival.registration.partnerEmailNotFound')}
+          <AlertDialogDescription asChild>
+            <ul className="list-disc pl-5 space-y-1 text-left">
+              {dialogErrors.map((message, idx) => <li key={idx}>{message}</li>)}
+            </ul>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogAction onClick={() => setShowPartnerEmailError(false)}>
+          <AlertDialogAction onClick={() => setDialogErrors([])}>
             OK
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -549,6 +653,31 @@ export function FestivalSchedulePage() {
   // fetch/filter needed to find this festival's children.
   const childEvents = festival?.events ?? [];
 
+  // Events the viewer already has a Booking for — typically because
+  // someone else named them as a partner on a free-festival entry, which
+  // never gets its own Contribution. Shown pre-selected and locked (like
+  // fix_events), but unlike fix_events these DO count toward max_events
+  // and DO get resubmitted, so the backend can link them to the real
+  // Contribution this registration creates (see
+  // FreeFestivalContributionSerializer.create()'s merge-on-existing-row
+  // handling).
+  const alreadyBookedEventIds = useMemo(
+    () => new Set(childEvents.filter(e => e.already_booked).map(e => e.id)),
+    [childEvents],
+  );
+
+  // Re-add already-booked events after the reset above (same dependency,
+  // so this runs right after it) and whenever the festival data itself
+  // first reports them — the viewer never gets to start without them.
+  useEffect(() => {
+    if (alreadyBookedEventIds.size === 0) return;
+    setSelectedEventIds(prev => {
+      const next = new Set(prev);
+      alreadyBookedEventIds.forEach(id => next.add(id));
+      return next;
+    });
+  }, [alreadyBookedEventIds, selectedMembershipId]);
+
   // Derive max_events from the selected membership (null = unlimited).
   const selectedMembership = useMemo(
     () => festival?.memberships.find(m => String(m.id) === selectedMembershipId) ?? null,
@@ -565,6 +694,14 @@ export function FestivalSchedulePage() {
   const fixedChildEvents = useMemo(
     () => childEvents.filter(e => fixedEventIds.has(e.id)),
     [childEvents, fixedEventIds],
+  );
+
+  // What the grid renders as locked (Lock icon, not clickable) — both
+  // fix_events and already-booked-as-partner events, even though only
+  // the latter is part of selectedEventIds/the submitted payload.
+  const lockedEventIds = useMemo(
+    () => new Set([...fixedEventIds, ...alreadyBookedEventIds]),
+    [fixedEventIds, alreadyBookedEventIds],
   );
 
   const selectedEvents = useMemo(
@@ -600,6 +737,7 @@ export function FestivalSchedulePage() {
     });
 
   const toggleEvent = (eventId: number) => {
+    if (alreadyBookedEventIds.has(eventId)) return;
     if (selectedEventIds.has(eventId)) {
       setSelectedEventIds(prev => {
         const next = new Set(prev);
@@ -752,7 +890,7 @@ export function FestivalSchedulePage() {
                       day={day}
                       dayEvents={dayEvents}
                       selectedEventIds={selectedEventIds}
-                      fixedEventIds={fixedEventIds}
+                      fixedEventIds={lockedEventIds}
                       blockedEventIds={blockedEventIds}
                       canSelectMore={canSelectMore}
                       onToggleEvent={toggleEvent}

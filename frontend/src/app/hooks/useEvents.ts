@@ -70,6 +70,10 @@ export interface EventSimple {
   room: { id: number; name: string; location: { id: number; name: string; city: { id: number; name: string } } };
   styles: { id: number; name: string }[];
   artists: { id: number; full_name: string }[];
+  // True if the current user already has a Booking for this specific
+  // child event, regardless of whether a Contribution backs it — e.g. a
+  // free-festival partner pairing never gets one of its own.
+  already_booked: boolean;
 }
 
 // Shape returned by GET /api/events/events/<id>/detail/ — same as EventItem,
