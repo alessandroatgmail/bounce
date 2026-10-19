@@ -521,13 +521,28 @@ class EventSimpleSerializer(serializers.ModelSerializer):
     room = RoomSerializer(read_only=True)
     styles = StyleSerializer(many=True, read_only=True)
     artists = ArtistSerializer(many=True, read_only=True)
+    already_booked = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
         fields = [
             "id", "name", "start_date", "end_date", "color",
             "event_type", "level", "room", "styles", "artists",
+            "already_booked",
         ]
+
+    def get_already_booked(self, obj):
+        # Unlike EventSerializer.get_already_booked (Contribution-based —
+        # this child's own parent festival), this checks for a Booking
+        # directly: a free-festival partner's pairing never gets its own
+        # Contribution (see FreeFestivalContributionSerializer.create()),
+        # so this is the only way to tell them "you're already in this
+        # one" when they open the festival's page themselves.
+        request = self.context.get("request")
+        if not (request and request.user.is_authenticated):
+            return False
+        from booking.models import Booking
+        return Booking.objects.filter(user=request.user, event=obj).exists()
 
 
 

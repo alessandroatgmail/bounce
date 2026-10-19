@@ -14,7 +14,7 @@ from event.models import Event, Level, PartnerRole
 from event.serializers import EventSerializer
 from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
-from .models import Booking, Contribution, ContributionStatus, ExtraItem
+from .models import Booking, BookingStatus, Contribution, ContributionStatus, ExtraItem
 from .utils import sync_bookings, book_events_for_contribution, _recurring_children_window
 
 
@@ -303,6 +303,92 @@ class FreeFestivalEventEntrySerializer(serializers.Serializer):
                     'partner_email': 'No active account is registered with this email.'
                 })
             attrs['partner_id'] = partner
+        # Each entry only needs its own event_id/partner_id to check this —
+        # doing it here (rather than once over the whole event_ids list)
+        # means DRF's list serializer validates every entry independently
+        # and reports errors per index, so the response can say which
+        # chosen class is the problem instead of one flat message for the
+        # whole list.
+        child_event = attrs['event_id']
+        role = attrs.get('role_id')
+        user = self.context["request"].user
+        # Unlike the base single-event serializer (gated on
+        # event_type.partners > 1), this is gated on whether the child
+        # actually has partner roles defined at all — a class with none
+        # never requires one. Exception: if the user already holds a role
+        # for this class (e.g. they were paired in as someone else's
+        # partner and are now registering themselves), omitting role_id
+        # here just confirms that existing booking rather than making a
+        # fresh choice, so it isn't required again.
+        if child_event.event_type.partner_roles.exists() and not role:
+            existing_own_booking = Booking.objects.filter(user=user, event=child_event).first()
+            if not (existing_own_booking and existing_own_booking.role_id is not None):
+                raise serializers.ValidationError({
+                    'role_id': 'For this event, you must specify a role.'
+                })
+        if service._validate_double_registrations(user=user, event=child_event):
+            raise serializers.ValidationError({
+                'event_id': 'User already registered for this event.'
+            })
+        if partner:
+            # A partner who already independently holds a booking for this
+            # event isn't automatically rejected — only when that existing
+            # booking already has its own partner, or its role conflicts
+            # with the one being offered here (e.g. two Leaders). Otherwise
+            # the new booking merges into it (see
+            # FreeFestivalContributionSerializer.create()) instead of being
+            # treated as a double-booking.
+            existing_partner_booking = Booking.objects.filter(user=partner, event=child_event).first()
+            if existing_partner_booking:
+                if existing_partner_booking.partner_id is not None:
+                    raise serializers.ValidationError({
+                        'partner_id': 'Partner already has a partner for this event.'
+                    })
+                complementary_role = (
+                    child_event.event_type.partner_roles.exclude(pk=role.pk).first()
+                    if role else None
+                )
+                if (
+                    existing_partner_booking.role_id is not None
+                    and complementary_role is not None
+                    and existing_partner_booking.role_id != complementary_role.pk
+                ):
+                    raise serializers.ValidationError({
+                        'partner_id': 'Partner is already booked with an incompatible role for this event.'
+                    })
+            else:
+                # No existing booking for THIS class — but if the partner
+                # already holds their own contribution for this same
+                # festival (a plan capped at membership.max_events chosen
+                # classes), adding them to one more class they didn't
+                # already pick would push their total past that cap.
+                festival = child_event.event_set.first()
+                if festival:
+                    partner_contribution = Contribution.objects.filter(
+                        user=partner, events=festival, membership__isnull=False,
+                    ).exclude(status=ContributionStatus.CANCELLED).first()
+                    if partner_contribution and partner_contribution.membership.max_events:
+                        fix_event_ids = set(
+                            partner_contribution.membership.fix_events.values_list('id', flat=True)
+                        )
+                        # Counted against actual Booking rows, not
+                        # contribution.events — an admin may have removed
+                        # the partner from one of their chosen classes
+                        # without touching the contribution itself, which
+                        # should free up that slot again.
+                        chosen_count = (
+                            Booking.objects.filter(user=partner, contribution=partner_contribution)
+                            .exclude(event=festival)
+                            .exclude(event_id__in=fix_event_ids)
+                            .count()
+                        )
+                        if chosen_count >= partner_contribution.membership.max_events:
+                            raise serializers.ValidationError({
+                                'partner_id': (
+                                    "Adding this partner here would exceed their own "
+                                    "plan's class limit for this festival."
+                                )
+                            })
         return attrs
 
 
@@ -618,18 +704,10 @@ class FreeFestivalContributionSerializer(UserContributionSerializer):
                     f"{membership.max_events} event(s), got {len(chosen)}."
                 )
             })
-        user = self.context["request"].user
-        for item in chosen:
-            child_event = item['event_id']
-            if service._validate_double_registrations(user=user, event=child_event):
-                raise serializers.ValidationError({
-                    'event_ids': 'User already registered for this event.'
-                })
-            partner = item.get('partner_id')
-            if partner and service._validate_double_registrations(user=partner, event=child_event):
-                raise serializers.ValidationError({
-                    'event_ids': 'Partner already registered for this event.'
-                })
+        # Double-registration (student or partner) is checked per entry —
+        # see FreeFestivalEventEntrySerializer.validate() — so each
+        # offending chosen class is reported on its own, not just the
+        # first one found across the whole list.
         return attrs
 
     def create(self, validated_data):
@@ -642,19 +720,26 @@ class FreeFestivalContributionSerializer(UserContributionSerializer):
         # other case) — that's what already_booked/get_booked_by and the
         # frontend's "my bookings" match against on the festival's own
         # card — alongside the chosen children and fix_events, each
-        # getting its own Booking with its own role. First pass — no
-        # capacity/waiting-list check per child, no partner pairing, no
-        # emails yet; those are deliberate follow-ups, not oversights.
+        # getting its own Booking with its own role.
         fix_events = list(membership.fix_events.all()) if membership else []
         chosen_events = [entry['event_id'] for entry in event_ids]
         contribution.events.add(event, *chosen_events, *fix_events)
-        contribution.status = ContributionStatus.ACCEPTED
+        # One Contribution covers every chosen event, so even a single
+        # full class puts the whole registration on the waiting list, not
+        # just that class — but Booking.status is per class, so only the
+        # actually-full one(s) are flagged there.
+        waiting_events = service._free_festival_waiting_events(chosen_events)
+        waiting_event_ids = {waiting_event.id for waiting_event in waiting_events}
+        contribution.status = ContributionStatus.WAITING if waiting_events else ContributionStatus.ACCEPTED
         contribution.save()
         partner_events: dict = {}
         for entry in event_ids:
             child_event = entry['event_id']
             role = entry.get('role_id')
             partner = entry.get('partner_id')
+            booking_status = (
+                BookingStatus.WAITING if child_event.id in waiting_event_ids else BookingStatus.ACCEPTED
+            )
             # The partner isn't being charged — just paired on this one
             # child event, mutually, the same way book_events_for_contribution
             # pairs two regular bookings: each side's role/partner_role
@@ -665,7 +750,7 @@ class FreeFestivalContributionSerializer(UserContributionSerializer):
                 child_event.event_type.partner_roles.exclude(pk=role.pk).first()
                 if role and partner else None
             )
-            Booking.objects.get_or_create(
+            student_booking, student_created = Booking.objects.get_or_create(
                 user=contribution.user,
                 event=child_event,
                 defaults={
@@ -673,18 +758,56 @@ class FreeFestivalContributionSerializer(UserContributionSerializer):
                     "partner": partner,
                     "partner_role": partner_role,
                     "contribution": contribution,
+                    "status": booking_status,
+                    "couple": bool(partner),
                 },
             )
+            if not student_created:
+                # A stray Booking for this (user, event) pair can already
+                # exist outside this contribution (e.g. left over from an
+                # earlier registration, or because this user was paired in
+                # as someone else's partner) — get_or_create's defaults
+                # are silently ignored in that case, so the role/partner
+                # this registration asked for has to be applied explicitly
+                # too. But never clobber a role/partner this booking
+                # already has — e.g. a partner who already holds "Follower"
+                # from an earlier pairing must not have it overwritten
+                # just because their own later registration resubmits
+                # this same class with a different role_id (mirrors the
+                # same guard on partner_booking below).
+                student_booking.contribution = contribution
+                student_booking.status = booking_status
+                if role and student_booking.role_id is None:
+                    student_booking.role = role
+                if partner and student_booking.partner_id is None:
+                    student_booking.partner = partner
+                    student_booking.partner_role = partner_role
+                    student_booking.couple = True
+                student_booking.save()
             if partner:
-                Booking.objects.get_or_create(
+                # The partner may already hold their own, unpaired booking
+                # for this event (validated as compatible in
+                # FreeFestivalEventEntrySerializer.validate()) — merge into
+                # it rather than leaving it untouched, which is what
+                # get_or_create's defaults would otherwise do.
+                partner_booking, partner_created = Booking.objects.get_or_create(
                     user=partner,
                     event=child_event,
                     defaults={
                         "role": partner_role,
                         "partner": contribution.user,
                         "partner_role": role,
+                        "status": booking_status,
+                        "couple": True,
                     },
                 )
+                if not partner_created:
+                    partner_booking.partner = contribution.user
+                    partner_booking.partner_role = role
+                    partner_booking.couple = True
+                    if partner_booking.role_id is None and partner_role:
+                        partner_booking.role = partner_role
+                    partner_booking.save()
                 partner_events.setdefault(partner, []).append((child_event, partner_role))
         for fix_event in fix_events:
             Booking.objects.get_or_create(
@@ -694,4 +817,6 @@ class FreeFestivalContributionSerializer(UserContributionSerializer):
             )
         if partner_events:
             service._notify_free_festival_partners(contribution.user, partner_events)
+        if waiting_events:
+            service._notify_free_festival_waiting_list(contribution, waiting_events)
         return contribution
