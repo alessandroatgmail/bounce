@@ -155,6 +155,11 @@ class Contribution(models.Model):
         return not self.has_shared_transaction and self.remaining_amount > 0
 
 
+class BookingStatus(models.TextChoices):
+    ACCEPTED = "accepted", "Accepted"
+    WAITING = "waiting", "Waiting"
+
+
 class Booking(models.Model):
     user = models.ForeignKey(get_user_model(), on_delete=models.PROTECT,
                              related_name="bookings")
@@ -168,6 +173,12 @@ class Booking(models.Model):
                                      on_delete=models.PROTECT,
                                      null=True, blank=True, related_name='partner_role')
     attended = models.BooleanField(default=False)
+    # Per-class status, distinct from Contribution.status — a free
+    # festival's one Contribution spans several chosen classes, so
+    # whether *this* specific class is full needs its own flag. Only the
+    # free-festival booking path sets this to WAITING for now; every
+    # other booking path leaves it at the default.
+    status = models.CharField(max_length=20, choices=BookingStatus.choices, default=BookingStatus.ACCEPTED)
     # True when the pairing comes from a real couple booking (twin
     # contributions): these pairs must never be split when re-arranging
     # the register.
