@@ -187,6 +187,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'booking.tasks.cancel_expired_contributions',
         'schedule': crontab(hour=0, minute=5),
     },
+    'delete-expired-medical-certificates-daily': {
+        'task': 'document.tasks.delete_expired_medical_certificates',
+        'schedule': crontab(hour=0, minute=15),
+    },
     # Disabled: consolidate_register (called by this task) rebuilds every
     # child event's Booking rows from the parent's, dropping attended —
     # running every 10 minutes for an hour before each class wiped out
