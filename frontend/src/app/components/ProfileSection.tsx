@@ -25,12 +25,26 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { apiUrl, authFetch, authFetchFile } from '../../lib/api';
 import { CitySearch, type CityResult } from './CitySearch';
 import { ImageCropDialog } from './ImageCropDialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 
 type EditSection = 'personal' | 'address' | 'acsi' | 'consents' | 'password' | null;
 
 const ACSI_FORM_URL = '/documents/acsi-membership-form.pdf';
 
-type UserDocument = { id: number; file: string; date: string };
+type DocumentType = 'other' | 'medical_certificate';
+
+const MEDICAL_CERT_MAX_SIZE = 5 * 1024 * 1024;
+const MEDICAL_CERT_ACCEPT = 'application/pdf,image/jpeg,image/png';
+const MEDICAL_CERT_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'];
+
+type UserDocument = {
+  id: number;
+  file: string;
+  date: string;
+  document_type: DocumentType;
+  emission_date: string | null;
+};
 
 function filenameFromUrl(url: string) {
   return decodeURIComponent(url.split('/').pop() ?? url);
@@ -52,10 +66,16 @@ export function ProfileSection() {
   const [uploading, setUploading] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const medicalFileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedDocuments, setUploadedDocuments] = useState<UserDocument[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(true);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [newDocumentType, setNewDocumentType] = useState<DocumentType>('other');
+  const [showMedicalDialog, setShowMedicalDialog] = useState(false);
+  const [medicalFile, setMedicalFile] = useState<File | null>(null);
+  const [medicalEmissionDate, setMedicalEmissionDate] = useState('');
+  const [medicalDialogError, setMedicalDialogError] = useState<string | null>(null);
   const [editingSection, setEditingSection] = useState<EditSection>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -286,18 +306,75 @@ export function ProfileSection() {
     setDocumentError(null);
     const form = new FormData();
     form.append('file', file);
+    form.append('document_type', 'other');
     try {
       const res = await authFetchFile('/api/documents/documents/', accessToken, form, 'POST');
       if (res.ok) {
         await fetchDocuments();
       } else {
-        setDocumentError(t('Caricamento non riuscito.', 'Upload failed.'));
+        const errData = await res.json().catch(() => ({}));
+        const msgs = Object.values(errData).flat().join('; ');
+        setDocumentError(msgs || t('Caricamento non riuscito.', 'Upload failed.'));
       }
     } catch {
       setDocumentError(t('Errore di rete.', 'Network error.'));
     } finally {
       setUploadingDocument(false);
       e.target.value = '';
+    }
+  };
+
+  const openMedicalDialog = () => {
+    setMedicalFile(null);
+    setMedicalEmissionDate('');
+    setMedicalDialogError(null);
+    setShowMedicalDialog(true);
+  };
+
+  const closeMedicalDialog = () => {
+    if (uploadingDocument) return;
+    setShowMedicalDialog(false);
+  };
+
+  const handleMedicalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const extension = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+    if (!MEDICAL_CERT_EXTENSIONS.includes(extension)) {
+      setMedicalDialogError(t('Carica solo un file PDF, JPG o PNG.', 'Please upload a PDF, JPG or PNG file only.'));
+      return;
+    }
+    if (file.size > MEDICAL_CERT_MAX_SIZE) {
+      setMedicalDialogError(t('Il file supera i 5 MB consentiti.', 'The file exceeds the 5 MB limit.'));
+      return;
+    }
+    setMedicalDialogError(null);
+    setMedicalFile(file);
+  };
+
+  const handleMedicalSubmit = async () => {
+    if (!accessToken || !medicalFile || !medicalEmissionDate) return;
+    setUploadingDocument(true);
+    setMedicalDialogError(null);
+    const form = new FormData();
+    form.append('file', medicalFile);
+    form.append('document_type', 'medical_certificate');
+    form.append('emission_date', medicalEmissionDate);
+    try {
+      const res = await authFetchFile('/api/documents/documents/', accessToken, form, 'POST');
+      if (res.ok) {
+        await fetchDocuments();
+        setShowMedicalDialog(false);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        const msgs = Object.values(errData).flat().join('; ');
+        setMedicalDialogError(msgs || t('Caricamento non riuscito.', 'Upload failed.'));
+      }
+    } catch {
+      setMedicalDialogError(t('Errore di rete.', 'Network error.'));
+    } finally {
+      setUploadingDocument(false);
     }
   };
 
@@ -912,19 +989,21 @@ export function ProfileSection() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('Nome', 'Name')}</TableHead>
+                      <TableHead>{t('Tipo', 'Type')}</TableHead>
+                      <TableHead>{t('Data emissione', 'Emission date')}</TableHead>
                       <TableHead>{t('Data di caricamento', 'Upload date')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loadingDocuments ? (
                       <TableRow>
-                        <TableCell colSpan={2} className="text-center py-6">
+                        <TableCell colSpan={4} className="text-center py-6">
                           <Loader2 className="size-4 animate-spin text-[#e67e22] inline" />
                         </TableCell>
                       </TableRow>
                     ) : uploadedDocuments.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={2} className="text-center text-sm text-gray-500 py-6">
+                        <TableCell colSpan={4} className="text-center text-sm text-gray-500 py-6">
                           {t('Nessun documento caricato.', 'No documents uploaded yet.')}
                         </TableCell>
                       </TableRow>
@@ -935,6 +1014,12 @@ export function ProfileSection() {
                             <FileText className="size-4 text-gray-400" />
                             {filenameFromUrl(doc.file)}
                           </TableCell>
+                          <TableCell className="text-gray-500">
+                            {doc.document_type === 'medical_certificate'
+                              ? t('Certificato medico', 'Medical certificate')
+                              : t('Altro', 'Other')}
+                          </TableCell>
+                          <TableCell className="text-gray-500">{formatDate(doc.emission_date) ?? '—'}</TableCell>
                           <TableCell className="text-gray-500">{formatDate(doc.date)}</TableCell>
                         </TableRow>
                       ))
@@ -948,18 +1033,43 @@ export function ProfileSection() {
                   </Alert>
                 )}
 
-                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                <div className="flex flex-col sm:flex-row gap-2 mt-4 items-start sm:items-end">
+                  <div className="w-full sm:w-56">
+                    <Label className="text-xs text-gray-500">{t('Tipo di documento', 'Document type')}</Label>
+                    <Select
+                      value={newDocumentType}
+                      onValueChange={v => setNewDocumentType(v as DocumentType)}
+                    >
+                      <SelectTrigger size="sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="other">{t('Altro', 'Other')}</SelectItem>
+                        <SelectItem value="medical_certificate">
+                          {t('Certificato medico', 'Medical certificate')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <Button
                     size="sm"
                     variant="outline"
                     className="flex items-center gap-1.5"
-                    onClick={() => documentInputRef.current?.click()}
+                    onClick={() => newDocumentType === 'medical_certificate'
+                      ? openMedicalDialog()
+                      : documentInputRef.current?.click()}
                     disabled={uploadingDocument}
                   >
                     {uploadingDocument ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
                     {t('Carica documento', 'Upload document')}
                   </Button>
-                  <input ref={documentInputRef} type="file" className="hidden" onChange={handleDocumentUpload} />
+                  <input
+                    ref={documentInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleDocumentUpload}
+                  />
 
                   <a href={ACSI_FORM_URL} download>
                     <Button size="sm" variant="outline" className="flex items-center gap-1.5 w-full">
@@ -972,6 +1082,94 @@ export function ProfileSection() {
             </AccordionItem>
 
           </Accordion>
+
+          {/* Medical certificate upload */}
+          <Dialog open={showMedicalDialog} onOpenChange={open => !open && closeMedicalDialog()}>
+            <DialogContent className="sm:max-w-xl">
+              <DialogHeader>
+                <DialogTitle>{t('Caricamento del certificato medico', 'Medical certificate upload')}</DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-3 text-sm text-gray-600">
+                <p>
+                  {t(
+                    'Per partecipare ai corsi è obbligatorio un certificato di idoneità all’attività sportiva in corso di validità (D.M. 24/04/2013).',
+                    'A valid medical certificate of fitness for sports activity is required to take part in classes (Italian Ministerial Decree 24/04/2013).',
+                  )}
+                </p>
+                <p>
+                  <strong>{t('Cosa caricare: ', 'What to upload: ')}</strong>
+                  {t(
+                    'solo il certificato, in formato PDF, JPG o PNG (max 5 MB). Non caricare referti, elettrocardiogrammi o altri esami: non ci servono.',
+                    'only the certificate itself, as a PDF, JPG or PNG file (max 5 MB). Please don’t upload test reports, ECGs or other exam results — we don’t need them.',
+                  )}
+                </p>
+                <p>
+                  <strong>{t('Come trattiamo il documento: ', 'How we handle this document: ')}</strong>
+                  {t(
+                    'ASD Bounce Swing Lovers, titolare del trattamento, usa il certificato solo per verificare la tua idoneità ai corsi, come previsto dalla normativa sportiva. Lo possono consultare solo la segreteria e il presidente. Il file viene cancellato automaticamente 90 giorni dopo la scadenza. Le copie di sicurezza vengono eliminate entro 60 giorni. I dati non vengono diffusi né comunicati a terzi.',
+                    'ASD Bounce Swing Lovers, as data controller, uses the certificate only to verify your fitness to take part in classes, as required by sports regulations. Only office staff and the club president can view it. The file is automatically deleted 90 days after it expires. Backup copies are purged within 60 days. Your data is never shared or disclosed to third parties.',
+                  )}
+                </p>
+                <p>
+                  {t(
+                    'Puoi chiedere accesso, rettifica o cancellazione scrivendo a info@bounceswinglovers.com.',
+                    'You can request access, correction or deletion by writing to info@bounceswinglovers.com.',
+                  )}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div>
+                  <Label className="text-xs text-gray-500">{t('Data emissione', 'Emission date')}</Label>
+                  <Input
+                    type="date"
+                    value={medicalEmissionDate}
+                    onChange={e => setMedicalEmissionDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">{t('Certificato (PDF, JPG, PNG)', 'Certificate (PDF, JPG, PNG)')}</Label>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    className="w-full flex items-center gap-1.5 justify-start"
+                    onClick={() => medicalFileInputRef.current?.click()}
+                  >
+                    <Upload className="size-3.5" />
+                    {medicalFile ? medicalFile.name : t('Scegli file...', 'Choose file...')}
+                  </Button>
+                  <input
+                    ref={medicalFileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept={MEDICAL_CERT_ACCEPT}
+                    onChange={handleMedicalFileChange}
+                  />
+                </div>
+              </div>
+
+              {medicalDialogError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{medicalDialogError}</AlertDescription>
+                </Alert>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={closeMedicalDialog} disabled={uploadingDocument}>
+                  {t('Annulla', 'Cancel')}
+                </Button>
+                <Button
+                  className="bg-[#e67e22] hover:bg-[#d4b896] text-white"
+                  onClick={handleMedicalSubmit}
+                  disabled={uploadingDocument || !medicalFile || !medicalEmissionDate}
+                >
+                  {uploadingDocument ? <Loader2 className="size-4 animate-spin" /> : t('Carica', 'Upload')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Danger zone */}
           <div className="border border-red-200 rounded-lg p-4 space-y-3">
