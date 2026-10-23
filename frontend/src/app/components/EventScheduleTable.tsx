@@ -40,8 +40,16 @@ function MapLink({ location, className }: { location: FestivalRoom['room']['loca
 }
 
 function ClassCard({ cls, purchased, dimmed }: { cls: EventSimple; purchased: boolean; dimmed: boolean }) {
+  const tooltip = [
+    cls.name,
+    `${cls.start_date.slice(11, 16)}–${cls.end_date.slice(11, 16)}`,
+    cls.level?.name,
+    cls.artists.length > 0 ? cls.artists.map(a => a.full_name).join(', ') : null,
+  ].filter(Boolean).join('\n');
+
   return (
     <div
+      title={tooltip}
       className="rounded-lg p-2 text-white shadow-sm h-full"
       style={{ backgroundColor: cls.color ?? '#e67e22', opacity: dimmed ? 0.35 : 1 }}
     >
@@ -53,6 +61,9 @@ function ClassCard({ cls, purchased, dimmed }: { cls: EventSimple; purchased: bo
         {cls.start_date.slice(11, 16)}–{cls.end_date.slice(11, 16)}
         {cls.level && ` · ${cls.level.name}`}
       </div>
+      {cls.artists.length > 0 && (
+        <div className="text-xs opacity-80 truncate">{cls.artists.map(a => a.full_name).join(', ')}</div>
+      )}
     </div>
   );
 }
