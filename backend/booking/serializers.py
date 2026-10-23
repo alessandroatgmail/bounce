@@ -114,6 +114,28 @@ class ContributionPartnerSerializer(serializers.ModelSerializer):
         fields = ['id', 'first_name', 'last_name', 'email']
 
 
+class ContributionAdminListSerializer(serializers.ModelSerializer):
+    """One row per contribution for the admin Contributions tab — flattened
+    fields (full_name, plan, event) rather than nested objects, since this
+    is a browsing/filtering table, not a form."""
+    full_name = serializers.SerializerMethodField()
+    email = serializers.CharField(source='user.email', read_only=True)
+    phone = serializers.CharField(source='user.phone', read_only=True)
+    plan = serializers.CharField(source='membership.name', read_only=True, default=None)
+    event = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Contribution
+        fields = ['id', 'user', 'full_name', 'email', 'phone', 'date', 'event', 'plan', 'status']
+
+    def get_full_name(self, obj):
+        return f"{obj.user.first_name} {obj.user.last_name}".strip()
+
+    def get_event(self, obj):
+        names = [event.name for event in obj.events.all()]
+        return ", ".join(names) if names else None
+
+
 class ContributionSerializer(serializers.ModelSerializer):
     events = ContributionEventSerializer(many=True, read_only=True)
     event_ids = serializers.PrimaryKeyRelatedField(
