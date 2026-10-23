@@ -155,9 +155,17 @@ function DayScheduleGrid({
                 const isSelected = isFixed || selectedEventIds.has(ev.id);
                 const isDisabled = !isFixed && !isSelected && (!canSelectMore || blockedEventIds.has(ev.id));
 
+                const tooltip = [
+                  ev.name,
+                  `${ev.start_date.slice(11, 16)}–${ev.end_date.slice(11, 16)}`,
+                  ev.level?.name,
+                  ev.artists.length > 0 ? ev.artists.map(a => a.full_name).join(', ') : null,
+                ].filter(Boolean).join('\n');
+
                 return (
                   <div
                     key={ev.id}
+                    title={tooltip}
                     onClick={() => !isFixed && onToggleEvent(ev.id)}
                     className={[
                       'absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 transition-all',
@@ -177,6 +185,11 @@ function DayScheduleGrid({
                     </div>
                     {ev.level && (
                       <div className="opacity-75 text-[10px] truncate">{ev.level.name}</div>
+                    )}
+                    {ev.artists.length > 0 && (
+                      <div className="opacity-75 text-[10px] truncate">
+                        {ev.artists.map(a => a.full_name).join(', ')}
+                      </div>
                     )}
                   </div>
                 );
