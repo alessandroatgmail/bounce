@@ -18,7 +18,7 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
-import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList, PanelTop, Receipt, IdCard } from 'lucide-react';
+import { Calendar, Users, DollarSign, Plus, Pencil, Trash2, Repeat, PartyPopper, Eye, Crown, ArrowLeftRight, Menu, ChevronDown, ChevronLeft, ChevronRight, Bell, Upload, X, Mail, ClipboardList, PanelTop, Receipt, IdCard, Wallet } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { mockStudents, mockRegularClasses, mockMemberships, mockUserMemberships, RegularClass, Membership, UserMembership } from '../data/mockData';
 import { useState, useRef, useMemo, useEffect } from 'react';
@@ -36,6 +36,7 @@ import { usePartnerRoles } from '../hooks/usePartnerRoles';
 import { ArtistPanel } from '../components/ArtistPanel';
 import { MembershipPanel } from '../components/MembershipPanel';
 import { MembershipManagementPanel } from '../components/MembershipManagementPanel';
+import { ContributionsManagementPanel } from '../components/ContributionsManagementPanel';
 import { AcsiExtraItemPanel } from '../components/AcsiExtraItemPanel';
 import { DiscountPanel } from '../components/DiscountPanel';
 import { EmailTemplatesPanel } from '../components/EmailTemplatesPanel';
@@ -108,6 +109,7 @@ export function AdminDashboard() {
     { value: 'notifications',   label: language === 'it' ? 'Notifiche' : 'Notifications',         icon: <Bell className="size-4" /> },
     { value: 'emails',          label: language === 'it' ? 'Email' : 'Emails',                     icon: <Mail className="size-4" /> },
     { value: 'payments',        label: language === 'it' ? 'Pagamenti' : 'Payments',                icon: <Receipt className="size-4" /> },
+    { value: 'contributions',   label: language === 'it' ? 'Contributi' : 'Contributions',           icon: <Wallet className="size-4" /> },
   ];
 
   const activeTabLabel = activeTab === 'events' && selectedEventModel
@@ -785,6 +787,10 @@ export function AdminDashboard() {
 
           <TabsContent value="payments" className="mt-6">
             <PaymentsPanel />
+          </TabsContent>
+
+          <TabsContent value="contributions" className="mt-6">
+            <ContributionsManagementPanel />
           </TabsContent>
         </Tabs>
       </div>

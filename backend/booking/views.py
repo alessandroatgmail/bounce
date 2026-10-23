@@ -1,20 +1,22 @@
 import datetime
 
 from dateutil.relativedelta import relativedelta
-from django.db.models import OuterRef, Prefetch, Subquery
+from django.db.models import OuterRef, Prefetch, Q, Subquery
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from django.conf import settings
 from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
 from .models import Booking, Contribution, ContributionStatus, ExtraItem
-from .serializers import AcsiExtraItemSerializer, BookingSerializer, ContributionOverviewSerializer, ContributionSerializer, ExtraItemSerializer, FestivalContributionSerializer, FreeFestivalContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
+from .serializers import AcsiExtraItemSerializer, BookingSerializer, ContributionAdminListSerializer, ContributionOverviewSerializer, ContributionSerializer, ExtraItemSerializer, FestivalContributionSerializer, FreeFestivalContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
 from utils.tasks import send_email
 
@@ -122,6 +124,79 @@ class ContributionOverviewViewSet(mixins.ListModelMixin, viewsets.GenericViewSet
         if event_id:
             qs = qs.filter(events=event_id)
         return qs
+
+
+class ContributionAdminListPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+def _filter_contributions_admin(qs, query_params):
+    """Applies the name/event/plan/status/date filters shared by
+    ContributionAdminListView and ContributionAdminIdsView."""
+    name = query_params.get('name', '').strip()
+    if name:
+        qs = qs.filter(
+            Q(user__first_name__icontains=name)
+            | Q(user__last_name__icontains=name)
+            | Q(user__email__icontains=name)
+        )
+
+    event_id = query_params.get('event', '').strip()
+    if event_id:
+        qs = qs.filter(events__id=event_id)
+
+    plan_id = query_params.get('plan', '').strip()
+    if plan_id:
+        qs = qs.filter(membership_id=plan_id)
+
+    status_param = query_params.get('status', '').strip()
+    if status_param:
+        qs = qs.filter(status=status_param)
+
+    date_from = query_params.get('date_from', '').strip()
+    if date_from:
+        qs = qs.filter(date__date__gte=date_from)
+
+    date_to = query_params.get('date_to', '').strip()
+    if date_to:
+        qs = qs.filter(date__date__lte=date_to)
+
+    return qs.distinct()
+
+
+class ContributionAdminListView(ListAPIView):
+    """Admin-wide, one-row-per-contribution table — mirrors UserListView's
+    pattern. Deliberately separate from ContributionViewSet (unpaginated,
+    consumed by useContributions.ts for a single user's own contributions)
+    and ContributionOverviewViewSet (single-event registration list), so
+    this new filter/pagination set can't regress either of those."""
+    serializer_class = ContributionAdminListSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = ContributionAdminListPagination
+
+    def get_queryset(self):
+        qs = (
+            Contribution.objects
+            .select_related('user', 'membership')
+            .prefetch_related('events')
+            .order_by('-date')
+        )
+        return _filter_contributions_admin(qs, self.request.query_params)
+
+
+class ContributionAdminIdsView(APIView):
+    """Every contribution id (and the distinct user ids) matching the same
+    filters as ContributionAdminListView, unpaginated — lets the admin
+    contributions table resolve "select all" across every page."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = _filter_contributions_admin(Contribution.objects.all(), request.query_params)
+        ids = list(qs.order_by('-date').values_list('id', flat=True))
+        user_ids = list(qs.order_by('user__last_name', 'user__first_name').values_list('user_id', flat=True).distinct())
+        return Response({'ids': ids, 'user_ids': user_ids, 'count': len(ids)})
 
 
 class UserContributionViewSet(
