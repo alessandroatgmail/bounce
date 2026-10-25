@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ArrowLeft, Loader2, Save, Copy, ClipboardPaste, X, Plus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -988,7 +988,18 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
   const { t, language } = useLanguage();
   const locale = language === 'it' ? 'it-IT' : 'en-GB';
   const { days, loading: loadingDays, refetch: refetchDays } = useFestivalDays(accessToken, festival.id);
-  const { events: allEvents, refetch: refetchEvents } = useEvents(accessToken);
+  // Only the events that are children of this festival — not every event in the system.
+  const { events: allEvents, refetch: refetchEvents } = useEvents(accessToken, `parent_id=${festival.id}`);
+
+  // The festival itself isn't in allEvents (it's scoped to children), so keep a
+  // separate, refetchable copy in sync with edits to its own fields/event_ids.
+  const [liveFestival, setLiveFestival] = useState<EventItem>(festival);
+  const fetchFestival = useCallback(async () => {
+    if (!accessToken) return;
+    const res = await authFetch(`/api/events/events/${festival.id}/`, accessToken);
+    if (res.ok) setLiveFestival(await res.json());
+  }, [accessToken, festival.id]);
+  useEffect(() => { fetchFestival(); }, [fetchFestival]);
 
   const [selectedTab, setSelectedTab] = useState<'info' | number>('info');
   const [addingSlot, setAddingSlot] = useState<AddSlot | null>(null);
@@ -1007,9 +1018,6 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Keep festival in sync with the live events list so festival.events reflects newly added children
-  const liveFestival = allEvents.find(e => e.id === festival.id) ?? festival;
-
   const selectedDay = typeof selectedTab === 'number'
     ? (days.find(d => d.id === selectedTab) ?? days[0] ?? null)
     : null;
@@ -1021,6 +1029,7 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
     setAddingSlot(null);
     setEditingEvent(null);
     refetchEvents();
+    fetchFestival();
   };
 
   const handleRemoveDay = async (day: FestivalDay) => {
@@ -1128,6 +1137,7 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
         body: JSON.stringify({ event_ids: [...liveFestival.events, created.id] }),
       });
       refetchEvents();
+      fetchFestival();
     } catch {
       // silently ignore — user can try again
     }
@@ -1307,7 +1317,7 @@ export function FestivalGrid({ festival, onBack }: { festival: EventItem; onBack
       )}
 
       {selectedTab === 'info' && (
-        <FestivalInfoTab festival={liveFestival} onSaved={refetchEvents} />
+        <FestivalInfoTab festival={liveFestival} onSaved={fetchFestival} />
       )}
 
       {selectedTab !== 'info' && (
