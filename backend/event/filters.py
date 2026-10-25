@@ -17,6 +17,7 @@ class EventFilter(django_filters.FilterSet):
     parent_only = django_filters.BooleanFilter(method='filter_parent_only')
     exclude_children = django_filters.BooleanFilter(method='filter_exclude_children')
     multi_events = django_filters.BooleanFilter(field_name='multi_events')
+    parent_id = django_filters.NumberFilter(method='filter_parent_id')
     frequency = django_filters.CharFilter(field_name='event_type__frequency')
     start_date_before = django_filters.DateFilter(field_name='start_date', lookup_expr='date__lte')
     end_date_after = django_filters.DateFilter(field_name='end_date', lookup_expr='date__gte')
@@ -50,3 +51,6 @@ class EventFilter(django_filters.FilterSet):
             child_ids = Event.objects.filter(events__isnull=False).values_list('events__pk', flat=True).distinct()
             return qs.exclude(pk__in=child_ids)
         return qs
+
+    def filter_parent_id(self, qs, name, value):
+        return qs.filter(event__id=value)
