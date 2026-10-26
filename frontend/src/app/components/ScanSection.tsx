@@ -42,10 +42,14 @@ const classWindowQueryString = (): string => {
   return `start_date_before=${asDate(after)}&end_date_after=${asDate(before)}`;
 };
 
-const isInClassWindow = (startDate: string): boolean => {
+// A multi-day event (e.g. a Fri-Sun festival) keeps start_date on day one —
+// so the window has to run from start_date through end_date, not just
+// around start_date, or the event drops off the list for its later days.
+const isInClassWindow = (startDate: string, endDate: string): boolean => {
   const now = Date.now();
   const start = new Date(startDate).getTime();
-  return start >= now - HOURS_BEFORE * 60 * 60 * 1000 && start <= now + HOURS_AFTER * 60 * 60 * 1000;
+  const end = new Date(endDate).getTime();
+  return start - HOURS_BEFORE * 60 * 60 * 1000 <= now && now <= end + HOURS_AFTER * 60 * 60 * 1000;
 };
 
 type ScanOutcome = { kind: 'success' | 'warning' | 'error'; message: string; name?: string };
@@ -54,7 +58,7 @@ export function ScanSection() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
   const { events: fetchedEvents, loading } = useEvents(accessToken, classWindowQueryString());
-  const events = fetchedEvents.filter(ev => isInClassWindow(ev.start_date));
+  const events = fetchedEvents.filter(ev => isInClassWindow(ev.start_date, ev.end_date));
   const [selectedEventId, setSelectedEventId] = useState<string>('');
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
