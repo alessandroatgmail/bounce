@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { ArrowLeft, ChevronDown, ChevronUp, Loader2, CheckCircle, AlertCircle, Lock } from 'lucide-react';
@@ -16,30 +16,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
 import { Button } from '../components/ui/button';
 import { Checkbox } from '../components/ui/checkbox';
 import { Label } from '../components/ui/label';
 import { PartnerEmailInput, partnerEmailUnresolved } from '../components/PartnerEmailInput';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { MapLink, formatLocation } from '../components/EventScheduleTable';
+import { AVAILABILITY_DOT_CLASS } from '../../lib/availabilityColors';
 
 // Sentinel role value meaning "let me pick a role for each class
 // individually" instead of one role applied to every selection.
 const FLEXIBLE_ROLE = '__flexible__';
 
-// ── Grid constants ────────────────────────────────────────────────────────────
-
-const HOUR_HEIGHT = 64;
-const PIXELS_PER_MINUTE = HOUR_HEIGHT / 60;
-const TIME_COL_W = 52;
-const ROOM_COL_W = 160;
-
 function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 'en-GB') {
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(locale, opts);
-}
-
-function eventMinutes(iso: string) {
-  return parseInt(iso.slice(11, 13), 10) * 60 + parseInt(iso.slice(14, 16), 10);
 }
 
 function eventsOverlap(a: EventSimple, b: EventSimple): boolean {
@@ -47,19 +39,80 @@ function eventsOverlap(a: EventSimple, b: EventSimple): boolean {
     && new Date(a.end_date).getTime() > new Date(b.start_date).getTime();
 }
 
-function computeDayBounds(dayEvents: EventSimple[]) {
-  if (dayEvents.length === 0) return { startHour: 9, endHour: 22 };
-  const startMins = dayEvents.map(e => eventMinutes(e.start_date));
-  const endMins = dayEvents.map(e => {
-    const m = eventMinutes(e.end_date);
-    return e.end_date.slice(0, 10) > e.start_date.slice(0, 10) ? m + 24 * 60 : m;
-  });
-  const startHour = Math.max(0, Math.floor(Math.min(...startMins) / 60) - 1);
-  const endHour = Math.min(28, Math.ceil(Math.max(...endMins) / 60) + 1);
-  return { startHour, endHour };
-}
-
 // ── Day grid (interactive) ────────────────────────────────────────────────────
+// Same room-header (name + map-pin/address) and ClassCard look as the
+// read-only EventScheduleTable on the event detail page, laid out as a day ×
+// room × start-time table (desktop) / room accordion (mobile) instead of a
+// proportional time axis — just made interactive (click to select/deselect,
+// Lock icon for fix_events/already-booked partner slots, dimmed when blocked
+// by a time conflict or the membership's max_events cap) and carrying the
+// per-role availability dots.
+
+function ScheduleClassCard({
+  ev,
+  isFixed,
+  isSelected,
+  isDisabled,
+  colors,
+  onToggle,
+}: {
+  ev: EventSimple;
+  isFixed: boolean;
+  isSelected: boolean;
+  isDisabled: boolean;
+  colors: Record<string, string> | undefined;
+  onToggle: () => void;
+}) {
+  const { t } = useLanguage();
+  const tooltip = [
+    ev.name,
+    `${ev.start_date.slice(11, 16)}–${ev.end_date.slice(11, 16)}`,
+    ev.level?.name,
+    ev.artists.length > 0 ? ev.artists.map(a => a.full_name).join(', ') : null,
+    colors ? Object.entries(colors)
+      .map(([role, color]) => `${role === 'default' ? t('festival.schedule.availability') : role}: ${color}`)
+      .join(', ') : null,
+  ].filter(Boolean).join('\n');
+
+  return (
+    <div
+      title={tooltip}
+      onClick={() => !isFixed && onToggle()}
+      className={[
+        'relative rounded-lg p-2 text-white text-xs shadow-sm h-full transition-all',
+        isFixed ? 'cursor-not-allowed' : isDisabled ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer hover:brightness-110 active:scale-[0.98]',
+        isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent brightness-110' : '',
+      ].join(' ')}
+      style={{ backgroundColor: ev.color ?? '#e67e22' }}
+    >
+      {isFixed ? (
+        <Lock className="absolute top-1.5 right-1.5 size-3 text-white drop-shadow" />
+      ) : isSelected && (
+        <CheckCircle className="absolute top-1.5 right-1.5 size-3 text-white drop-shadow" />
+      )}
+      <div className="font-medium truncate leading-tight pr-4">{ev.name}</div>
+      <div className="opacity-90 text-[11px] mt-0.5">
+        {ev.start_date.slice(11, 16)}–{ev.end_date.slice(11, 16)}
+        {ev.level && ` · ${ev.level.name}`}
+      </div>
+      {ev.artists.length > 0 && (
+        <div className="opacity-80 text-[11px] truncate">{ev.artists.map(a => a.full_name).join(', ')}</div>
+      )}
+      {colors && Object.keys(colors).length > 0 && (
+        <div className="flex items-center gap-1.5 mt-1 overflow-hidden">
+          {Object.entries(colors).map(([role, color]) => (
+            <span key={role} className="flex items-center gap-0.5 flex-shrink-0">
+              <span className={`size-1.5 rounded-full flex-shrink-0 ${AVAILABILITY_DOT_CLASS[color] ?? 'bg-gray-300'}`} />
+              <span className="text-[9px] leading-none opacity-80 truncate">
+                {role === 'default' ? t('festival.schedule.availability') : role}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DayScheduleGrid({
   day,
@@ -69,6 +122,7 @@ function DayScheduleGrid({
   blockedEventIds,
   canSelectMore,
   onToggleEvent,
+  availability,
 }: {
   day: FestivalDay;
   dayEvents: EventSimple[];
@@ -77,140 +131,112 @@ function DayScheduleGrid({
   blockedEventIds: Set<number>;
   canSelectMore: boolean;
   onToggleEvent: (id: number) => void;
+  // event_id -> { role name (or "default" when the event type has no
+  // partner roles) -> "green"|"yellow"|"orange"|"red" }, from
+  // GET .../children-availability/. Missing entry = not loaded yet, or
+  // not a free-choice festival.
+  availability: Record<number, Record<string, string>>;
 }) {
   const { t } = useLanguage();
-  const { startHour, endHour } = computeDayBounds(dayEvents);
-  const startMin = startHour * 60;
-  const endMin = endHour * 60;
-  const gridHeight = (endMin - startMin) * PIXELS_PER_MINUTE;
 
-  const timeLabels: { minutes: number; label: string }[] = [];
-  for (let m = startMin; m <= endMin; m += 30) {
-    const h = Math.floor(m / 60) % 24;
-    const min = m % 60;
-    timeLabels.push({
-      minutes: m,
-      label: `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`,
-    });
-  }
+  // One row per distinct start time that day, same as EventScheduleTable —
+  // this is a day × room × start-time table, not a proportional time axis,
+  // so two classes sharing a start time in the same room (shouldn't happen
+  // on a sane schedule) would collide into a single cell.
+  const times = useMemo(
+    () => [...new Set(dayEvents.map(e => e.start_date.slice(11, 16)))].sort(),
+    [dayEvents],
+  );
 
-  const minutesToTop = (totalMinutes: number) => (totalMinutes - startMin) * PIXELS_PER_MINUTE;
+  const roomsWithEvents = useMemo(
+    () => day.rooms
+      .map(fr => ({
+        room: fr,
+        events: dayEvents
+          .filter(e => e.room.id === fr.room.id)
+          .sort((a, b) => a.start_date.localeCompare(b.start_date)),
+      }))
+      .filter(r => r.events.length > 0),
+    [day.rooms, dayEvents],
+  );
 
   if (day.rooms.length === 0) {
     return <p className="text-sm text-gray-400 py-8 text-center">{t('festival.schedule.noRooms')}</p>;
   }
 
-  return (
-    <div className="overflow-auto border rounded-lg">
-      {/* Room headers */}
-      <div className="flex sticky top-0 z-10 bg-white border-b">
-        <div style={{ width: TIME_COL_W, flexShrink: 0 }} className="border-r" />
-        {day.rooms.map(fr => (
-          <div
-            key={fr.id}
-            className="border-l px-2 py-2 text-sm font-medium text-gray-700 bg-gray-50 text-center"
-            style={{ width: ROOM_COL_W, flexShrink: 0 }}
-          >
-            {fr.room.name}
-          </div>
-        ))}
-      </div>
+  const cardFor = (ev: EventSimple) => {
+    const isFixed = fixedEventIds.has(ev.id);
+    const isSelected = isFixed || selectedEventIds.has(ev.id);
+    const isDisabled = !isFixed && !isSelected && (!canSelectMore || blockedEventIds.has(ev.id));
+    return (
+      <ScheduleClassCard
+        key={ev.id}
+        ev={ev}
+        isFixed={isFixed}
+        isSelected={isSelected}
+        isDisabled={isDisabled}
+        colors={availability[ev.id]}
+        onToggle={() => onToggleEvent(ev.id)}
+      />
+    );
+  };
 
-      {/* Grid body */}
-      <div className="flex">
-        {/* Time column */}
-        <div className="relative border-r" style={{ width: TIME_COL_W, height: gridHeight, flexShrink: 0 }}>
-          {timeLabels.map(({ minutes, label }) =>
-            minutes % 60 === 0 && (
-              <div
-                key={minutes}
-                className="absolute right-2 text-[10px] text-gray-400 leading-none"
-                style={{ top: minutesToTop(minutes) - 6 }}
-              >
-                {label}
+  return (
+    <div>
+      {/* Desktop / tablet: day × room × start-time table */}
+      <div className="hidden md:block overflow-x-auto">
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `72px repeat(${day.rooms.length}, minmax(150px, 1fr))` }}
+        >
+          <div />
+          {day.rooms.map((fr: FestivalRoom) => (
+            <div key={fr.id} className="min-w-0 px-2 py-1.5 rounded bg-[#2b2b2b] text-white text-center">
+              <div className="text-sm font-medium flex items-center justify-center gap-1">
+                <span>{fr.room.name}</span>
+                <MapLink location={fr.room.location} />
               </div>
-            )
-          )}
-          {timeLabels.map(({ minutes }) => (
-            <div
-              key={minutes}
-              className={`absolute right-0 ${minutes % 60 === 0 ? 'w-3 border-t border-gray-300' : 'w-1.5 border-t border-gray-200'}`}
-              style={{ top: minutesToTop(minutes) }}
-            />
+              <div className="text-xs opacity-75 whitespace-normal break-words">{formatLocation(fr.room.location)}</div>
+            </div>
+          ))}
+
+          {times.map(time => (
+            <Fragment key={time}>
+              <div className="flex items-center justify-end pr-1 text-xs text-gray-500">
+                {time}
+              </div>
+              {day.rooms.map((fr: FestivalRoom) => {
+                const ev = dayEvents.find(e => e.room.id === fr.room.id && e.start_date.slice(11, 16) === time);
+                return <div key={`${time}-${fr.id}`}>{ev && cardFor(ev)}</div>;
+              })}
+            </Fragment>
           ))}
         </div>
-
-        {/* Room columns */}
-        {day.rooms.map((fr: FestivalRoom) => {
-          const roomEvents = dayEvents.filter(e => e.room.id === fr.room.id);
-          return (
-            <div
-              key={fr.id}
-              className="relative border-l border-gray-100"
-              style={{ width: ROOM_COL_W, height: gridHeight, flexShrink: 0 }}
-            >
-              {timeLabels.map(({ minutes }) => (
-                <div
-                  key={minutes}
-                  className={`absolute w-full border-t ${minutes % 60 === 0 ? 'border-gray-200' : 'border-gray-100 border-dashed'}`}
-                  style={{ top: minutesToTop(minutes) }}
-                />
-              ))}
-              {roomEvents.map(ev => {
-                const startM = eventMinutes(ev.start_date);
-                const rawEndM = eventMinutes(ev.end_date);
-                const crossesMidnight = ev.end_date.slice(0, 10) > ev.start_date.slice(0, 10);
-                const endM = crossesMidnight ? rawEndM + 24 * 60 : rawEndM;
-                const top = minutesToTop(startM);
-                const height = Math.max((endM - startM) * PIXELS_PER_MINUTE, 24);
-
-                const isFixed = fixedEventIds.has(ev.id);
-                const isSelected = isFixed || selectedEventIds.has(ev.id);
-                const isDisabled = !isFixed && !isSelected && (!canSelectMore || blockedEventIds.has(ev.id));
-
-                const tooltip = [
-                  ev.name,
-                  `${ev.start_date.slice(11, 16)}–${ev.end_date.slice(11, 16)}`,
-                  ev.level?.name,
-                  ev.artists.length > 0 ? ev.artists.map(a => a.full_name).join(', ') : null,
-                ].filter(Boolean).join('\n');
-
-                return (
-                  <div
-                    key={ev.id}
-                    title={tooltip}
-                    onClick={() => !isFixed && onToggleEvent(ev.id)}
-                    className={[
-                      'absolute left-1 right-1 rounded text-white text-xs px-1.5 py-1 overflow-hidden shadow-sm z-10 transition-all',
-                      isFixed ? 'cursor-not-allowed' : isDisabled ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer hover:brightness-110 active:scale-[0.98]',
-                      isSelected ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent brightness-110' : '',
-                    ].join(' ')}
-                    style={{ top, height, backgroundColor: ev.color ?? '#e67e22' }}
-                  >
-                    {isFixed ? (
-                      <Lock className="absolute top-1 right-1 size-3 text-white drop-shadow" />
-                    ) : isSelected && (
-                      <CheckCircle className="absolute top-1 right-1 size-3 text-white drop-shadow" />
-                    )}
-                    <div className="font-medium truncate leading-tight pr-4">{ev.name}</div>
-                    <div className="opacity-80 text-[10px]">
-                      {ev.start_date.slice(11, 16)}–{ev.end_date.slice(11, 16)}
-                    </div>
-                    {ev.level && (
-                      <div className="opacity-75 text-[10px] truncate">{ev.level.name}</div>
-                    )}
-                    {ev.artists.length > 0 && (
-                      <div className="opacity-75 text-[10px] truncate">
-                        {ev.artists.map(a => a.full_name).join(', ')}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
       </div>
+
+      {/* Mobile: room accordion, classes listed chronologically per room */}
+      <Accordion type="multiple" defaultValue={roomsWithEvents.map(r => `room-${r.room.id}`)} className="md:hidden">
+        {roomsWithEvents.map(({ room, events }) => (
+          <AccordionItem key={room.id} value={`room-${room.id}`}>
+            <AccordionTrigger className="text-sm text-gray-700">
+              <span>
+                <span className="flex items-center gap-1">
+                  {room.room.name}
+                  <MapLink location={room.room.location} className="text-gray-400 hover:text-[#e67e22]" />
+                </span>
+                <span className="block text-xs text-gray-500 font-normal">
+                  {formatLocation(room.room.location)}
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-2">
+                {events.map(ev => cardFor(ev))}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
     </div>
   );
 }
@@ -629,6 +655,31 @@ export function FestivalSchedulePage() {
 
   useEffect(() => { fetchFestival(); }, [fetchFestival]);
 
+  // Per-child-event traffic-light availability (green/yellow/orange/red
+  // per role, or a single "default" entry for roleless events) — [] for
+  // anything that isn't a free-choice festival, so this is always safe to
+  // fetch alongside the festival detail above.
+  const [availability, setAvailability] = useState<Record<number, Record<string, string>>>({});
+
+  const fetchAvailability = useCallback(async () => {
+    if (!festivalId) {
+      setAvailability({});
+      return;
+    }
+    try {
+      const res = accessToken
+        ? await authFetch(`/api/events/events/${festivalId}/children-availability/`, accessToken)
+        : await fetch(apiUrl(`/api/events/events/${festivalId}/children-availability/`));
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data: { event_id: number; colors: Record<string, string> }[] = await res.json();
+      setAvailability(Object.fromEntries(data.map(d => [d.event_id, d.colors])));
+    } catch {
+      setAvailability({});
+    }
+  }, [festivalId, accessToken]);
+
+  useEffect(() => { fetchAvailability(); }, [fetchAvailability]);
+
   const [openDays, setOpenDays] = useState<Set<number>>(new Set());
   const initializedRef = useRef(false);
 
@@ -821,6 +872,28 @@ export function FestivalSchedulePage() {
         </div>
       </div>
 
+      {/* Availability legend */}
+      {Object.keys(availability).length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-green-600" />
+            {t('festival.schedule.availabilityLegendGreen')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-yellow-500" />
+            {t('festival.schedule.availabilityLegendYellow')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-orange-500" />
+            {t('festival.schedule.availabilityLegendOrange')}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-red-600" />
+            {t('festival.schedule.availabilityLegendRed')}
+          </span>
+        </div>
+      )}
+
       {/* Registration */}
       <RegistrationPanel
         festival={festival}
@@ -907,6 +980,7 @@ export function FestivalSchedulePage() {
                       blockedEventIds={blockedEventIds}
                       canSelectMore={canSelectMore}
                       onToggleEvent={toggleEvent}
+                      availability={availability}
                     />
                   </div>
                 )}

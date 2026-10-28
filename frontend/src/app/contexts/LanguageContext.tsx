@@ -271,6 +271,11 @@ const translations = {
     'festival.schedule.selected': 'selezionate',
     'festival.schedule.noRooms': 'Nessuna sala assegnata a questo giorno.',
     'festival.schedule.maxEventsError': 'Hai già selezionato il numero massimo di lezioni per questo abbonamento.',
+    'festival.schedule.availability': 'Disponibilità',
+    'festival.schedule.availabilityLegendGreen': 'Posti disponibili',
+    'festival.schedule.availabilityLegendYellow': 'Pochi posti rimasti',
+    'festival.schedule.availabilityLegendOrange': "Lista d'attesa per questo ruolo",
+    'festival.schedule.availabilityLegendRed': 'Esaurito',
     // Registration panel
     'festival.registration.title': 'Iscrizione',
     'festival.registration.membership': 'Abbonamento',
@@ -564,6 +569,11 @@ const translations = {
     'festival.schedule.selected': 'selected',
     'festival.schedule.noRooms': 'No rooms assigned to this day.',
     'festival.schedule.maxEventsError': "You've already selected the maximum number of classes for this membership.",
+    'festival.schedule.availability': 'Availability',
+    'festival.schedule.availabilityLegendGreen': 'Spots available',
+    'festival.schedule.availabilityLegendYellow': 'Few spots left',
+    'festival.schedule.availabilityLegendOrange': 'Waiting list for this role',
+    'festival.schedule.availabilityLegendRed': 'Sold out',
     // Registration panel
     'festival.registration.title': 'Registration',
     'festival.registration.membership': 'Membership',
