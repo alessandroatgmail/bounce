@@ -15,6 +15,7 @@ import { Textarea } from './ui/textarea';
 
 const CHECK_IN_URL = '/api/scanner/check-in/';
 const registerListUrl = (eventId: string) => `/api/scanner/register/${eventId}/`;
+const uncheckedCountUrl = (eventId: string) => `/api/scanner/register/${eventId}/unchecked-count/`;
 const attendanceUrl = (bookingId: number) => `/api/scanner/bookings/${bookingId}/attendance/`;
 const logUrl = (eventId: string) => `/api/scanner/log/${eventId}/`;
 
@@ -71,6 +72,7 @@ export function ScanSection() {
   const [lastOutcome, setLastOutcome] = useState<ScanOutcome | null>(null);
   const [tab, setTab] = useState<'scanner' | 'register'>('scanner');
   const [registerRows, setRegisterRows] = useState<RegisterRow[]>([]);
+  const [uncheckedCount, setUncheckedCount] = useState<number | null>(null);
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [logText, setLogText] = useState('');
@@ -106,6 +108,19 @@ export function ScanSection() {
     setProcessing(false);
   };
 
+  const loadUncheckedCount = useCallback(async () => {
+    if (!accessToken || !selectedEventId) return;
+    try {
+      const res = await authFetch(uncheckedCountUrl(selectedEventId), accessToken);
+      if (!res.ok) throw new Error();
+      const body = await res.json();
+      setUncheckedCount(body.unchecked_count);
+    } catch {
+      // The count is a convenience indicator — a failed fetch just leaves
+      // it blank rather than blocking the scanner or register view.
+    }
+  }, [accessToken, selectedEventId]);
+
   const handleDecoded = useCallback(async (uuid: string) => {
     if (!accessToken || !selectedEventId) return;
     // A successful read stops the camera outright — the Start button comes
@@ -126,11 +141,13 @@ export function ScanSection() {
         const message = it ? 'Check-in effettuato.' : 'Checked in.';
         setLastOutcome({ kind: 'success', message, name, membershipName });
         toast.success(name ? `${message} — ${name}` : message);
+        loadUncheckedCount();
       } else if (res.ok) {
         const message = (body.errors as string[]).join(' — ');
         setLastOutcome({ kind: 'warning', message, name, membershipName });
         const prefix = it ? 'Check-in con avvisi' : 'Checked in with warnings';
         toast.warning(name ? `${prefix} — ${name}: ${message}` : `${prefix}: ${message}`);
+        loadUncheckedCount();
       } else {
         const message = body.detail ?? `Error ${res.status}`;
         setLastOutcome({ kind: 'error', message, name });
@@ -143,7 +160,7 @@ export function ScanSection() {
     } finally {
       setProcessing(false);
     }
-  }, [accessToken, selectedEventId, it, stopCamera]);
+  }, [accessToken, selectedEventId, it, stopCamera, loadUncheckedCount]);
 
   const tick = useCallback(() => {
     const video = videoRef.current;
@@ -194,10 +211,20 @@ export function ScanSection() {
   // underneath is stale and needs clearing, not their choice of view.
   useEffect(() => {
     setRegisterRows([]);
+    setUncheckedCount(null);
     setRegisterError(null);
     setLogText('');
     setNoteInput('');
   }, [selectedEventId]);
+
+  // Shown under the event select regardless of which tab is open, so it's
+  // fetched as soon as an event is picked rather than only on the Register
+  // tab.
+  useEffect(() => {
+    if (selectedEventId) {
+      loadUncheckedCount();
+    }
+  }, [selectedEventId, loadUncheckedCount]);
 
   const loadRegister = useCallback(async () => {
     if (!accessToken || !selectedEventId) return;
@@ -265,12 +292,13 @@ export function ScanSection() {
         body: JSON.stringify({ attended }),
       });
       if (!res.ok) throw new Error();
+      loadUncheckedCount();
     } catch {
       // Revert on failure.
       setRegisterRows(rows => rows.map(r => r.booking_id === bookingId ? { ...r, attended: !attended } : r));
       toast.error(it ? 'Aggiornamento non riuscito.' : 'Update failed.');
     }
-  }, [accessToken, it]);
+  }, [accessToken, it, loadUncheckedCount]);
 
   const outcomeStyles = {
     success: 'bg-green-50 border-green-200 text-green-800',
@@ -302,6 +330,11 @@ export function ScanSection() {
             ))}
           </SelectContent>
         </Select>
+        {selectedEventId && uncheckedCount !== null && (
+          <p className="text-xs text-gray-500">
+            {it ? `${uncheckedCount} da registrare` : `${uncheckedCount} not checked in`}
+          </p>
+        )}
       </div>
 
       {!selectedEventId ? (

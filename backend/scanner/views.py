@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -43,6 +44,31 @@ class RegisterListView(APIView):
             for booking in bookings
         ]
         return Response({"event_id": event.id, "rows": rows}, status=status.HTTP_200_OK)
+
+
+class UncheckedCountView(APIView):
+    """The number shown under the event picker on the scanner screen: how
+    many bookings for this event still need checking in. "Unchecked" means
+    not yet attended, and either the contribution is payed or there's no
+    contribution at all — a non-payed, non-null contribution (waiting,
+    cancelled, ...) isn't someone staff are expected to check in."""
+
+    permission_classes = [IsStaffOrAdmin]
+
+    def get(self, request, event_id):
+        try:
+            event = Event.objects.get(pk=event_id)
+        except Event.DoesNotExist:
+            return Response({"detail": "Event not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        unchecked_count = Booking.objects.filter(event=event, attended=False).filter(
+            Q(contribution__status=ContributionStatus.PAYED) | Q(contribution__isnull=True)
+        ).count()
+
+        return Response(
+            {"event_id": event.id, "unchecked_count": unchecked_count},
+            status=status.HTTP_200_OK,
+        )
 
 
 class UpdateAttendanceView(APIView):
