@@ -41,8 +41,6 @@ def make_event(**overrides):
         end_date=payload["end_date"],
         duration=payload["duration"],
         capacity=payload["capacity"],
-        multi_events=overrides.get("multi_events", False),
-        free=overrides.get("free", False),
     )
 
 
@@ -192,57 +190,3 @@ class TestRegisterListSuccess:
         assert "partner_email" not in row
         assert "partner" not in row
         assert "couple" not in row
-
-
-# ── Membership pack name + parent flag (fixed-choice festival quick fix) ──────
-# When staff select the festival's own event (multi_events=True) in the
-# register dropdown, bookings are created directly against it (fixed-choice
-# flow), so the register list is meant to show which pack/membership each
-# attendee bought instead of just their payment status — falling back to
-# "Guest" client-side when there's no contribution or no membership on it.
-
-class TestRegisterListMembershipPack:
-
-    def test_row_includes_membership_name_when_contribution_has_one(self, staff_client, world_data, student_user):
-        event = make_event()
-        membership = make_membership(name="Full Pass")
-        contribution = make_contribution(student_user, event, membership=membership)
-        make_booking(student_user, event, contribution)
-
-        response = staff_client.get(register_list_url(event.id))
-
-        assert response.data["rows"][0]["membership_name"] == "Full Pass"
-
-    def test_membership_name_is_null_without_a_contribution(self, staff_client, world_data, student_user):
-        event = make_event()
-        make_booking(student_user, event, contribution=None)
-
-        response = staff_client.get(register_list_url(event.id))
-
-        assert response.data["rows"][0]["membership_name"] is None
-
-    def test_membership_name_is_null_when_contribution_has_no_membership(self, staff_client, world_data, student_user):
-        event = make_event()
-        contribution = Contribution.objects.create(
-            user=student_user, membership=None, amount=50, status=ContributionStatus.PAYED,
-        )
-        contribution.events.add(event)
-        make_booking(student_user, event, contribution)
-
-        response = staff_client.get(register_list_url(event.id))
-
-        assert response.data["rows"][0]["membership_name"] is None
-
-    def test_parent_flag_true_for_multi_events_festival(self, staff_client, world_data):
-        festival = make_event(multi_events=True)
-
-        response = staff_client.get(register_list_url(festival.id))
-
-        assert response.data["parent"] is True
-
-    def test_parent_flag_false_for_plain_event(self, staff_client, world_data):
-        event = make_event()
-
-        response = staff_client.get(register_list_url(event.id))
-
-        assert response.data["parent"] is False

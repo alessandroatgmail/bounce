@@ -14,11 +14,7 @@ from .permissions import IsStaffOrAdmin
 class RegisterListView(APIView):
     """Staff picks a class and switches to the "Register" view: one row
     per Booking for that event, with the booker's name, their
-    contribution's status, their membership/pack name, and whether
-    they've been marked attended. ``parent`` tells the frontend whether
-    the selected event is a festival's own event (multi_events=True) —
-    for a fixed-choice festival, bookings are created directly against
-    it, so the frontend shows the pack name there instead of the status.
+    contribution's status, and whether they've been marked attended.
     Deliberately flat and partner-free — the full couple-pairing grid
     lives at booking.register.build_register for the admin register
     page, this is just the staff check-in list."""
@@ -33,7 +29,7 @@ class RegisterListView(APIView):
 
         bookings = (
             Booking.objects.filter(event=event)
-            .select_related("user", "contribution", "contribution__membership")
+            .select_related("user", "contribution")
             .order_by("user__first_name", "user__last_name")
         )
         rows = [
@@ -42,19 +38,11 @@ class RegisterListView(APIView):
                 "first_name": booking.user.first_name,
                 "last_name": booking.user.last_name,
                 "status": booking.contribution.status if booking.contribution else None,
-                "membership_name": (
-                    booking.contribution.membership.name
-                    if booking.contribution and booking.contribution.membership
-                    else None
-                ),
                 "attended": booking.attended,
             }
             for booking in bookings
         ]
-        return Response(
-            {"event_id": event.id, "parent": event.multi_events, "rows": rows},
-            status=status.HTTP_200_OK,
-        )
+        return Response({"event_id": event.id, "rows": rows}, status=status.HTTP_200_OK)
 
 
 class UpdateAttendanceView(APIView):
