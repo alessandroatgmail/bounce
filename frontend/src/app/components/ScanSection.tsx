@@ -23,6 +23,7 @@ type RegisterRow = {
   first_name: string;
   last_name: string;
   status: string | null;
+  membership_name: string | null;
   attended: boolean;
 };
 
@@ -66,6 +67,11 @@ export function ScanSection() {
   const [lastOutcome, setLastOutcome] = useState<ScanOutcome | null>(null);
   const [tab, setTab] = useState<'scanner' | 'register'>('scanner');
   const [registerRows, setRegisterRows] = useState<RegisterRow[]>([]);
+  // True when the selected event is the festival's own event
+  // (multi_events=True) — bookings for a fixed-choice festival are made
+  // directly against it, so the register shows each attendee's pack
+  // instead of their payment status.
+  const [registerIsParent, setRegisterIsParent] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [logText, setLogText] = useState('');
@@ -188,6 +194,7 @@ export function ScanSection() {
   // underneath is stale and needs clearing, not their choice of view.
   useEffect(() => {
     setRegisterRows([]);
+    setRegisterIsParent(false);
     setRegisterError(null);
     setLogText('');
     setNoteInput('');
@@ -202,6 +209,7 @@ export function ScanSection() {
       if (!res.ok) throw new Error();
       const body = await res.json();
       setRegisterRows(body.rows);
+      setRegisterIsParent(!!body.parent);
     } catch {
       setRegisterError(it ? 'Impossibile caricare il registro.' : 'Could not load the register.');
     } finally {
@@ -381,7 +389,9 @@ export function ScanSection() {
                         {row.first_name} {row.last_name}
                       </span>
                       <span className="text-xs text-gray-400">
-                        {row.status ?? (it ? 'nessuna contribuzione' : 'no contribution')}
+                        {registerIsParent
+                          ? (row.membership_name ?? (it ? 'Ospite' : 'Guest'))
+                          : (row.status ?? (it ? 'nessuna contribuzione' : 'no contribution'))}
                       </span>
                     </div>
                     <Switch
