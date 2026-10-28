@@ -146,7 +146,9 @@ class CheckInView(APIView):
             return Response({"detail": "Event not found."}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            booking = Booking.objects.select_related("contribution").get(user=student, event=event)
+            booking = Booking.objects.select_related("contribution", "contribution__membership").get(
+                user=student, event=event
+            )
         except Booking.DoesNotExist:
             log, _ = Log.objects.get_or_create(user=request.user, event=event)
             log.append_error("No booking found for this user/event.", scanned_user=student)
@@ -157,6 +159,7 @@ class CheckInView(APIView):
 
         errors = []
         contribution = booking.contribution
+        membership_name = contribution.membership.name if contribution and contribution.membership else None
         if contribution is None:
             errors.append("Booking has no linked contribution.")
         else:
@@ -175,8 +178,16 @@ class CheckInView(APIView):
             for error in errors:
                 log.append_error(error, scanned_user=student)
             return Response(
-                {"detail": "Checked in with warnings.", "errors": errors, **student_fields},
+                {
+                    "detail": "Checked in with warnings.",
+                    "errors": errors,
+                    "membership_name": membership_name,
+                    **student_fields,
+                },
                 status=status.HTTP_200_OK,
             )
 
-        return Response({"detail": "Checked in.", **student_fields}, status=status.HTTP_200_OK)
+        return Response(
+            {"detail": "Checked in.", "membership_name": membership_name, **student_fields},
+            status=status.HTTP_200_OK,
+        )
