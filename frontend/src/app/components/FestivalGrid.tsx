@@ -108,6 +108,7 @@ function EventSlotDialog({
   );
   const [endTime, setEndTime] = useState(editEvent ? formatTime(editEvent.end_date) : '');
   const [capacity, setCapacity] = useState(editEvent?.capacity.toString() ?? '');
+  const [extras, setExtras] = useState((editEvent?.extras ?? 0).toString());
   const [color, setColor] = useState(editEvent?.color ?? '#e67e22');
   const [selectedArtists, setSelectedArtists] = useState<{ id: number; name: string }[]>(
     editEvent?.artists.map(a => ({ id: a.id, name: a.full_name })) ?? []
@@ -185,6 +186,7 @@ function EventSlotDialog({
         color: color || null,
         membership_ids: selectedMemberships.map(m => m.id),
         block_payment: blockPayment,
+        extras: Number(extras) || 0,
       };
 
       if (isEdit) {
@@ -282,6 +284,13 @@ function EventSlotDialog({
               <Label htmlFor="ae-cap">{t('festival.event.capacity')}</Label>
               <Input id="ae-cap" type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder={String(festival.capacity)} />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ae-extras">
+              {t('festival.event.extras')}
+              <span className="ml-1.5 font-normal text-gray-400 text-xs">{t('festival.event.extrasNote')}</span>
+            </Label>
+            <Input id="ae-extras" type="number" min={0} value={extras} onChange={e => setExtras(e.target.value)} placeholder="0" />
           </div>
 
           <MultiSearchSelect label={t('festival.event.artists')} items={artists.map(a => ({ id: a.id, name: a.full_name }))} selected={selectedArtists} loading={loadingArtists} placeholder={t('festival.event.searchArtist')} onChange={setSelectedArtists} />
