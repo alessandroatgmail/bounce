@@ -12,7 +12,7 @@ function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 
   return new Date(y, m - 1, d).toLocaleDateString(locale, opts);
 }
 
-function formatLocation(location: FestivalRoom['room']['location']) {
+export function formatLocation(location: FestivalRoom['room']['location']) {
   return `${location.name}, ${location.address}, ${location.city.name}, ${location.city.country}`;
 }
 
@@ -24,7 +24,7 @@ function mapUrl(location: FestivalRoom['room']['location']) {
 // used both in a plain div (desktop header) and nested inside an
 // AccordionTrigger button (mobile) — stopPropagation keeps the click from
 // also toggling the accordion.
-function MapLink({ location, className }: { location: FestivalRoom['room']['location']; className?: string }) {
+export function MapLink({ location, className }: { location: FestivalRoom['room']['location']; className?: string }) {
   return (
     <a
       href={mapUrl(location)}

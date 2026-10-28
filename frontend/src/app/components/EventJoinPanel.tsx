@@ -19,6 +19,7 @@ import type { EventItem, EventMembership } from '../hooks/useEvents';
 import { extractErrorMessage } from '../hooks/useUserMemberships';
 import type { ExtraItem, ContributionStatus, UserMembership } from '../hooks/useUserMemberships';
 import type { CheckoutItem } from '../pages/CheckoutPage';
+import { AVAILABILITY_DOT_CLASS } from '../../lib/availabilityColors';
 
 const BOOKING_STATUS_LABEL: Record<ContributionStatus, { it: string; en: string }> = {
   received:  { it: 'Ricevuto',    en: 'Received'  },
@@ -37,13 +38,6 @@ const BOOKING_STATUS_CLASS: Record<ContributionStatus, string> = {
   waiting:   'text-orange-600',
   cancelled: 'text-gray-500',
   approving: 'text-orange-700',
-};
-
-const AVAILABILITY_DOT_CLASS: Record<string, string> = {
-  green: 'bg-green-600',
-  yellow: 'bg-yellow-500',
-  orange: 'bg-orange-500',
-  red: 'bg-red-600',
 };
 
 // The join/booking flow for an event: role + partner + level selection,
