@@ -419,3 +419,48 @@ class TestLogGroupedByStaffMember:
         assert Log.objects.filter(event=event).count() == 2
         assert Log.objects.filter(user=staff_user, event=event).exists()
         assert Log.objects.filter(user=admin_user, event=event).exists()
+
+
+# ── Contribution pack name ───────────────────────────────────────────────────
+
+class TestCheckInMembershipName:
+
+    def test_response_includes_membership_name(self, staff_client, world_data, student_user):
+        event = make_event()
+        membership = make_membership(name="Full Pass")
+        contribution = make_contribution(student_user, event, status=ContributionStatus.PAYED, membership=membership)
+        make_booking(student_user, event, contribution)
+
+        response = check_in(staff_client, student_user, event)
+
+        assert response.data["membership_name"] == "Full Pass"
+
+    def test_membership_name_is_null_without_a_contribution(self, staff_client, world_data, student_user):
+        event = make_event()
+        make_booking(student_user, event, contribution=None)
+
+        response = check_in(staff_client, student_user, event)
+
+        assert response.data["membership_name"] is None
+
+    def test_membership_name_is_null_when_contribution_has_no_membership(self, staff_client, world_data, student_user):
+        event = make_event()
+        contribution = Contribution.objects.create(
+            user=student_user, membership=None, amount=50, status=ContributionStatus.PAYED,
+        )
+        contribution.events.add(event)
+        make_booking(student_user, event, contribution)
+
+        response = check_in(staff_client, student_user, event)
+
+        assert response.data["membership_name"] is None
+
+    def test_membership_name_present_on_warning_response_too(self, staff_client, world_data, student_user):
+        event = make_event()
+        membership = make_membership(name="Full Pass")
+        contribution = make_contribution(student_user, event, status=ContributionStatus.ACCEPTED, membership=membership)
+        make_booking(student_user, event, contribution)
+
+        response = check_in(staff_client, student_user, event)
+
+        assert response.data["membership_name"] == "Full Pass"

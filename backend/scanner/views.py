@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,7 +15,11 @@ from .permissions import IsStaffOrAdmin
 class RegisterListView(APIView):
     """Staff picks a class and switches to the "Register" view: one row
     per Booking for that event, with the booker's name, their
-    contribution's status, and whether they've been marked attended.
+    contribution's status, their membership/pack name, and whether
+    they've been marked attended. ``parent`` tells the frontend whether
+    the selected event is a festival's own event (multi_events=True) —
+    for a fixed-choice festival, bookings are created directly against
+    it, so the frontend shows the pack name there instead of the status.
     Deliberately flat and partner-free — the full couple-pairing grid
     lives at booking.register.build_register for the admin register
     page, this is just the staff check-in list."""
@@ -29,7 +34,7 @@ class RegisterListView(APIView):
 
         bookings = (
             Booking.objects.filter(event=event)
-            .select_related("user", "contribution")
+            .select_related("user", "contribution", "contribution__membership")
             .order_by("user__first_name", "user__last_name")
         )
         rows = [
@@ -38,11 +43,44 @@ class RegisterListView(APIView):
                 "first_name": booking.user.first_name,
                 "last_name": booking.user.last_name,
                 "status": booking.contribution.status if booking.contribution else None,
+                "membership_name": (
+                    booking.contribution.membership.name
+                    if booking.contribution and booking.contribution.membership
+                    else None
+                ),
                 "attended": booking.attended,
             }
             for booking in bookings
         ]
-        return Response({"event_id": event.id, "rows": rows}, status=status.HTTP_200_OK)
+        return Response(
+            {"event_id": event.id, "parent": event.multi_events, "rows": rows},
+            status=status.HTTP_200_OK,
+        )
+
+
+class UncheckedCountView(APIView):
+    """The number shown under the event picker on the scanner screen: how
+    many bookings for this event still need checking in. "Unchecked" means
+    not yet attended, and either the contribution is payed or there's no
+    contribution at all — a non-payed, non-null contribution (waiting,
+    cancelled, ...) isn't someone staff are expected to check in."""
+
+    permission_classes = [IsStaffOrAdmin]
+
+    def get(self, request, event_id):
+        try:
+            event = Event.objects.get(pk=event_id)
+        except Event.DoesNotExist:
+            return Response({"detail": "Event not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        unchecked_count = Booking.objects.filter(event=event, attended=False).filter(
+            Q(contribution__status=ContributionStatus.PAYED) | Q(contribution__isnull=True)
+        ).count()
+
+        return Response(
+            {"event_id": event.id, "unchecked_count": unchecked_count},
+            status=status.HTTP_200_OK,
+        )
 
 
 class UpdateAttendanceView(APIView):
@@ -146,7 +184,9 @@ class CheckInView(APIView):
             return Response({"detail": "Event not found."}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            booking = Booking.objects.select_related("contribution").get(user=student, event=event)
+            booking = Booking.objects.select_related("contribution", "contribution__membership").get(
+                user=student, event=event
+            )
         except Booking.DoesNotExist:
             log, _ = Log.objects.get_or_create(user=request.user, event=event)
             log.append_error("No booking found for this user/event.", scanned_user=student)
@@ -157,6 +197,7 @@ class CheckInView(APIView):
 
         errors = []
         contribution = booking.contribution
+        membership_name = contribution.membership.name if contribution and contribution.membership else None
         if contribution is None:
             errors.append("Booking has no linked contribution.")
         else:
@@ -175,8 +216,16 @@ class CheckInView(APIView):
             for error in errors:
                 log.append_error(error, scanned_user=student)
             return Response(
-                {"detail": "Checked in with warnings.", "errors": errors, **student_fields},
+                {
+                    "detail": "Checked in with warnings.",
+                    "errors": errors,
+                    "membership_name": membership_name,
+                    **student_fields,
+                },
                 status=status.HTTP_200_OK,
             )
 
-        return Response({"detail": "Checked in.", **student_fields}, status=status.HTTP_200_OK)
+        return Response(
+            {"detail": "Checked in.", "membership_name": membership_name, **student_fields},
+            status=status.HTTP_200_OK,
+        )
