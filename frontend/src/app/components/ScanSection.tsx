@@ -53,7 +53,12 @@ const isInClassWindow = (startDate: string, endDate: string): boolean => {
   return start - HOURS_BEFORE * 60 * 60 * 1000 <= now && now <= end + HOURS_AFTER * 60 * 60 * 1000;
 };
 
-type ScanOutcome = { kind: 'success' | 'warning' | 'error'; message: string; name?: string };
+type ScanOutcome = {
+  kind: 'success' | 'warning' | 'error';
+  message: string;
+  name?: string;
+  membershipName?: string | null;
+};
 
 export function ScanSection() {
   const { accessToken } = useAuth();
@@ -67,11 +72,6 @@ export function ScanSection() {
   const [lastOutcome, setLastOutcome] = useState<ScanOutcome | null>(null);
   const [tab, setTab] = useState<'scanner' | 'register'>('scanner');
   const [registerRows, setRegisterRows] = useState<RegisterRow[]>([]);
-  // True when the selected event is the festival's own event
-  // (multi_events=True) — bookings for a fixed-choice festival are made
-  // directly against it, so the register shows each attendee's pack
-  // instead of their payment status.
-  const [registerIsParent, setRegisterIsParent] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [logText, setLogText] = useState('');
@@ -121,14 +121,15 @@ export function ScanSection() {
       });
       const body = await res.json().catch(() => ({}));
       const name = [body.first_name, body.last_name].filter(Boolean).join(' ') || undefined;
+      const membershipName = (body.membership_name as string | null | undefined) ?? null;
 
       if (res.ok && (!body.errors || body.errors.length === 0)) {
         const message = it ? 'Check-in effettuato.' : 'Checked in.';
-        setLastOutcome({ kind: 'success', message, name });
+        setLastOutcome({ kind: 'success', message, name, membershipName });
         toast.success(name ? `${message} — ${name}` : message);
       } else if (res.ok) {
         const message = (body.errors as string[]).join(' — ');
-        setLastOutcome({ kind: 'warning', message, name });
+        setLastOutcome({ kind: 'warning', message, name, membershipName });
         const prefix = it ? 'Check-in con avvisi' : 'Checked in with warnings';
         toast.warning(name ? `${prefix} — ${name}: ${message}` : `${prefix}: ${message}`);
       } else {
@@ -194,7 +195,6 @@ export function ScanSection() {
   // underneath is stale and needs clearing, not their choice of view.
   useEffect(() => {
     setRegisterRows([]);
-    setRegisterIsParent(false);
     setRegisterError(null);
     setLogText('');
     setNoteInput('');
@@ -209,7 +209,6 @@ export function ScanSection() {
       if (!res.ok) throw new Error();
       const body = await res.json();
       setRegisterRows(body.rows);
-      setRegisterIsParent(!!body.parent);
     } catch {
       setRegisterError(it ? 'Impossibile caricare il registro.' : 'Could not load the register.');
     } finally {
@@ -347,6 +346,11 @@ export function ScanSection() {
                     : <XCircle className="size-4 mt-0.5 flex-shrink-0" />}
                   <div className="flex flex-col">
                     {lastOutcome.name && <span className="font-semibold">{lastOutcome.name}</span>}
+                    {lastOutcome.kind !== 'error' && (
+                      <span className="text-xs opacity-80">
+                        {lastOutcome.membershipName ?? (it ? 'Ospite' : 'Guest')}
+                      </span>
+                    )}
                     <span>{lastOutcome.message}</span>
                   </div>
                 </div>
@@ -389,9 +393,7 @@ export function ScanSection() {
                         {row.first_name} {row.last_name}
                       </span>
                       <span className="text-xs text-gray-400">
-                        {registerIsParent
-                          ? (row.membership_name ?? (it ? 'Ospite' : 'Guest'))
-                          : (row.status ?? (it ? 'nessuna contribuzione' : 'no contribution'))}
+                        {row.status ?? (it ? 'nessuna contribuzione' : 'no contribution')}
                       </span>
                     </div>
                     <Switch
