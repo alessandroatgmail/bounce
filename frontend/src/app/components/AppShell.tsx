@@ -74,7 +74,7 @@ export function AppShell() {
     { id: 'profile'  as Section, label: SECTION_LABELS.profile[lang],  icon: User       },
     { id: 'contacts' as Section, label: SECTION_LABELS.contacts[lang], icon: Phone      },
     { id: 'qrcode'   as Section, label: SECTION_LABELS.qrcode[lang],   icon: QrCode     },
-    ...(user?.role === 'staff'
+    ...(user?.role === 'staff' || user?.role === 'admin'
       ? [{ id: 'scan' as Section, label: SECTION_LABELS.scan[lang], icon: ScanQrCode }]
       : []),
   ];
@@ -205,7 +205,7 @@ export function AppShell() {
               {activeSection === 'profile'  && !isGuest && <ProfileSection />}
               {activeSection === 'contacts' && <ContactsSection />}
               {activeSection === 'qrcode'   && !isGuest && <QRCodeSection />}
-              {activeSection === 'scan'     && user?.role === 'staff' && <ScanSection />}
+              {activeSection === 'scan'     && (user?.role === 'staff' || user?.role === 'admin') && <ScanSection />}
             </>
           )}
         </main>
