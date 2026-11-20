@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Loader2, ChevronRight, ChevronLeft } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { Plus, Pencil, Trash2, Loader2, ChevronRight, ChevronLeft, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { type EventItem, type EventPayload } from '../hooks/useEvents';
@@ -10,6 +11,7 @@ import { useLevels } from '../hooks/useLevels';
 import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
+import { useExtraItems } from '../hooks/useExtraItems';
 import { MultiSearchSelect } from './MultiSearchSelect';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -42,6 +44,7 @@ interface FestivalInfoData {
   selectedArtists: { id: number; name: string }[];
   selectedGenres: { id: number; name: string }[];
   selectedStyles: { id: number; name: string }[];
+  selectedExtraItems: { id: number; name: string }[];
 }
 
 interface DayConfig {
@@ -53,7 +56,7 @@ const EMPTY_INFO: FestivalInfoData = {
   name: '', status: 'draft', accessType: 'members', levelId: '', roomId: '',
   startDate: '', startTime: '', endDate: '', endTime: '',
   duration: '', capacity: '', info: '', blockPayment: false,
-  selectedArtists: [], selectedGenres: [], selectedStyles: [],
+  selectedArtists: [], selectedGenres: [], selectedStyles: [], selectedExtraItems: [],
 };
 
 // ── Step indicator ────────────────────────────────────────────────────────────
@@ -96,6 +99,7 @@ function FestivalInfoStep({
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
+  const { extraItems, loading: loadingExtraItems } = useExtraItems(accessToken);
 
   const festivalType = eventTypes.find(et => et.name === 'Festival');
   const set = <K extends keyof FestivalInfoData>(k: K, v: FestivalInfoData[K]) =>
@@ -209,6 +213,9 @@ function FestivalInfoStep({
         </div>
         <div className="col-span-2">
           <MultiSearchSelect label="Styles" items={styles} selected={data.selectedStyles} loading={loadingStyles} placeholder="Search style…" onChange={v => set('selectedStyles', v)} />
+        </div>
+        <div className="col-span-2">
+          <MultiSearchSelect label="Available Extra Items" items={extraItems} selected={data.selectedExtraItems} loading={loadingExtraItems} placeholder="Search extra item…" onChange={v => set('selectedExtraItems', v)} />
         </div>
 
         <div className="col-span-2 space-y-2">
@@ -426,6 +433,7 @@ function FestivalWizard({ onComplete, onCancel, onRefetch }: { onComplete: (fest
         artist_ids: infoData.selectedArtists.map(a => a.id),
         genre_ids: infoData.selectedGenres.map(g => g.id),
         style_ids: infoData.selectedStyles.map(s => s.id),
+        available_extra_item_ids: infoData.selectedExtraItems.map(i => i.id),
         info: infoData.info || null,
         multi_events: true,
         block_payment: infoData.blockPayment,
@@ -499,6 +507,7 @@ function FestivalWizard({ onComplete, onCancel, onRefetch }: { onComplete: (fest
 export function FestivalPanel() {
   const { accessToken } = useAuth();
   const { language } = useLanguage();
+  const navigate = useNavigate();
   const { events: festivals, loading, refetch, remove } = useEventsPaginated(accessToken, { multi_events: true });
 
   const [addOpen, setAddOpen] = useState(false);
@@ -589,6 +598,14 @@ export function FestivalPanel() {
                   <TableCell className="max-w-[180px] truncate text-sm text-gray-500">{f.info || '—'}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title={language === 'it' ? 'Gestisci' : 'Manage'}
+                        onClick={e => { e.stopPropagation(); navigate(`/admin/festivals/${f.id}/manage`); }}
+                      >
+                        <Settings className="size-4" />
+                      </Button>
                       <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" disabled={deletingId === f.id} onClick={e => { e.stopPropagation(); handleDelete(f.id); }}>
                         {deletingId === f.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                       </Button>

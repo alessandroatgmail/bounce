@@ -1,4 +1,5 @@
 from collections import Counter
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
 from decimal import Decimal
@@ -10,11 +11,11 @@ from django.db.models import Count, Min, Q
 from rest_framework import serializers
 from config.models import SiteSettings
 from django.db.models import Q
-from event.models import Event, Level, PartnerRole
-from event.serializers import EventSerializer
+from event.models import Event, Level, Location, PartnerRole
+from event.serializers import EventSerializer, LocationSerializer
 from membership.models import Membership, Discount
 from membership.serializers import MembershipSerializer, DiscountSerializer
-from .models import Booking, BookingStatus, Contribution, ContributionStatus, ExtraItem
+from .models import AccommodationRoom, AccommodationType, AccomodationRoomType, Booking, BookingStatus, Contribution, ContributionStatus, ExtraItem
 from .utils import sync_bookings, book_events_for_contribution, _recurring_children_window
 
 
@@ -81,7 +82,189 @@ class BookingSerializer(serializers.ModelSerializer):
 class ExtraItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExtraItem
-        fields = ['id', 'name', 'name_it', 'name_en', 'value', 'description', 'description_en', 'description_en_it']
+        fields = [
+            'id', 'name', 'name_it', 'name_en', 'value', 'description', 'description_en', 'description_en_it',
+            'expiration_date',
+        ]
+
+
+class AccommodationTypeSerializer(serializers.ModelSerializer):
+    """
+    Dedicated admin endpoint: creates/updates the billable ExtraItem (nested)
+    together with the AccommodationType extension (location/capacity), so
+    staff never have to touch the generic /extra-items/ endpoint for this.
+    """
+    # required stays True (the default) so a non-partial create/PUT without
+    # it 400s; a PATCH that omits it is still skipped, since DRF checks the
+    # root serializer's `partial` flag before `required` on missing fields.
+    extra_item = ExtraItemSerializer()
+    location = LocationSerializer(read_only=True)
+    location_id = serializers.PrimaryKeyRelatedField(
+        queryset=Location.objects.all(), source='location', write_only=True,
+    )
+
+    class Meta:
+        model = AccommodationType
+        fields = ['id', 'extra_item', 'location', 'location_id', 'description', 'occupants_per_room', 'available_rooms']
+
+    def create(self, validated_data):
+        extra_item_data = validated_data.pop('extra_item')
+        extra_item = ExtraItem.objects.create(**extra_item_data)
+        return AccommodationType.objects.create(extra_item=extra_item, **validated_data)
+
+    def update(self, instance, validated_data):
+        extra_item_data = validated_data.pop('extra_item', None)
+        if extra_item_data is not None:
+            for key, value in extra_item_data.items():
+                setattr(instance.extra_item, key, value)
+            instance.extra_item.save()
+        return super().update(instance, validated_data)
+
+
+class AccommodationRoomEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Event
+        fields = ['id', 'name']
+
+
+class AccommodationRoomUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = ['id', 'email', 'first_name', 'last_name']
+
+
+class AccommodationRoomSerializer(serializers.ModelSerializer):
+    """
+    Allocates specific users (occupants) into one physical room instance of
+    a given accommodation ExtraItem, for a specific event. Capacity
+    (occupants_per_room / available_rooms, both read off the linked
+    AccommodationType) is enforced at the model level — here we just
+    translate the resulting django ValidationError into a 400.
+    """
+    extra_item = ExtraItemSerializer(read_only=True)
+    extra_item_id = serializers.PrimaryKeyRelatedField(
+        queryset=ExtraItem.objects.all(), source='extra_item', write_only=True,
+    )
+    event = AccommodationRoomEventSerializer(read_only=True)
+    event_id = serializers.PrimaryKeyRelatedField(
+        queryset=Event.objects.all(), source='event', write_only=True,
+    )
+    users = AccommodationRoomUserSerializer(many=True, read_only=True)
+    user_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=get_user_model().objects.all(), source='users',
+        write_only=True, required=False,
+    )
+    occupation_rate = serializers.SerializerMethodField()
+    paid_occupation_rate = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AccommodationRoom
+        fields = [
+            'id', 'extra_item', 'extra_item_id', 'event', 'event_id',
+            'users', 'user_ids', 'type', 'occupation_rate', 'paid_occupation_rate',
+        ]
+
+    def _occupants_per_room(self, obj):
+        accommodation_type = getattr(obj.extra_item, 'accommodation_type', None)
+        return accommodation_type.occupants_per_room if accommodation_type else None
+
+    def get_occupation_rate(self, obj):
+        capacity = self._occupants_per_room(obj)
+        if capacity is None:
+            return None
+        return f"{obj.users.count()}/{capacity}"
+
+    def get_paid_occupation_rate(self, obj):
+        capacity = self._occupants_per_room(obj)
+        if capacity is None:
+            return None
+        # There's no direct link from a room occupant to a Contribution
+        # (users are assigned to the room directly) — paid here means the
+        # user holds at least one PAYED Contribution for this room's event.
+        paid_count = sum(
+            1 for user in obj.users.all()
+            if Contribution.objects.filter(
+                user=user, events=obj.event, status=ContributionStatus.PAYED,
+            ).exists()
+        )
+        return f"{paid_count}/{capacity}"
+
+    def create(self, validated_data):
+        users = validated_data.pop('users', [])
+        try:
+            with transaction.atomic():
+                room = AccommodationRoom.objects.create(**validated_data)
+                if users:
+                    room.users.set(users)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return room
+
+    def update(self, instance, validated_data):
+        users = validated_data.pop('users', None)
+        try:
+            with transaction.atomic():
+                for attr, value in validated_data.items():
+                    setattr(instance, attr, value)
+                instance.save()
+                if users is not None:
+                    instance.users.set(users)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return instance
+
+
+class AccommodationSelectionSerializer(serializers.Serializer):
+    """What a student chooses to request an accommodation extra item: which
+    accommodation ExtraItem (room class/location) for a given event, what
+    kind of room (AccomodationRoomType), and — only for a "friends" room —
+    the roommates, by email. Validation only for now; not yet wired into any
+    booking endpoint or persisted as an AccommodationRoom."""
+    event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all())
+    extra_item_id = serializers.PrimaryKeyRelatedField(queryset=ExtraItem.objects.all())
+    type = serializers.ChoiceField(choices=AccomodationRoomType.choices)
+    roommate_emails = serializers.ListField(
+        child=serializers.EmailField(), required=False, default=list,
+    )
+
+    def validate(self, attrs):
+        event = attrs['event_id']
+        extra_item = attrs['extra_item_id']
+
+        if getattr(extra_item, 'accommodation_type', None) is None:
+            raise serializers.ValidationError({
+                'extra_item_id': 'This extra item is not an accommodation.'
+            })
+        if not event.available_extra_items.filter(pk=extra_item.pk).exists():
+            raise serializers.ValidationError({
+                'extra_item_id': 'This accommodation is not available for this event.'
+            })
+        if extra_item.expiration_date <= timezone.now():
+            raise serializers.ValidationError({
+                'extra_item_id': 'This accommodation is no longer available (expired).'
+            })
+
+        roommate_emails = attrs.get('roommate_emails') or []
+        if attrs['type'] == AccomodationRoomType.FRIENDS:
+            if not roommate_emails:
+                raise serializers.ValidationError({
+                    'roommate_emails': 'You must list your roommates for a friends room.'
+                })
+            roommates = []
+            for email in roommate_emails:
+                roommate = get_user_model().objects.filter(email__iexact=email, is_active=True).first()
+                if roommate is None:
+                    raise serializers.ValidationError({
+                        'roommate_emails': f'No active account is registered with the email "{email}".'
+                    })
+                roommates.append(roommate)
+            attrs['roommates'] = roommates
+        elif roommate_emails:
+            raise serializers.ValidationError({
+                'roommate_emails': 'Roommates can only be specified for a friends room.'
+            })
+
+        return attrs
 
 
 class AcsiExtraItemUserSerializer(serializers.ModelSerializer):
@@ -704,9 +887,13 @@ class FreeFestivalContributionSerializer(UserContributionSerializer):
         queryset=Event.objects.all(), write_only=True,
     )
     event_ids = FreeFestivalEventEntrySerializer(many=True, write_only=True)
+    # Optional — a student isn't required to request accommodation. Bills
+    # the chosen extra item (adds it to contribution.extra_items) and
+    # assigns a room — see FreeFestivalContributionSerializer.create().
+    accommodation = AccommodationSelectionSerializer(write_only=True, required=False)
 
     class Meta(UserContributionSerializer.Meta):
-        fields = UserContributionSerializer.Meta.fields + ['event_ids']
+        fields = UserContributionSerializer.Meta.fields + ['event_ids', 'accommodation']
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -730,13 +917,102 @@ class FreeFestivalContributionSerializer(UserContributionSerializer):
         # see FreeFestivalEventEntrySerializer.validate() — so each
         # offending chosen class is reported on its own, not just the
         # first one found across the whole list.
+        accommodation = attrs.get('accommodation')
+        if accommodation:
+            accommodation_extra_item = accommodation['extra_item_id']
+            accommodation_type = accommodation_extra_item.accommodation_type
+            room_type = accommodation['type']
+            # A "friends" request can seat someone who hasn't registered yet
+            # (see create() below) — if that's already happened to this
+            # user, they're not asking for a new room at all, just
+            # confirming one they're already in, so none of the
+            # availability checks below apply to them.
+            already_seated = room_type == AccomodationRoomType.FRIENDS and AccommodationRoom.objects.filter(
+                extra_item=accommodation_extra_item, event=attrs['event_id'],
+                type=AccomodationRoomType.FRIENDS, users=self.context['request'].user,
+            ).exists()
+            if accommodation_type.occupants_per_room > 1 and room_type in (
+                AccomodationRoomType.MIXED, AccomodationRoomType.MALE,
+                AccomodationRoomType.FEMALE, AccomodationRoomType.FRIENDS,
+            ) and not already_seated:
+                # Checked up front, before any Contribution row exists, so a
+                # fully-booked accommodation type cleanly rejects the whole
+                # registration instead of billing an extra item for a room
+                # that can never be created (create() just joins/creates
+                # once this has already guaranteed one is available). Friends
+                # always get a brand new room of their own — they never join
+                # another group's — so only overall availability applies.
+                has_space = room_type != AccomodationRoomType.FRIENDS and (
+                    AccommodationRoom.objects
+                    .filter(extra_item=accommodation_extra_item, event=attrs['event_id'], type=room_type)
+                    .annotate(occupant_count=Count('users'))
+                    .filter(occupant_count__lt=accommodation_type.occupants_per_room)
+                    .exists()
+                )
+                if not has_space:
+                    existing_count = AccommodationRoom.objects.filter(extra_item=accommodation_extra_item).count()
+                    if existing_count >= accommodation_type.available_rooms:
+                        raise serializers.ValidationError({
+                            'accommodation': 'No rooms available for this accommodation type.'
+                        })
         return attrs
 
     def create(self, validated_data):
         event = validated_data.pop('event_id', None)
         event_ids = validated_data.pop('event_ids', [])
+        accommodation = validated_data.pop('accommodation', None)
         membership = validated_data['membership']
         contribution = self._create_contribution_shell(validated_data, event)
+
+        if accommodation:
+            accommodation_extra_item = accommodation['extra_item_id']
+            contribution.extra_items.add(accommodation_extra_item)
+            occupants_per_room = accommodation_extra_item.accommodation_type.occupants_per_room
+            # Single-occupancy (e.g. "Singola") has no one to share the
+            # room with, so it's unambiguous who goes in it — handle that
+            # simple case immediately.
+            if occupants_per_room == 1:
+                room = AccommodationRoom.objects.create(extra_item=accommodation_extra_item, event=event)
+                room.users.add(contribution.user)
+            elif accommodation['type'] in (
+                AccomodationRoomType.MIXED, AccomodationRoomType.MALE, AccomodationRoomType.FEMALE,
+            ):
+                # Join any existing room of this same type for this
+                # extra_item/event that still has a free bed; only create a
+                # new one (still capped by the type's available_rooms, same
+                # as the admin-created path) when every existing one is
+                # full or none exist yet. A "friends" room still only
+                # bills the item above — matching those occupants together
+                # stays a manual admin step.
+                room_type = accommodation['type']
+                room = (
+                    AccommodationRoom.objects
+                    .filter(extra_item=accommodation_extra_item, event=event, type=room_type)
+                    .annotate(occupant_count=Count('users'))
+                    .filter(occupant_count__lt=occupants_per_room)
+                    .order_by('id')
+                    .first()
+                )
+                if room is None:
+                    room = AccommodationRoom.objects.create(
+                        extra_item=accommodation_extra_item, event=event, type=room_type,
+                    )
+                room.users.add(contribution.user)
+            elif accommodation['type'] == AccomodationRoomType.FRIENDS:
+                # A roommate listed by someone else's earlier "friends"
+                # registration is already seated here (see the elif branch
+                # below from their point of view) — joining that same
+                # room, never a second one, is what validate() already
+                # checked availability for.
+                existing_room = AccommodationRoom.objects.filter(
+                    extra_item=accommodation_extra_item, event=event,
+                    type=AccomodationRoomType.FRIENDS, users=contribution.user,
+                ).first()
+                if existing_room is None:
+                    room = AccommodationRoom.objects.create(
+                        extra_item=accommodation_extra_item, event=event, type=AccomodationRoomType.FRIENDS,
+                    )
+                    room.users.add(contribution.user, *accommodation.get('roommates', []))
 
         # The parent festival stays on contribution.events (same as every
         # other case) — that's what already_booked/get_booked_by and the

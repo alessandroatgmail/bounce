@@ -1,10 +1,12 @@
+from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Sum
 from django.utils import timezone
-from event.models import Event, PartnerRole
+from event.models import Event, PartnerRole, Location
 from membership.models import Membership, Discount
 
 class ContributionStatus(models.TextChoices):
@@ -25,6 +27,23 @@ class ExtraItem(models.Model):
     description = models.TextField(null=True, blank=True)
     description_en = models.TextField(null=True, blank=True)
     description_en_it = models.TextField(null=True, blank=True)
+    expiration_date = models.DateTimeField(default=datetime(2027, 12, 31, tzinfo=dt_timezone.utc))
+
+
+class AccommodationType(models.Model):
+    """
+    Side-table extension of a specific ExtraItem row: the ExtraItem carries
+    the billable price, this carries the hotel/room-type/capacity details.
+    A plain ExtraItem (e.g. ACSI Membership) has no AccommodationType.
+    """
+    extra_item = models.OneToOneField(ExtraItem, on_delete=models.CASCADE, related_name='accommodation_type')
+    location = models.ForeignKey(Location, on_delete=models.CASCADE, related_name='accommodation_type')
+    description = models.TextField(null=True, blank=True)
+    occupants_per_room = models.IntegerField()
+    available_rooms = models.IntegerField()
+
+    def __str__(self):
+        return f"{self.extra_item.name} - {self.location.name}"
 
 class Contribution(models.Model):
 
@@ -153,6 +172,73 @@ class Contribution(models.Model):
         contribution is exclusively its own (never shared with another
         contribution) and there's still a positive balance left to pay."""
         return not self.has_shared_transaction and self.remaining_amount > 0
+
+class AccomodationRoomType(models.TextChoices):
+    FRIENDS = "friends", "Friends"
+    MALE = "all males", "All males"
+    FEMALE = "females", "Females"
+    MIXED = "mixed", "Mixed"
+
+class AccommodationRoom(models.Model):
+    """
+    One physical room instance allocated for a specific event: which
+    accommodation ExtraItem (room type) it is, and the group of
+    Contributions (occupants) sharing it. Stays always span the full
+    event date range, so there's no per-night granularity here.
+    """
+    extra_item = models.ForeignKey(ExtraItem, on_delete=models.PROTECT, related_name='accommodation_rooms')
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='accommodation_rooms')
+    users = models.ManyToManyField(get_user_model(), blank=True, related_name='accommodation_rooms')
+    type = models.CharField(max_length=20, choices=AccomodationRoomType.choices, default=AccomodationRoomType.MIXED)
+
+    def __str__(self):
+        return f"{self.extra_item.name} - {self.event.name}"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            accommodation_type = getattr(self.extra_item, 'accommodation_type', None)
+            if accommodation_type is not None:
+                existing_count = AccommodationRoom.objects.filter(extra_item=self.extra_item).count()
+                if existing_count >= accommodation_type.available_rooms:
+                    raise ValidationError(
+                        f"Only {accommodation_type.available_rooms} room(s) available for this accommodation type."
+                    )
+        super().save(*args, **kwargs)
+
+
+def _validate_room_capacity(sender, instance, action, pk_set, **kwargs):
+    if action != 'pre_add' or kwargs.get('reverse'):
+        return
+    accommodation_type = getattr(instance.extra_item, 'accommodation_type', None)
+    if accommodation_type is None:
+        return
+    current_count = instance.users.count()
+    if current_count + len(pk_set) > accommodation_type.occupants_per_room:
+        raise ValidationError(
+            f"This room only fits {accommodation_type.occupants_per_room} occupant(s)."
+        )
+
+
+models.signals.m2m_changed.connect(_validate_room_capacity, sender=AccommodationRoom.users.through)
+
+
+class RegistrationLog(models.Model):
+    """Raw capture of a registration POST (my-memberships create,
+    book-festival, book-free-festival), written before any
+    validation/processing runs — a fallback to retrieve exactly what was
+    submitted if the request gets rejected or something downstream fails.
+    Kept even if the user is later deleted, unlike every other FK here.
+    """
+    user = models.ForeignKey(get_user_model(), on_delete=models.SET_NULL, null=True, blank=True, related_name='registration_logs')
+    endpoint = models.CharField(max_length=50)
+    body = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.endpoint} - {self.user} - {self.created_at}"
 
 
 class BookingStatus(models.TextChoices):

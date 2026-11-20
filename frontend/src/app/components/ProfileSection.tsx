@@ -84,6 +84,7 @@ export function ProfileSection() {
     first_name: '',
     last_name: '',
     phone: '',
+    gender: '' as '' | 'male' | 'female' | 'other' | 'prefer_not_to_say',
     date_of_birth: '',
     place_of_birth_id: null as number | null,
     place_of_birth_name: '',
@@ -140,6 +141,14 @@ export function ProfileSection() {
   const initials = user.name.split(' ').map(n => n[0]).join('').toUpperCase() || '?';
   const t = (it: string, en: string) => language === 'it' ? it : en;
 
+  const genderLabel = (g?: string | null) => {
+    if (g === 'male') return t('Maschio', 'Male');
+    if (g === 'female') return t('Femmina', 'Female');
+    if (g === 'other') return t('Altro / Non binario', 'Other / Non-binary');
+    if (g === 'prefer_not_to_say') return t('Preferisco non dirlo', 'Prefer not to say');
+    return null;
+  };
+
   const formatDate = (d?: string | null) => {
     if (!d) return null;
     return new Date(d).toLocaleDateString(language === 'it' ? 'it-IT' : 'en-GB', {
@@ -154,6 +163,7 @@ export function ProfileSection() {
         first_name: user.first_name ?? '',
         last_name: user.last_name ?? '',
         phone: user.phone ?? '',
+        gender: user.gender ?? '',
         date_of_birth: user.date_of_birth ?? '',
         place_of_birth_id: user.place_of_birth?.id ?? null,
         place_of_birth_name: user.place_of_birth?.name ?? '',
@@ -197,6 +207,7 @@ export function ProfileSection() {
         first_name: personalDraft.first_name,
         last_name: personalDraft.last_name,
         phone: personalDraft.phone,
+        gender: personalDraft.gender || null,
         date_of_birth: personalDraft.date_of_birth || null,
         place_of_birth: personalDraft.place_of_birth_id,
         ci: personalDraft.ci,
@@ -238,6 +249,7 @@ export function ProfileSection() {
           first_name: data.first_name,
           last_name: data.last_name,
           phone: data.phone,
+          gender: data.gender,
           date_of_birth: data.date_of_birth,
           place_of_birth: data.place_of_birth,
           ci: data.ci,
@@ -568,6 +580,23 @@ export function ProfileSection() {
                         placeholder="+39 333 1234567"
                       />
                     </div>
+                    <div>
+                      <Label>{t('Genere', 'Gender')}</Label>
+                      <Select
+                        value={personalDraft.gender}
+                        onValueChange={v => setPersonalDraft(p => ({ ...p, gender: v as typeof p.gender }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('Seleziona...', 'Select...')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="male">{t('Maschio', 'Male')}</SelectItem>
+                          <SelectItem value="female">{t('Femmina', 'Female')}</SelectItem>
+                          <SelectItem value="other">{t('Altro / Non binario', 'Other / Non-binary')}</SelectItem>
+                          <SelectItem value="prefer_not_to_say">{t('Preferisco non dirlo', 'Prefer not to say')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label>{t('Data di Nascita', 'Date of Birth')}</Label>
@@ -603,6 +632,7 @@ export function ProfileSection() {
                     <FieldRow label={t('Nome', 'First Name')} value={user.first_name} />
                     <FieldRow label={t('Cognome', 'Last Name')} value={user.last_name} />
                     <FieldRow label={t('Telefono', 'Phone')} value={user.phone} />
+                    <FieldRow label={t('Genere', 'Gender')} value={genderLabel(user.gender)} />
                     <FieldRow label={t('Data di Nascita', 'Date of Birth')} value={formatDate(user.date_of_birth)} />
                     <FieldRow label={t('Luogo di Nascita', 'Place of Birth')} value={user.place_of_birth?.name} />
                     <FieldRow label={t('Codice Fiscale / N.I.', 'Fiscal Code / N.I.')} value={user.ci} />

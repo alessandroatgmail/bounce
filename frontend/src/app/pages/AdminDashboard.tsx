@@ -38,6 +38,7 @@ import { MembershipPanel } from '../components/MembershipPanel';
 import { MembershipManagementPanel } from '../components/MembershipManagementPanel';
 import { ContributionsManagementPanel } from '../components/ContributionsManagementPanel';
 import { AcsiExtraItemPanel } from '../components/AcsiExtraItemPanel';
+import { AccommodationTypePanel } from '../components/AccommodationTypePanel';
 import { DiscountPanel } from '../components/DiscountPanel';
 import { EmailTemplatesPanel } from '../components/EmailTemplatesPanel';
 import { EmailsPanel } from '../components/EmailsPanel';
@@ -51,6 +52,7 @@ import { type EventItem, type EventPayload } from '../hooks/useEvents';
 import { authFetch, authFetchFile } from '../../lib/api';
 import { useAdminEventsPaginated } from '../hooks/useAdminEventsPaginated';
 import { useMemberships } from '../hooks/useMemberships';
+import { useExtraItems } from '../hooks/useExtraItems';
 import { MultiSearchSelect } from '../components/MultiSearchSelect';
 
 export function AdminDashboard() {
@@ -96,7 +98,8 @@ export function AdminDashboard() {
   ];
 
   const extraItemModels = [
-    { key: 'acsi', label: 'ACSI' },
+    { key: 'acsi',               label: 'ACSI' },
+    { key: 'accommodation-type', label: language === 'it' ? 'Tipi di Alloggio' : 'Accommodation Types' },
   ];
 
   const tabs = [
@@ -729,6 +732,7 @@ export function AdminDashboard() {
 
           <TabsContent value="extra-items" className="mt-6">
             {selectedExtraItemModel === 'acsi' && <AcsiExtraItemPanel />}
+            {selectedExtraItemModel === 'accommodation-type' && <AccommodationTypePanel />}
           </TabsContent>
 
           <TabsContent value="festivals" className="mt-6">
@@ -1191,6 +1195,10 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
   const [selectedMemberships, setSelectedMemberships] = useState<{ id: number; name: string }[]>(
     initialData?.memberships?.map(m => ({ id: m.id, name: m.name })) ?? []
   );
+  const { extraItems, loading: loadingExtraItems } = useExtraItems(accessToken);
+  const [selectedExtraItems, setSelectedExtraItems] = useState<{ id: number; name: string }[]>(
+    initialData?.available_extra_items?.map(i => ({ id: i.id, name: i.name })) ?? []
+  );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialData?.effective_image ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1237,6 +1245,7 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
       extras: Number(extras) || 0,
       accepted_role_ids: selectedRoles.map(r => r.id),
       membership_ids: selectedMemberships.map(m => m.id),
+      available_extra_item_ids: selectedExtraItems.map(i => i.id),
       block_payment: blockPayment,
     };
     try {
@@ -1393,6 +1402,16 @@ function EventForm({ onSuccess, initialData }: { onSuccess: () => void; initialD
               loading={loadingMemberships}
               placeholder="Search membership…"
               onChange={setSelectedMemberships}
+            />
+          </div>
+          <div className="mt-4">
+            <MultiSearchSelect
+              label="Available Extra Items"
+              items={extraItems}
+              selected={selectedExtraItems}
+              loading={loadingExtraItems}
+              placeholder="Search extra item…"
+              onChange={setSelectedExtraItems}
             />
           </div>
           <div className="flex items-center gap-3 mt-4">

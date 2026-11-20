@@ -9,6 +9,7 @@ import { useLevels } from '../hooks/useLevels';
 import { useArtists } from '../hooks/useArtists';
 import { useGenres } from '../hooks/useGenres';
 import { useStyles } from '../hooks/useStyles';
+import { useExtraItems } from '../hooks/useExtraItems';
 import { useFestivalDays, type FestivalDay, type FestivalRoom } from '../hooks/useFestivalDays';
 import { useMemberships } from '../hooks/useMemberships';
 import { MultiSearchSelect } from './MultiSearchSelect';
@@ -737,6 +738,7 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
   const { artists, loading: loadingArtists } = useArtists(accessToken);
   const { genres, loading: loadingGenres } = useGenres(accessToken);
   const { styles, loading: loadingStyles } = useStyles(accessToken);
+  const { extraItems, loading: loadingExtraItems } = useExtraItems(accessToken);
 
   const [form, setForm] = useState({
     name:            festival.name,
@@ -757,6 +759,7 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
     selectedArtists: festival.artists.map(a => ({ id: a.id, name: a.full_name })),
     selectedGenres:  festival.genres.map(g => ({ id: g.id, name: g.name })),
     selectedStyles:  festival.styles.map(s => ({ id: s.id, name: s.name })),
+    selectedExtraItems: festival.available_extra_items.map(i => ({ id: i.id, name: i.name })),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState<string | null>(null);
@@ -786,6 +789,7 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
         artist_ids:     form.selectedArtists.map(a => a.id),
         genre_ids:      form.selectedGenres.map(g => g.id),
         style_ids:      form.selectedStyles.map(s => s.id),
+        available_extra_item_ids: form.selectedExtraItems.map(i => i.id),
         info:           form.info || null,
         multi_events:   form.multi_events,
         free:           form.free,
@@ -959,6 +963,16 @@ function FestivalInfoTab({ festival, onSaved }: { festival: EventItem; onSaved: 
             loading={loadingStyles}
             placeholder={t('festival.event.searchStyle')}
             onChange={v => set('selectedStyles', v)}
+          />
+        </div>
+        <div className="col-span-2">
+          <MultiSearchSelect
+            label={t('festival.event.extraItems')}
+            items={extraItems}
+            selected={form.selectedExtraItems}
+            loading={loadingExtraItems}
+            placeholder={t('festival.event.searchExtraItem')}
+            onChange={v => set('selectedExtraItems', v)}
           />
         </div>
 

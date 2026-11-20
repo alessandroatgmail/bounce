@@ -123,6 +123,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "last_name",
             "phone",
             "role",
+            "gender",
             "date_of_birth",
             "place_of_birth",
             "ci",
@@ -211,7 +212,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'first_name', 'last_name', 'phone',
+            'first_name', 'last_name', 'phone', 'gender',
             'date_of_birth', 'place_of_birth', 'ci',
             'address', 'city', 'postal_code', 'country',
             'acsi', 'acsi_number', 'acsi_starting_date',

@@ -114,6 +114,9 @@ class Event(models.Model):
     free = models.BooleanField(default=False)
     memberships = models.ManyToManyField("membership.membership", blank=True, related_name="events")
     block_payment = models.BooleanField(default=False)
+    available_extra_items = models.ManyToManyField(
+        "booking.ExtraItem", blank=True, related_name='available_in_events',
+    )
 
     def __str__(self):
         return f"{self.name} {self.event_type.name}"
