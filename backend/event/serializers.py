@@ -1,9 +1,11 @@
 from django.contrib.auth import get_user_model
 from django.db.models import Count
+from django.utils import timezone
 from rest_framework import serializers
 from users.models import City
 from .models import EventType, Type, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, PartnerRole, EventDescription
 from membership.models import Membership
+from booking.models import AccommodationRoom, AccommodationType, ExtraItem
 
 
 class PartnerRoleSerializer(serializers.ModelSerializer):
@@ -286,6 +288,36 @@ def _level_colors(child_event, available_spot, roles_seen):
     return {role.name: color_for(role) for role in partner_roles}
 
 
+class EventAccommodationTypeSerializer(serializers.ModelSerializer):
+    location = LocationSerializer(read_only=True)
+
+    class Meta:
+        model = AccommodationType
+        fields = ["id", "location", "occupants_per_room", "available_rooms"]
+
+
+class EventExtraItemSerializer(serializers.ModelSerializer):
+    # A plain ExtraItem (e.g. ACSI Membership) has no AccommodationType —
+    # the reverse one-to-one raises if accessed directly, so this mirrors
+    # the getattr(..., 'accommodation_type', None) pattern used elsewhere
+    # (see AccommodationRoom.save(), AccommodationRoomSerializer) instead
+    # of relying on a nested serializer to swallow the missing relation.
+    accommodation_type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExtraItem
+        fields = [
+            "id", "name", "name_it", "name_en", "value", "description", "description_en",
+            "description_en_it", "accommodation_type",
+        ]
+
+    def get_accommodation_type(self, obj):
+        accommodation_type = getattr(obj, "accommodation_type", None)
+        if accommodation_type is None:
+            return None
+        return EventAccommodationTypeSerializer(accommodation_type).data
+
+
 class EventSerializer(serializers.ModelSerializer):
     event_type = EventTypeSerializer(read_only=True)
     event_type_id = serializers.PrimaryKeyRelatedField(
@@ -326,11 +358,17 @@ class EventSerializer(serializers.ModelSerializer):
         many=True, write_only=True, source="memberships",
         queryset=Membership.objects.all(), required=False,
     )
+    available_extra_items = serializers.SerializerMethodField()
+    available_extra_item_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=ExtraItem.objects.all(), source="available_extra_items",
+        write_only=True, required=False,
+    )
     effective_image = serializers.SerializerMethodField()
     already_booked = serializers.SerializerMethodField()
     booked_by = serializers.SerializerMethodField()
     children_levels = serializers.SerializerMethodField()
     available_spot = serializers.SerializerMethodField()
+    accommodation_assignment = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -350,6 +388,7 @@ class EventSerializer(serializers.ModelSerializer):
             "image", "effective_image",
             "accepted_roles", "accepted_role_ids",
             "memberships", "membership_ids",
+            "available_extra_items", "available_extra_item_ids",
             "warning_threshold",
             "extras",
             "payment_days",
@@ -358,6 +397,7 @@ class EventSerializer(serializers.ModelSerializer):
             "block_payment",
             "already_booked", "booked_by", "available_spot",
             "children_levels",
+            "accommodation_assignment",
         ]
 
     def get_memberships(self, obj):
@@ -371,6 +411,19 @@ class EventSerializer(serializers.ModelSerializer):
         if not is_staff:
             memberships = [m for m in memberships if m.is_available]
         return MembershipSerializer(memberships, many=True).data
+
+    def get_available_extra_items(self, obj):
+        # Same split as get_memberships above: a student should never be
+        # offered something they can no longer actually pick, but an admin
+        # still needs to see everything attached to the event, expired or
+        # not, to notice and fix it.
+        request = self.context.get("request")
+        is_staff = bool(request and request.user and request.user.is_staff)
+        extra_items = obj.available_extra_items.all()
+        if not is_staff:
+            now = timezone.now()
+            extra_items = [i for i in extra_items if i.expiration_date > now]
+        return EventExtraItemSerializer(extra_items, many=True).data
 
     def get_children_levels(self, obj):
         # Availability colors only make sense for a fixed-choice festival
@@ -419,6 +472,38 @@ class EventSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(img.url)
         return img.url
 
+    def get_accommodation_assignment(self, obj):
+        # Someone else can list this user as a "friends" roommate before
+        # they've registered themselves (see
+        # FreeFestivalContributionSerializer.create()) — this lets the
+        # frontend notice that and pre-fill/lock the student's own
+        # accommodation choice to match, instead of asking them to pick
+        # again from scratch.
+        request = self.context.get("request")
+        if not (request and request.user.is_authenticated):
+            return None
+        rooms = getattr(obj, "viewer_accommodation_rooms", None)
+        if rooms is not None:
+            room = rooms[0] if rooms else None
+        else:
+            room = (
+                AccommodationRoom.objects
+                .filter(event=obj, users=request.user)
+                .select_related("extra_item")
+                .prefetch_related("users")
+                .first()
+            )
+        if room is None:
+            return None
+        return {
+            "extra_item_id": room.extra_item_id,
+            "type": room.type,
+            "roommates": [
+                {"email": u.email, "first_name": u.first_name, "last_name": u.last_name}
+                for u in room.users.all() if u.pk != request.user.pk
+            ],
+        }
+
     def get_already_booked(self, obj):
         request = self.context.get("request")
         if not (request and request.user.is_authenticated):
@@ -465,6 +550,7 @@ class EventSerializer(serializers.ModelSerializer):
         events = validated_data.pop("events", [])
         accepted_roles = validated_data.pop("accepted_roles", None)
         memberships = validated_data.pop("memberships", [])
+        available_extra_items = validated_data.pop("available_extra_items", [])
         event = Event.objects.create(**validated_data)
         event.styles.set(styles)
         event.genres.set(genres)
@@ -473,6 +559,7 @@ class EventSerializer(serializers.ModelSerializer):
         if accepted_roles is not None:
             event.accepted_roles.set(accepted_roles)
         event.memberships.set(memberships)
+        event.available_extra_items.set(available_extra_items)
         return event
 
     def update(self, instance, validated_data):
@@ -482,6 +569,7 @@ class EventSerializer(serializers.ModelSerializer):
         events = validated_data.pop("events", None)
         accepted_roles = validated_data.pop("accepted_roles", None)
         memberships = validated_data.pop("memberships", None)
+        available_extra_items = validated_data.pop("available_extra_items", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -497,6 +585,8 @@ class EventSerializer(serializers.ModelSerializer):
             instance.accepted_roles.set(accepted_roles)
         if memberships is not None:
             instance.memberships.set(memberships)
+        if available_extra_items is not None:
+            instance.available_extra_items.set(available_extra_items)
         return instance
 
 

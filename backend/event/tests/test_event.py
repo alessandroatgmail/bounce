@@ -3,9 +3,11 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status as http_status
 
-from event.models import Event, EventType, Status, PartnerRole
+from booking.models import AccommodationType, ExtraItem
+from event.models import Event, EventType, Location, Status, PartnerRole
 from membership.models import Membership, MembershipRule, MembershipType
 from utils.mock_event import make_event_payload, make_event_payloads
+from utils.mock_location import make_location_payload
 from utils.mock_membership import make_membership_payload
 
 LIST_URL = "/api/events/events/"
@@ -17,6 +19,12 @@ def detail_url(pk):
 
 def create_membership(**overrides):
     return Membership.objects.create(**make_membership_payload(**overrides))
+
+
+def create_extra_item(**overrides):
+    defaults = dict(name="Airone Triple", name_it="Airone Tripla", name_en="Airone Triple", value=120)
+    defaults.update(overrides)
+    return ExtraItem.objects.create(**defaults)
 
 
 def create_event(**overrides):
@@ -194,7 +202,9 @@ class TestEventStaffList:
             "accepted_roles", "warning_threshold", "extras", "payment_days",
             "multi_events", "free", "block_payment",
             "children_levels",
+            "accommodation_assignment",
             "memberships",
+            "available_extra_items",
         }
         assert set(response.data['results'][0].keys()) == expected
 
@@ -765,4 +775,126 @@ class TestStudentSeeOneShotEventAndMembership:
         assert m["contribution"] == 25
         assert m["max_events"] == 1
         assert m["duration"] == 0
+
+
+# ── available_extra_items (extra items offered when booking this event) ─────
+
+class TestEventAvailableExtraItems:
+
+    def test_new_event_has_empty_available_extra_items(self, staff_client, world_data):
+        response = staff_client.post(LIST_URL, make_event_payload(), format="json")
+        assert response.data["available_extra_items"] == []
+
+    def test_staff_can_create_event_with_available_extra_items(self, staff_client, world_data):
+        extra_item = create_extra_item()
+        payload = make_event_payload(available_extra_item_ids=[extra_item.pk])
+        response = staff_client.post(LIST_URL, payload, format="json")
+        assert response.status_code == http_status.HTTP_201_CREATED
+        assert [x["id"] for x in response.data["available_extra_items"]] == [extra_item.pk]
+
+    def test_create_persists_available_extra_items(self, staff_client, world_data):
+        extra_item = create_extra_item()
+        payload = make_event_payload(available_extra_item_ids=[extra_item.pk])
+        response = staff_client.post(LIST_URL, payload, format="json")
+        event = Event.objects.get(pk=response.data["id"])
+        assert list(event.available_extra_items.values_list("id", flat=True)) == [extra_item.pk]
+
+    def test_staff_can_patch_available_extra_items_onto_existing_event(self, staff_client, world_data):
+        event = create_event()
+        extra_item = create_extra_item()
+        response = staff_client.patch(
+            detail_url(event.pk), {"available_extra_item_ids": [extra_item.pk]}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        event.refresh_from_db()
+        assert list(event.available_extra_items.values_list("id", flat=True)) == [extra_item.pk]
+
+    def test_patch_can_attach_multiple_available_extra_items(self, staff_client, world_data):
+        event = create_event()
+        items = [create_extra_item(name=f"Item {i}", name_it=f"Oggetto {i}", name_en=f"Item {i}") for i in range(3)]
+        response = staff_client.patch(
+            detail_url(event.pk),
+            {"available_extra_item_ids": [i.pk for i in items]},
+            format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        event.refresh_from_db()
+        assert set(event.available_extra_items.values_list("id", flat=True)) == {i.pk for i in items}
+
+    def test_patch_replaces_available_extra_items(self, staff_client, world_data):
+        event = create_event()
+        old_item = create_extra_item(name="Old", name_it="Vecchio", name_en="Old")
+        new_item = create_extra_item(name="New", name_it="Nuovo", name_en="New")
+        event.available_extra_items.set([old_item])
+
+        response = staff_client.patch(
+            detail_url(event.pk), {"available_extra_item_ids": [new_item.pk]}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_200_OK
+        event.refresh_from_db()
+        assert list(event.available_extra_items.values_list("id", flat=True)) == [new_item.pk]
+
+    def test_retrieve_includes_available_extra_items(self, staff_client, world_data):
+        event = create_event()
+        extra_item = create_extra_item()
+        event.available_extra_items.add(extra_item)
+        response = staff_client.get(detail_url(event.pk))
+        assert response.data["available_extra_items"][0]["id"] == extra_item.pk
+
+    def test_student_cannot_patch_available_extra_items(self, student_client, world_data):
+        event = create_event(status=Status.PUBLISHED)
+        extra_item = create_extra_item()
+        response = student_client.patch(
+            detail_url(event.pk), {"available_extra_item_ids": [extra_item.pk]}, format="json",
+        )
+        assert response.status_code == http_status.HTTP_403_FORBIDDEN
+        assert event.available_extra_items.count() == 0
+
+    def test_available_extra_items_accommodation_type_is_null_for_a_plain_item(self, staff_client, world_data):
+        event = create_event()
+        extra_item = create_extra_item()
+        event.available_extra_items.add(extra_item)
+        response = staff_client.get(detail_url(event.pk))
+        assert response.data["available_extra_items"][0]["accommodation_type"] is None
+
+    def test_available_extra_items_includes_accommodation_type_details(self, staff_client, world_data):
+        location = Location.objects.create(**make_location_payload(name="Hotel Airone"))
+        extra_item = create_extra_item()
+        AccommodationType.objects.create(
+            extra_item=extra_item, location=location, occupants_per_room=3, available_rooms=2,
+        )
+        event = create_event()
+        event.available_extra_items.add(extra_item)
+        response = staff_client.get(detail_url(event.pk))
+        accommodation_type = response.data["available_extra_items"][0]["accommodation_type"]
+        assert accommodation_type["occupants_per_room"] == 3
+        assert accommodation_type["available_rooms"] == 2
+        assert accommodation_type["location"]["id"] == location.pk
+
+    def test_student_does_not_see_expired_extra_item(self, student_client, world_data):
+        event = create_event(status=Status.PUBLISHED)
+        expired_item = create_extra_item(
+            name="Expired", name_it="Scaduto", name_en="Expired",
+            expiration_date=timezone.now() - timedelta(days=1),
+        )
+        event.available_extra_items.add(expired_item)
+        response = student_client.get(detail_url(event.pk))
+        assert response.data["available_extra_items"] == []
+
+    def test_student_sees_non_expired_extra_item(self, student_client, world_data):
+        event = create_event(status=Status.PUBLISHED)
+        extra_item = create_extra_item()
+        event.available_extra_items.add(extra_item)
+        response = student_client.get(detail_url(event.pk))
+        assert [x["id"] for x in response.data["available_extra_items"]] == [extra_item.pk]
+
+    def test_staff_still_sees_expired_extra_item(self, staff_client, world_data):
+        event = create_event()
+        expired_item = create_extra_item(
+            name="Expired", name_it="Scaduto", name_en="Expired",
+            expiration_date=timezone.now() - timedelta(days=1),
+        )
+        event.available_extra_items.add(expired_item)
+        response = staff_client.get(detail_url(event.pk))
+        assert [x["id"] for x in response.data["available_extra_items"]] == [expired_item.pk]
 

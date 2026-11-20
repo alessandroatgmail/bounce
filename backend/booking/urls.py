@@ -1,9 +1,11 @@
 from django.urls import path
 from rest_framework.routers import SimpleRouter
-from .views import BookingViewSet, ContributionAdminIdsView, ContributionAdminListView, ContributionOverviewViewSet, ContributionViewSet, ExtraItemViewSet, UserBookingViewSet, UserContributionViewSet
+from .views import AccommodationRoomViewSet, AccommodationTypeViewSet, BookingViewSet, ContributionAdminIdsView, ContributionAdminListView, ContributionOverviewViewSet, ContributionViewSet, ExtraItemViewSet, UserBookingViewSet, UserContributionViewSet
 from .views_checkout import create_checkout_session, stripe_webhook, payment_success
 
 router = SimpleRouter()
+router.register('accommodation-types', AccommodationTypeViewSet, basename='accommodation-type')
+router.register('accommodation-rooms', AccommodationRoomViewSet, basename='accommodation-room')
 router.register('bookings', BookingViewSet, basename='booking')
 router.register('contributions-overview', ContributionOverviewViewSet, basename='contribution-overview')
 router.register('contributions', ContributionViewSet, basename='contribution')

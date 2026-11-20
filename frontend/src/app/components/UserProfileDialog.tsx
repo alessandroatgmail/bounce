@@ -10,6 +10,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { CitySearch, type CityResult } from './CitySearch';
 
@@ -26,6 +27,7 @@ export interface AdminUserProfile {
   last_name: string;
   phone: string;
   role: string;
+  gender: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
   date_of_birth: string | null;
   place_of_birth: NestedNamed | null;
   ci: string;
@@ -77,7 +79,7 @@ export function UserProfileDialog({ userId, open, onOpenChange }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const [personalDraft, setPersonalDraft] = useState({
-    first_name: '', last_name: '', phone: '', date_of_birth: '',
+    first_name: '', last_name: '', phone: '', gender: '' as '' | 'male' | 'female' | 'other' | 'prefer_not_to_say', date_of_birth: '',
     place_of_birth_id: null as number | null, place_of_birth_name: '', ci: '',
   });
   const [addressDraft, setAddressDraft] = useState({
@@ -107,6 +109,14 @@ export function UserProfileDialog({ userId, open, onOpenChange }: Props) {
   const formatDate = (iso: string | null) =>
     iso ? new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
 
+  const genderLabel = (g?: string | null) => {
+    if (g === 'male') return t('Maschio', 'Male');
+    if (g === 'female') return t('Femmina', 'Female');
+    if (g === 'other') return t('Altro / Non binario', 'Other / Non-binary');
+    if (g === 'prefer_not_to_say') return t('Preferisco non dirlo', 'Prefer not to say');
+    return null;
+  };
+
   const startEditing = (section: NonNullable<EditSection>) => {
     if (!profile) return;
     setSaveError(null);
@@ -115,6 +125,7 @@ export function UserProfileDialog({ userId, open, onOpenChange }: Props) {
         first_name: profile.first_name ?? '',
         last_name: profile.last_name ?? '',
         phone: profile.phone ?? '',
+        gender: profile.gender ?? '',
         date_of_birth: profile.date_of_birth ?? '',
         place_of_birth_id: profile.place_of_birth?.id ?? null,
         place_of_birth_name: profile.place_of_birth?.name ?? '',
@@ -155,6 +166,7 @@ export function UserProfileDialog({ userId, open, onOpenChange }: Props) {
         first_name: personalDraft.first_name,
         last_name: personalDraft.last_name,
         phone: personalDraft.phone,
+        gender: personalDraft.gender || null,
         date_of_birth: personalDraft.date_of_birth || null,
         place_of_birth: personalDraft.place_of_birth_id,
         ci: personalDraft.ci,
@@ -297,6 +309,23 @@ export function UserProfileDialog({ userId, open, onOpenChange }: Props) {
                           placeholder="+39 333 1234567"
                         />
                       </div>
+                      <div>
+                        <Label>{t('Genere', 'Gender')}</Label>
+                        <Select
+                          value={personalDraft.gender}
+                          onValueChange={v => setPersonalDraft(p => ({ ...p, gender: v as typeof p.gender }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={t('Seleziona...', 'Select...')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="male">{t('Maschio', 'Male')}</SelectItem>
+                            <SelectItem value="female">{t('Femmina', 'Female')}</SelectItem>
+                            <SelectItem value="other">{t('Altro / Non binario', 'Other / Non-binary')}</SelectItem>
+                            <SelectItem value="prefer_not_to_say">{t('Preferisco non dirlo', 'Prefer not to say')}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <Label>{t('Data di Nascita', 'Date of Birth')}</Label>
@@ -332,6 +361,7 @@ export function UserProfileDialog({ userId, open, onOpenChange }: Props) {
                       <FieldRow label={t('Nome', 'First Name')} value={profile.first_name} />
                       <FieldRow label={t('Cognome', 'Last Name')} value={profile.last_name} />
                       <FieldRow label={t('Telefono', 'Phone')} value={profile.phone} />
+                      <FieldRow label={t('Genere', 'Gender')} value={genderLabel(profile.gender)} />
                       <FieldRow label={t('Data di Nascita', 'Date of Birth')} value={formatDate(profile.date_of_birth)} />
                       <FieldRow label={t('Luogo di Nascita', 'Place of Birth')} value={profile.place_of_birth?.name} />
                       <FieldRow label={t('Codice Fiscale / N.I.', 'Fiscal Code / N.I.')} value={profile.ci} />
