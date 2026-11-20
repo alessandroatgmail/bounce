@@ -12,6 +12,7 @@ export interface User {
   last_name?: string;
   role: UserRole;
   phone?: string;
+  gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
   date_of_birth?: string | null;
   place_of_birth?: { id: number; name: string } | null;
   ci?: string;
@@ -113,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           first_name: data.first_name ?? '',
           last_name: data.last_name ?? '',
           phone: data.phone ?? undefined,
+          gender: data.gender ?? null,
           date_of_birth: data.date_of_birth ?? null,
           place_of_birth: data.place_of_birth ?? null,
           ci: data.ci ?? '',

@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from .paginations import EventPagination
 from .filters import EventFilter
+from booking.models import AccommodationRoom, ExtraItem
 
 from .models import EventType, Location, Room, Style, Genre, ArtistType, Artist, Level, Event, Status, Frequency, PartnerRole, EventDescription
 from .serializers import EventTypeSerializer, LocationSerializer, RoomSerializer, StyleSerializer, GenreSerializer, ArtistTypeSerializer, ArtistSerializer, LevelSerializer, EventSerializer, EventDetailSerializer, EventAdminListSerializer, PartnerRoleSerializer, EventDescriptionSerializer, CitySerializer, _child_event_counts_for, _level_colors
@@ -226,6 +227,12 @@ class EventViewSet(viewsets.ModelViewSet):
             ),
             Prefetch("memberships", queryset=membership_qs),
             Prefetch(
+                "available_extra_items",
+                queryset=ExtraItem.objects.select_related(
+                    "accommodation_type", "accommodation_type__location", "accommodation_type__location__city",
+                ),
+            ),
+            Prefetch(
                 "event_set",
                 queryset=Event.objects.only("id", "image"),
                 to_attr="prefetched_parents",
@@ -252,6 +259,12 @@ class EventViewSet(viewsets.ModelViewSet):
                         user=user, original_contribution__isnull=False
                     ).select_related("original_contribution__user"),
                     to_attr="viewer_partner_contributions",
+                ),
+                Prefetch(
+                    "accommodation_rooms",
+                    queryset=AccommodationRoom.objects.filter(users=user)
+                    .select_related("extra_item").prefetch_related("users"),
+                    to_attr="viewer_accommodation_rooms",
                 ),
             )
         return qs

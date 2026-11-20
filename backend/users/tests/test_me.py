@@ -7,7 +7,7 @@ from django.urls import reverse
 from PIL import Image
 from rest_framework import status
 
-from users.models import Country, City, User, Role
+from users.models import Country, City, Gender, User, Role
 
 ME_URL = reverse("me")
 REFRESH_URL = reverse("token_refresh")
@@ -42,6 +42,7 @@ def full_student(db, country, city):
         last_name="Rossi",
         phone="+39 041 000000",
         role=Role.STUDENT,
+        gender=Gender.FEMALE,
         date_of_birth="1990-06-15",
         place_of_birth=city,
         ci="RSSMRA90H15L736Z",
@@ -90,6 +91,7 @@ class TestMeEndpoint:
         assert data["last_name"] == "Rossi"
         assert data["phone"] == "+39 041 000000"
         assert data["role"] == Role.STUDENT
+        assert data["gender"] == Gender.FEMALE
         assert data["date_of_birth"] == "1990-06-15"
         assert data["ci"] == "RSSMRA90H15L736Z"
         assert data["address"] == "Via Roma 1"
@@ -182,7 +184,10 @@ class TestMePutProfile:
 
         response = client.put(
             ME_URL,
-            {"first_name": "Luigi", "last_name": "Verdi", "phone": "+39 02 999999", "ci": "VRDLGU85A01H501X"},
+            {
+                "first_name": "Luigi", "last_name": "Verdi", "phone": "+39 02 999999",
+                "ci": "VRDLGU85A01H501X", "gender": Gender.MALE,
+            },
             format="json",
         )
 
@@ -192,6 +197,7 @@ class TestMePutProfile:
         assert data["last_name"] == "Verdi"
         assert data["phone"] == "+39 02 999999"
         assert data["ci"] == "VRDLGU85A01H501X"
+        assert data["gender"] == Gender.MALE
 
     def test_update_address(self, client, full_student, city, country):
         token = _get_token(client, "mario@bounce.com", "StrongPass123!")

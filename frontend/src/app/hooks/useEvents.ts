@@ -20,6 +20,29 @@ export interface EventMembership {
   events_only: boolean;
 }
 
+// Mirrors backend AccomodationRoomType choices exactly (values, including
+// the odd "all males"/"females" spelling, are what the API expects).
+export type AccommodationRoomType = 'friends' | 'all males' | 'females' | 'mixed';
+
+export interface EventExtraItem {
+  id: number;
+  name: string;
+  name_it: string;
+  name_en: string;
+  value: string;
+  description: string | null;
+  description_en: string | null;
+  description_en_it: string | null;
+  // Present only for an accommodation-type extra item (see
+  // AccommodationType on the backend) — null for a plain one (e.g. ACSI).
+  accommodation_type: {
+    id: number;
+    location: { id: number; name: string; address: string; city: { id: number; name: string } };
+    occupants_per_room: number;
+    available_rooms: number;
+  } | null;
+}
+
 export interface EventItem {
   id: number;
   name: string;
@@ -42,6 +65,7 @@ export interface EventItem {
   effective_image: string | null;
   accepted_roles: { id: number; name: string }[];
   memberships: EventMembership[];
+  available_extra_items: EventExtraItem[];
   warning_threshold: number;
   extras: number;
   payment_days: number;
@@ -52,6 +76,15 @@ export interface EventItem {
   already_booked: boolean;
   booked_by: string | null;
   available_spot: number;
+  // Set when someone else already listed the current user as a "friends"
+  // roommate (see FreeFestivalContributionSerializer.create()) before
+  // they registered themselves — the frontend pre-fills and locks the
+  // accommodation choice to match instead of asking again.
+  accommodation_assignment: {
+    extra_item_id: number;
+    type: AccommodationRoomType;
+    roommates: { email: string; first_name: string; last_name: string }[];
+  } | null;
 }
 
 // Lightweight shape of a child event (a festival session, or one occurrence
@@ -105,6 +138,7 @@ export interface EventPayload {
   extras?: number;
   accepted_role_ids?: number[];
   membership_ids?: number[];
+  available_extra_item_ids?: number[];
   multi_events?: boolean;
   free?: boolean;
   block_payment?: boolean;

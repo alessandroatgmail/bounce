@@ -12,8 +12,8 @@ import { ResetPassword } from './pages/ResetPassword';
 import { Layout } from './components/Layout';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { PaymentSuccess } from './pages/PaymentSuccess';
-import { FestivalSchedulePage } from './pages/FestivalSchedulePage';
 import { EventRegisterPage } from './pages/EventRegisterPage';
+import { FestivalManagePage } from './pages/FestivalManagePage';
 import { EventDescriptionEditorPage } from './pages/EventDescriptionEditorPage';
 import { EventDetailPage } from './pages/EventDetailPage';
 
@@ -56,7 +56,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'festival/:id',
-        Component: FestivalSchedulePage,
+        lazy: () => import('./pages/FestivalSchedulePage').then(m => ({ Component: m.FestivalSchedulePage })),
       },
       {
         path: 'checkout',
@@ -73,6 +73,10 @@ export const router = createBrowserRouter([
       {
         path: 'admin/events/:eventId/register',
         Component: EventRegisterPage,
+      },
+      {
+        path: 'admin/festivals/:eventId/manage',
+        Component: FestivalManagePage,
       },
       {
         path: 'admin/events/:eventId/description',

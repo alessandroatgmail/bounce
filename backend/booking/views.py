@@ -15,8 +15,8 @@ from django.conf import settings
 from config.models import SiteSettings
 from event.models import Event
 from membership.models import Membership
-from .models import Booking, Contribution, ContributionStatus, ExtraItem
-from .serializers import AcsiExtraItemSerializer, BookingSerializer, ContributionAdminListSerializer, ContributionOverviewSerializer, ContributionSerializer, ExtraItemSerializer, FestivalContributionSerializer, FreeFestivalContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
+from .models import AccommodationRoom, AccommodationType, AccomodationRoomType, Booking, Contribution, ContributionStatus, ExtraItem, RegistrationLog
+from .serializers import AccommodationRoomSerializer, AccommodationTypeSerializer, AcsiExtraItemSerializer, BookingSerializer, ContributionAdminListSerializer, ContributionOverviewSerializer, ContributionSerializer, ExtraItemSerializer, FestivalContributionSerializer, FreeFestivalContributionSerializer, UserBookingSerializer, UserContributionSerializer, _validate_membership_events
 from .utils import sync_bookings
 from utils.tasks import send_email
 
@@ -56,6 +56,109 @@ class ExtraItemViewSet(viewsets.ModelViewSet):
         page = self.paginate_queryset(qs)
         serializer = AcsiExtraItemSerializer(page, many=True)
         return self.get_paginated_response(serializer.data)
+
+
+class AccommodationTypeViewSet(viewsets.ModelViewSet):
+    serializer_class = AccommodationTypeSerializer
+    queryset = AccommodationType.objects.select_related('extra_item', 'location', 'location__city').all()
+    permission_classes = [IsAdminUser]
+
+    def perform_destroy(self, instance):
+        # Created together with its ExtraItem via this endpoint, so it's
+        # deleted together too — otherwise the billing line it created
+        # would be orphaned in the generic extra-items catalog.
+        extra_item = instance.extra_item
+        instance.delete()
+        extra_item.delete()
+
+    @action(detail=False, methods=['get'], url_path='occupancy')
+    def occupancy(self, request):
+        """
+        Per accommodation type, for one event: how many rooms are fully
+        booked (occupants == occupants_per_room, any payment status) vs.
+        fully booked AND fully paid — both as a rate over available_rooms.
+        """
+        event_id = request.query_params.get('event', '').strip()
+        if not event_id:
+            return Response({'detail': 'event is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        results = []
+        for accommodation_type in self.get_queryset():
+            rooms = (
+                AccommodationRoom.objects
+                .filter(extra_item_id=accommodation_type.extra_item_id, event_id=event_id)
+                .prefetch_related('users')
+            )
+            full_booked_rooms = 0
+            full_paid_rooms = 0
+            for room in rooms:
+                users = list(room.users.all())
+                if len(users) != accommodation_type.occupants_per_room:
+                    continue
+                full_booked_rooms += 1
+                # No direct link from occupant to Contribution (users are
+                # assigned to the room directly) — paid here means each
+                # occupant holds at least one PAYED Contribution for this event.
+                if all(
+                    Contribution.objects.filter(
+                        user=user, events=room.event, status=ContributionStatus.PAYED,
+                    ).exists()
+                    for user in users
+                ):
+                    full_paid_rooms += 1
+
+            available_rooms = accommodation_type.available_rooms
+            results.append({
+                'accommodation_type_id': accommodation_type.pk,
+                'extra_item_id': accommodation_type.extra_item_id,
+                'available_rooms': available_rooms,
+                'full_booked_rooms': full_booked_rooms,
+                'full_paid_rooms': full_paid_rooms,
+                'occupancy_rate': f'{full_booked_rooms}/{available_rooms}',
+                'full_paid_rate': f'{full_paid_rooms}/{available_rooms}',
+            })
+
+        return Response(results)
+
+
+class AccommodationRoomViewSet(viewsets.ModelViewSet):
+    serializer_class = AccommodationRoomSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = (
+            AccommodationRoom.objects
+            .select_related('extra_item', 'extra_item__accommodation_type', 'extra_item__accommodation_type__location', 'event')
+            .prefetch_related('users')
+        )
+
+        event_id = self.request.query_params.get('event', '').strip()
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+
+        location_id = self.request.query_params.get('location', '').strip()
+        if location_id:
+            qs = qs.filter(extra_item__accommodation_type__location_id=location_id)
+
+        extra_item_id = self.request.query_params.get('extra_item', '').strip()
+        if extra_item_id:
+            qs = qs.filter(extra_item_id=extra_item_id)
+
+        name = self.request.query_params.get('name', '').strip()
+        if name:
+            qs = qs.filter(
+                Q(users__first_name__icontains=name)
+                | Q(users__last_name__icontains=name)
+                | Q(users__email__icontains=name)
+            )
+
+        return qs.distinct()
+
+    @action(detail=False, methods=['get'], url_path='types', permission_classes=[IsAuthenticated])
+    def types(self, request):
+        """Choices for AccommodationRoom.type — just static labels, no user
+        data, so any logged-in user can read them (not only admins)."""
+        return Response([{'value': value, 'label': label} for value, label in AccomodationRoomType.choices])
 
 
 class UserBookingViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -231,6 +334,15 @@ class UserContributionViewSet(
             )
         )
 
+    def _log_registration_request(self, request, endpoint):
+        """Written before any validation/processing — see RegistrationLog's
+        own docstring for why."""
+        RegistrationLog.objects.create(user=request.user, endpoint=endpoint, body=request.data)
+
+    def create(self, request, *args, **kwargs):
+        self._log_registration_request(request, 'create')
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
@@ -239,6 +351,7 @@ class UserContributionViewSet(
         """Case 3 — festival, fixed choice: level_id is mandatory and the
         event must be a multi_events, non-free festival (see
         FestivalContributionSerializer)."""
+        self._log_registration_request(request, 'book-festival')
         serializer = FestivalContributionSerializer(
             data=request.data, context=self.get_serializer_context(),
         )
@@ -253,6 +366,7 @@ class UserContributionViewSet(
         """Case 4 — festival, free choice: event_ids is mandatory and the
         event must be a multi_events, free festival (see
         FreeFestivalContributionSerializer)."""
+        self._log_registration_request(request, 'book-free-festival')
         serializer = FreeFestivalContributionSerializer(
             data=request.data, context=self.get_serializer_context(),
         )

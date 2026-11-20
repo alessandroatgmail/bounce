@@ -16,6 +16,15 @@ class Language(models.TextChoices):
     IT = 'it', 'Italiano'
     EN = 'en', 'English'
 
+class Gender(models.TextChoices):
+    MALE = "male", "Male"
+    FEMALE = "female", "Female"
+    OTHER = "other", "Other"
+    # Distinct from the field being unset (None) — this is an explicit
+    # answer, so outreach campaigns can tell "declined to answer" apart
+    # from "never asked".
+    PREFER_NOT_TO_SAY = "prefer_not_to_say", "Prefer not to say"
+
 class Country(models.Model):
     name = models.CharField(max_length=255, unique=True)
     iso = models.CharField(max_length=3, unique=True)
@@ -84,6 +93,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
 
     date_of_birth = models.DateField(null=True, blank=True)
+    gender = models.CharField(max_length=20, choices=Gender.choices, null=True, blank=True)
     place_of_birth = models.ForeignKey(City, on_delete=models.PROTECT, null=True, blank=True, related_name="users_birth")
     ci = models.CharField(max_length=50, blank=True, verbose_name="Codice Fiscale/N.I.")
     address = models.TextField(blank=True)
