@@ -7,6 +7,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { type AccommodationRoomType, type EventDetail, type EventSimple } from '../hooks/useEvents';
 import { useFestivalDays, type FestivalDay, type FestivalRoom } from '../hooks/useFestivalDays';
+import { useCommunicationsForUser } from '../hooks/useCommunicationsForUser';
+import type { Communication } from '../hooks/useCommunications';
+import { CommunicationConsentDialog } from '../components/CommunicationConsentDialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -630,6 +633,9 @@ export function FestivalSchedulePage() {
   const [roommateEmails, setRoommateEmails] = useState<string[]>([]);
   const [registerStatus, setRegisterStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [registerErrors, setRegisterErrors] = useState<string[]>([]);
+  const { fetchFor: fetchCommunications } = useCommunicationsForUser(accessToken);
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentCommunications, setConsentCommunications] = useState<Communication[]>([]);
 
   // Someone else already listed this student as a "friends" roommate —
   // their own accommodation choice is pre-filled (and locked, in
@@ -807,11 +813,32 @@ export function FestivalSchedulePage() {
   const handlePerEventRoleChange = (eventId: number, roleId: string) =>
     setPerEventRoleIds(prev => ({ ...prev, [eventId]: roleId }));
 
+  // Gate in front of handleRegister: any Communication tied to this
+  // festival, the chosen accommodation extra item, or the chosen plan must
+  // be flagged by the student first. No matches means nothing to show, so
+  // registration proceeds immediately instead of popping an empty dialog.
+  const handleRegisterClick = async () => {
+    if (!festival) return;
+    const communications = await fetchCommunications({
+      event: festival.id,
+      extraItem: selectedAccommodationExtraItemId,
+      plan: selectedMembershipId ? Number(selectedMembershipId) : '',
+    });
+    if (communications.length === 0) {
+      handleRegister();
+      return;
+    }
+    setConsentCommunications(communications);
+    setConsentOpen(true);
+  };
+
   // The actual submission, now triggered from the recap step's confirm
   // button rather than directly off the schedule step — role/partner
   // unresolved-email checks already ran in RegistrationPanel.handleContinue
-  // before the student could get here.
-  const handleRegister = async () => {
+  // before the student could get here. consentCommunicationIds (flagged in
+  // the dialog gated by handleRegisterClick above) are saved against the
+  // contribution this call creates, once registration itself has succeeded.
+  const handleRegister = async (consentCommunicationIds: number[] = []) => {
     if (!accessToken || !festival) return;
     setRegisterErrors([]);
     setRegisterStatus('loading');
@@ -848,6 +875,14 @@ export function FestivalSchedulePage() {
       setRegisterErrors(result.messages.length > 0 ? result.messages : [t('festival.registration.error')]);
       setRegisterStatus('error');
       return;
+    }
+    if (consentCommunicationIds.length > 0) {
+      const { saveConsents } = await import('../lib/saveConsents');
+      await saveConsents({
+        accessToken,
+        communicationIds: consentCommunicationIds,
+        contributionId: result.contributionId,
+      });
     }
     setRegisterStatus('success');
     navigate('/events');
@@ -1048,10 +1083,23 @@ export function FestivalSchedulePage() {
             onBackToSchedule={() => setStep('schedule')}
             onContinueToRecap={() => setStep('recap')}
             onBackFromRecap={() => setStep(festival.available_extra_items.length > 0 ? 'extras' : 'schedule')}
-            onConfirm={handleRegister}
+            onConfirm={handleRegisterClick}
           />
         </Suspense>
       )}
+
+      <CommunicationConsentDialog
+        open={consentOpen}
+        onOpenChange={setConsentOpen}
+        communications={consentCommunications}
+        language={language}
+        confirming={registerStatus === 'loading'}
+        t={t}
+        onConfirm={() => {
+          setConsentOpen(false);
+          handleRegister(consentCommunications.map(c => c.id));
+        }}
+      />
     </div>
   );
 }

@@ -41,7 +41,7 @@ export async function submitFreeFestivalRegistration({
   accommodationExtraItemId: number | '';
   accommodationRoomType: AccommodationRoomType | '';
   roommateEmails: string[];
-}): Promise<{ ok: true } | { ok: false; messages: string[] }> {
+}): Promise<{ ok: true; contributionId: number } | { ok: false; messages: string[] }> {
   const body: Record<string, unknown> = {
     event_id: festivalId,
     event_ids: selectedEvents.map(ev => {
@@ -82,7 +82,10 @@ export async function submitFreeFestivalRegistration({
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify(body),
     });
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, contributionId: data.id };
+    }
 
     const data = await res.json().catch(() => ({}));
     // event_ids comes back as a list positioned the same as the entries we
