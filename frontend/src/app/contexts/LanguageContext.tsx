@@ -312,6 +312,9 @@ const translations = {
     'festival.recap.noEvents': 'Nessuna lezione selezionata.',
     'festival.recap.included': 'Incluso nel piano',
 
+    'festival.consent.title': 'Prima di continuare',
+    'festival.consent.subtitle': 'Leggi e conferma quanto segue per completare l\'iscrizione.',
+
     // Common
     'common.loading': 'Caricamento...',
     'common.error': 'Si è verificato un errore',
@@ -629,6 +632,9 @@ const translations = {
     'festival.recap.noRole': 'No role',
     'festival.recap.noEvents': 'No classes selected.',
     'festival.recap.included': 'Included with your plan',
+
+    'festival.consent.title': 'Before you continue',
+    'festival.consent.subtitle': 'Please read and confirm the following to complete your registration.',
 
     // Common
     'common.loading': 'Loading...',
