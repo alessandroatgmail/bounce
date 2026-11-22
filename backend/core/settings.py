@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'membership',
     'festival',
     'booking',
+    'consent',
     'emails',
     'document',
     'payments',

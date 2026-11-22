@@ -39,6 +39,7 @@ import { MembershipManagementPanel } from '../components/MembershipManagementPan
 import { ContributionsManagementPanel } from '../components/ContributionsManagementPanel';
 import { AcsiExtraItemPanel } from '../components/AcsiExtraItemPanel';
 import { AccommodationTypePanel } from '../components/AccommodationTypePanel';
+import { CommunicationPanel } from '../components/CommunicationPanel';
 import { DiscountPanel } from '../components/DiscountPanel';
 import { EmailTemplatesPanel } from '../components/EmailTemplatesPanel';
 import { EmailsPanel } from '../components/EmailsPanel';
@@ -80,6 +81,7 @@ export function AdminDashboard() {
   const { partnerRoles, loading: partnerRolesLoading, error: partnerRolesError, create: createPartnerRole, update: updatePartnerRole, remove: removePartnerRole } = usePartnerRoles(accessToken);
 
   const eventModels = [
+    { key: 'communication', label: language === 'it' ? 'Comunicazioni'   : 'Communications' },
     { key: 'event',        label: language === 'it' ? 'Eventi'           : 'Events'       },
     { key: 'event-type',   label: language === 'it' ? 'Tipi di Evento'   : 'Event Types'  },
     { key: 'location',     label: language === 'it' ? 'Sedi'             : 'Locations'    },
@@ -385,6 +387,7 @@ export function AdminDashboard() {
           </div>
 
           <TabsContent value="events" className="mt-6">
+            {selectedEventModel === 'communication' && <CommunicationPanel />}
             {selectedEventModel === 'event-type' && <EventTypePanel />}
             {selectedEventModel === 'location' && <LocationPanel />}
             {selectedEventModel === 'room' && <RoomPanel />}
