@@ -10,6 +10,9 @@ export interface AccommodationExtraItem {
   name_it: string;
   name_en: string;
   value: string;
+  description: string | null;
+  description_en: string | null;
+  description_en_it: string | null;
   expiration_date: string;
 }
 
@@ -17,7 +20,6 @@ export interface AccommodationType {
   id: number;
   extra_item: AccommodationExtraItem;
   location: Location;
-  description: string | null;
   occupants_per_room: number;
   available_rooms: number;
 }
@@ -28,10 +30,12 @@ export interface AccommodationTypePayload {
     name_it: string;
     name_en: string;
     value: string;
+    description: string;
+    description_en: string;
+    description_en_it: string;
     expiration_date: string;
   };
   location_id: number | '';
-  description: string;
   occupants_per_room: number | '';
   available_rooms: number | '';
 }

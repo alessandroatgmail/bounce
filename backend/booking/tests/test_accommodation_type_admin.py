@@ -30,10 +30,12 @@ def make_payload(location, **overrides):
             "name_it": "Airone Tripla",
             "name_en": "Airone Triple",
             "value": "120.00",
+            "description": "Camera tripla, bagno condiviso",
+            "description_en": "Triple room, shared bathroom",
+            "description_en_it": "Camera tripla, bagno condiviso",
             "expiration_date": "2027-06-30T00:00:00Z",
         },
         "location_id": location.id,
-        "description": "Triple room, shared bathroom",
         "occupants_per_room": 3,
         "available_rooms": 13,
     }
