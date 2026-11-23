@@ -105,7 +105,7 @@ class AccommodationTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AccommodationType
-        fields = ['id', 'extra_item', 'location', 'location_id', 'description', 'occupants_per_room', 'available_rooms']
+        fields = ['id', 'extra_item', 'location', 'location_id', 'occupants_per_room', 'available_rooms']
 
     def create(self, validated_data):
         extra_item_data = validated_data.pop('extra_item')

@@ -6,15 +6,19 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 
 const EMPTY: AccommodationTypePayload = {
-  extra_item: { name: '', name_it: '', name_en: '', value: '', expiration_date: '2027-12-31' },
+  extra_item: {
+    name: '', name_it: '', name_en: '', value: '',
+    description: '', description_en: '', description_en_it: '',
+    expiration_date: '2027-12-31',
+  },
   location_id: '',
-  description: '',
   occupants_per_room: '',
   available_rooms: '',
 };
@@ -114,7 +118,18 @@ function AccommodationTypeForm({ initial = EMPTY, onSubmit, onCancel }: FormProp
 
       <div className="space-y-2">
         <Label>{language === 'it' ? 'Descrizione' : 'Description'}</Label>
-        <Input value={form.description} onChange={e => set('description', e.target.value)} />
+        <Textarea rows={2} value={form.extra_item.description}
+          onChange={e => setExtraItem('description', e.target.value)} />
+      </div>
+      <div className="space-y-2">
+        <Label>{language === 'it' ? 'Descrizione (IT)' : 'Description (IT)'}</Label>
+        <Textarea rows={2} value={form.extra_item.description_en_it}
+          onChange={e => setExtraItem('description_en_it', e.target.value)} />
+      </div>
+      <div className="space-y-2">
+        <Label>{language === 'it' ? 'Descrizione (EN)' : 'Description (EN)'}</Label>
+        <Textarea rows={2} value={form.extra_item.description_en}
+          onChange={e => setExtraItem('description_en', e.target.value)} />
       </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
@@ -245,10 +260,12 @@ export function AccommodationTypePanel() {
                                 name_it: item.extra_item.name_it,
                                 name_en: item.extra_item.name_en,
                                 value: item.extra_item.value,
+                                description: item.extra_item.description ?? '',
+                                description_en: item.extra_item.description_en ?? '',
+                                description_en_it: item.extra_item.description_en_it ?? '',
                                 expiration_date: item.extra_item.expiration_date.slice(0, 10),
                               },
                               location_id: item.location.id,
-                              description: item.description ?? '',
                               occupants_per_room: item.occupants_per_room,
                               available_rooms: item.available_rooms,
                             }}

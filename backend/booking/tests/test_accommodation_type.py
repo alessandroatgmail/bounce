@@ -30,13 +30,11 @@ class TestAccommodationType:
         accommodation_type = AccommodationType.objects.create(
             extra_item=extra_item,
             location=location,
-            description='Triple room, shared bathroom',
             occupants_per_room=3,
             available_rooms=13,
         )
         assert accommodation_type.extra_item_id == extra_item.id
         assert accommodation_type.location_id == location.id
-        assert accommodation_type.description == 'Triple room, shared bathroom'
         assert accommodation_type.occupants_per_room == 3
         assert accommodation_type.available_rooms == 13
 
