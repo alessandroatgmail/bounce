@@ -38,7 +38,6 @@ class AccommodationType(models.Model):
     """
     extra_item = models.OneToOneField(ExtraItem, on_delete=models.CASCADE, related_name='accommodation_type')
     location = models.ForeignKey(Location, on_delete=models.CASCADE, related_name='accommodation_type')
-    description = models.TextField(null=True, blank=True)
     occupants_per_room = models.IntegerField()
     available_rooms = models.IntegerField()
 

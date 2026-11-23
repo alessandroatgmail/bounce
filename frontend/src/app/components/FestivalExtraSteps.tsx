@@ -14,6 +14,8 @@ function formatDate(dateStr: string, opts: Intl.DateTimeFormatOptions, locale = 
   return new Date(y, m - 1, d).toLocaleDateString(locale, opts);
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function FestivalExtraSteps({
   step,
   festival,
@@ -74,6 +76,13 @@ export default function FestivalExtraSteps({
   // picked without recomputing it differently.
   const accommodationOptions = festival.available_extra_items.filter(i => i.accommodation_type !== null);
   const selectedAccommodation = accommodationOptions.find(i => i.id === selectedAccommodationExtraItemId);
+  // description_en_it is the Italian text (an existing naming quirk on
+  // ExtraItem, not introduced here) — description is the fallback when the
+  // localized text was left blank.
+  const accommodationDescription = selectedAccommodation
+    ? (locale.startsWith('it') ? selectedAccommodation.description_en_it : selectedAccommodation.description_en)
+      || selectedAccommodation.description || ''
+    : '';
   const roomTypeLabels: Record<AccommodationRoomType, string> = {
     females: t('festival.extras.roomTypeFemale'),
     'all males': t('festival.extras.roomTypeMale'),
@@ -90,6 +99,11 @@ export default function FestivalExtraSteps({
     const roommateSlots = accommodationRoomType === 'friends' && selectedAccommodation
       ? Math.max(selectedAccommodation.accommodation_type!.occupants_per_room - 1, 0)
       : 0;
+    // Every roommate slot needs a well-formed email before the student can
+    // move on — otherwise the booking API only finds out (and reports a
+    // generic error) once they've already reached the recap step.
+    const roommateEmailsValid = Array.from({ length: roommateSlots }, (_, i) => (roommateEmails[i] ?? '').trim())
+      .every(email => EMAIL_REGEX.test(email));
 
     return (
       <div className="max-w-2xl space-y-6">
@@ -132,6 +146,9 @@ export default function FestivalExtraSteps({
                     </option>
                   ))}
                 </select>
+                {accommodationDescription && (
+                  <p className="text-sm text-gray-500 whitespace-pre-line">{accommodationDescription}</p>
+                )}
               </div>
             )}
 
@@ -163,6 +180,9 @@ export default function FestivalExtraSteps({
                     onChange={e => onRoommateEmailChange(index, e.target.value)}
                   />
                 ))}
+                {!roommateEmailsValid && (
+                  <p className="text-xs text-red-600">{t('festival.extras.roommateEmailRequired')}</p>
+                )}
               </div>
             )}
           </>
@@ -172,7 +192,11 @@ export default function FestivalExtraSteps({
           <Button variant="outline" onClick={onBackToSchedule}>
             <ArrowLeft className="size-4 mr-1" /> {t('festival.schedule.back')}
           </Button>
-          <Button className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white" onClick={onContinueToRecap}>
+          <Button
+            disabled={!roommateEmailsValid}
+            className="bg-[#2b2b2b] hover:bg-[#e67e22] text-white disabled:opacity-50"
+            onClick={onContinueToRecap}
+          >
             {t('festival.registration.recap')}
           </Button>
         </div>
